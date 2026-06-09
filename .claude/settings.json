@@ -1,0 +1,64 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/activity-logger.js"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Read|Write|Edit|Grep|Glob|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/activity-logger.js"
+          }
+        ]
+      }
+    ],
+    "InstructionsLoaded": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/activity-logger.js"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/activity-logger.js"
+          }
+        ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'REMINDER: Context was compacted. Re-read CLAUDE.md before continuing. Key rules: (1) domain logic ONLY in Domain layer, (2) Dapper for queries never EF Core, (3) DAPR pub/sub for integration events, (4) Duende IdentityServer for auth, (5) cross-module communication via integration events only. Reference evently_source_code for all patterns.'"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/activity-logger.js"
+          }
+        ]
+      }
+    ]
+  }
+}
