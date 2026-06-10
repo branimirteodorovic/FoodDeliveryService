@@ -1,0 +1,18 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path=".editorconfig" />
+    <File Path="Directory.Build.props" />
+  </Folder>
+  <Folder Name="/src/" />
+  <Folder Name="/src/API/">
+    <Project Path="src/API/FoodDeliveryService.Api/FoodDeliveryService.Api.csproj" />
+  </Folder>
+  <Folder Name="/src/Common/">
+    <Project Path="src/Common/FoodDeliveryService.Common.Application/FoodDeliveryService.Common.Application.csproj" Id="c1ab6131-f26b-4f87-b103-2c65f1b4c32b" />
+    <Project Path="src/Common/FoodDeliveryService.Common.Domain/FoodDeliveryService.Common.Domain.csproj" Id="dfc400c2-b82b-4fb2-b757-fc9e8a12b592" />
+    <Project Path="src/Common/FoodDeliveryService.Common.Infrastructure/FoodDeliveryService.Common.Infrastructure.csproj" Id="85a497ed-4740-4c9d-8eeb-64ec71ac8da3" />
+    <Project Path="src/Common/FoodDeliveryService.Common.Presentation/FoodDeliveryService.Common.Presentation.csproj" Id="6b906da1-eeb4-4469-91a6-37c6dd4541a6" />
+  </Folder>
+  <Folder Name="/src/Modules/" />
+  <Folder Name="/test/" />
+</Solution>
