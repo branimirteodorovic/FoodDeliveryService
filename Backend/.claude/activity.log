@@ -1,0 +1,12 @@
+12:22:44 [SESSION]      Started (startup)
+12:22:44 [INSTRUCTIONS] Loaded: CLAUDE.md (session_start)
+12:22:56 [INSTRUCTIONS] Loaded: CLAUDE.md (session_start)
+12:22:57 [SESSION]      Started (resume)
+16:25:23 [INSTRUCTIONS] Loaded: CLAUDE.md (session_start)
+16:25:23 [SESSION]      Started (startup)
+16:25:30 [INSTRUCTIONS] Loaded: CLAUDE.md (session_start)
+16:25:30 [SESSION]      Started (resume)
+16:25:43 [SESSION]      Started (startup)
+16:25:43 [INSTRUCTIONS] Loaded: CLAUDE.md (session_start)
+16:27:35 [PROMPT]       "<ide_selection>The user selected the lines 5 to 5 from d:\repos\FoodDeliveryService\FoodDeliveryService\.gitignore: .c  "
+16:28:08 [STOP]         Turn complete
