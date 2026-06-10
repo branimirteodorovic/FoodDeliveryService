@@ -1,0 +1,9 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Common\FoodDeliveryService.Common.Application\FoodDeliveryService.Common.Application.csproj" />
+    <ProjectReference Include="..\FoodDeliveryService.Modules.Notifications.Domain\FoodDeliveryService.Modules.Notifications.Domain.csproj" />
+    <ProjectReference Include="..\FoodDeliveryService.Modules.Notifications.IntegrationEvents\FoodDeliveryService.Modules.Notifications.IntegrationEvents.csproj" />
+  </ItemGroup>
+
+</Project>

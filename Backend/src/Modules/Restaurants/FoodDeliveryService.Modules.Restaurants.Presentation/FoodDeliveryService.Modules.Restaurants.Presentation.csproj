@@ -1,0 +1,13 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Common\FoodDeliveryService.Common.Infrastructure\FoodDeliveryService.Common.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\Common\FoodDeliveryService.Common.Presentation\FoodDeliveryService.Common.Presentation.csproj" />
+    <ProjectReference Include="..\FoodDeliveryService.Modules.Restaurants.Application\FoodDeliveryService.Modules.Restaurants.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="FoodDeliveryService.Modules.Restaurants.IntegrationTests" />
+  </ItemGroup>
+
+</Project>
