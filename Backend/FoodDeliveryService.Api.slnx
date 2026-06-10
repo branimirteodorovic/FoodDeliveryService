@@ -14,5 +14,12 @@
     <Project Path="src/Common/FoodDeliveryService.Common.Presentation/FoodDeliveryService.Common.Presentation.csproj" Id="6b906da1-eeb4-4469-91a6-37c6dd4541a6" />
   </Folder>
   <Folder Name="/src/Modules/" />
+  <Folder Name="/src/Modules/Users/">
+    <Project Path="src/Modules/Users/FoodDeliveryService.Modules.Users.Application/FoodDeliveryService.Modules.Users.Application.csproj" Id="3b7d59d0-7c6c-431a-a7ff-884f8a6bfaa4" />
+    <Project Path="src/Modules/Users/FoodDeliveryService.Modules.Users.Domain/FoodDeliveryService.Modules.Users.Domain.csproj" Id="4d0b6689-1b04-49ad-9b4e-ea7eefd70edf" />
+    <Project Path="src/Modules/Users/FoodDeliveryService.Modules.Users.Infrastructure/FoodDeliveryService.Modules.Users.Infrastructure.csproj" Id="d7640538-7b96-4512-8491-f2a9f3608b30" />
+    <Project Path="src/Modules/Users/FoodDeliveryService.Modules.Users.IntegrationEvents/FoodDeliveryService.Modules.Users.IntegrationEvents.csproj" Id="c5641d4a-5ed6-499f-87e4-ac8eba605490" />
+    <Project Path="src/Modules/Users/FoodDeliveryService.Modules.Users.Presentation/FoodDeliveryService.Modules.Users.Presentation.csproj" Id="57a3f0ba-daa8-4500-88a9-f20a9fb07323" />
+  </Folder>
   <Folder Name="/test/" />
 </Solution>
