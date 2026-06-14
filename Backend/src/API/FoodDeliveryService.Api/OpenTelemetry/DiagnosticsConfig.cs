@@ -2,5 +2,5 @@
 
 internal static class DiagnosticsConfig
 {
-    public const string ServiceName = "FoodDeliveryService";
+    public const string ServiceName = "FoodDeliveryService.Api";
 }

@@ -6,6 +6,7 @@
   <Folder Name="/src/" />
   <Folder Name="/src/API/">
     <Project Path="src/API/FoodDeliveryService.Api/FoodDeliveryService.Api.csproj" />
+    <Project Path="src/API/FoodDeliveryService.Gateway/FoodDeliveryService.Gateway.csproj" Id="7995658a-fc8a-4975-ba84-f5fce0b77f94" />
   </Folder>
   <Folder Name="/src/Common/">
     <Project Path="src/Common/FoodDeliveryService.Common.Application/FoodDeliveryService.Common.Application.csproj" Id="c1ab6131-f26b-4f87-b103-2c65f1b4c32b" />
