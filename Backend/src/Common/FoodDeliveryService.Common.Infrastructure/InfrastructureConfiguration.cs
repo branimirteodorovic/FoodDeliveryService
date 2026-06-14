@@ -8,6 +8,7 @@ using FoodDeliveryService.Common.Infrastructure.Authorization;
 using FoodDeliveryService.Common.Infrastructure.Caching;
 using FoodDeliveryService.Common.Infrastructure.Clock;
 using FoodDeliveryService.Common.Infrastructure.Data;
+using FoodDeliveryService.Common.Infrastructure.EventBus;
 using FoodDeliveryService.Common.Infrastructure.Outbox;
 using MassTransit;
 using Microsoft.Extensions.DependencyInjection;
@@ -25,7 +26,8 @@ public static class InfrastructureConfiguration
     public static IServiceCollection AddInfrastructure(
         this IServiceCollection services,
         string serviceName,
-        Action<IRegistrationConfigurator>[] moduleConfigureConsumers,
+        Action<IRegistrationConfigurator, string>[] moduleConfigureConsumers,
+        RabbitMqSettings rabbitMqSettings,
         string databaseConnectionString,
         string redisConnectionString)
     {
@@ -71,15 +73,21 @@ public static class InfrastructureConfiguration
 
         services.AddMassTransit(configure =>
         {
-            foreach (Action<IRegistrationConfigurator> configureConsumers in moduleConfigureConsumers)
+            string instanceId = serviceName.ToLowerInvariant().Replace('.', '-'); // FoodDeliveryService.Api -> fooddeliveryservice-api
+            foreach (Action<IRegistrationConfigurator, string> configureConsumers in moduleConfigureConsumers)
             {
-                configureConsumers(configure);
+                configureConsumers(configure, instanceId);
             }
 
             configure.SetKebabCaseEndpointNameFormatter();
 
-            configure.UsingInMemory((context, cfg) =>
+            configure.UsingRabbitMq((context, cfg) =>
             {
+                cfg.Host(new Uri(rabbitMqSettings.Host), h =>
+                {
+                    h.Username(rabbitMqSettings.Username);
+                    h.Password(rabbitMqSettings.Password);
+                });
                 cfg.ConfigureEndpoints(context);
             });
         });

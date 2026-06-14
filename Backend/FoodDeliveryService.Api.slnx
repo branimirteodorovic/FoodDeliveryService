@@ -43,4 +43,7 @@
     <Project Path="src/Modules/Users/FoodDeliveryService.Modules.Users.Presentation/FoodDeliveryService.Modules.Users.Presentation.csproj" Id="57a3f0ba-daa8-4500-88a9-f20a9fb07323" />
   </Folder>
   <Folder Name="/test/" />
+  <Project Path="docker-compose.dcproj">
+    <Build />
+  </Project>
 </Solution>
