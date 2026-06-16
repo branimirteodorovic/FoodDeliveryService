@@ -1,4 +1,5 @@
-﻿using FoodDeliveryService.Common.Application.EventBus;
+﻿using FoodDeliveryService.Common.Application.Authorization;
+using FoodDeliveryService.Common.Application.EventBus;
 using FoodDeliveryService.Common.Application.Messaging;
 using FoodDeliveryService.Common.Infrastructure.Outbox;
 using FoodDeliveryService.Common.Presentation.Endpoints;
@@ -6,6 +7,7 @@ using FoodDeliveryService.Modules.Notifications.Application.Abstractions.Authent
 using FoodDeliveryService.Modules.Notifications.Application.Abstractions.Data;
 using FoodDeliveryService.Modules.Notifications.Domain.Notifications;
 using FoodDeliveryService.Modules.Notifications.Infrastructure.Authentication;
+using FoodDeliveryService.Modules.Notifications.Infrastructure.Authorization;
 using FoodDeliveryService.Modules.Notifications.Infrastructure.Datebase;
 using FoodDeliveryService.Modules.Notifications.Infrastructure.Inbox;
 using FoodDeliveryService.Modules.Notifications.Infrastructure.Notifications;
@@ -22,7 +24,7 @@ namespace FoodDeliveryService.Modules.Notifications.Infrastructure;
 
 public static class NotidicationsModule
 {
-    public static IServiceCollection AddNotidicationsModule(
+    public static IServiceCollection AddNotificationsModule(
         this IServiceCollection services,
         IConfiguration configuration)
     {
@@ -69,6 +71,8 @@ public static class NotidicationsModule
         services.Configure<InboxOptions>(configuration.GetSection("Notifications:Inbox"));
 
         services.ConfigureOptions<ConfigureProcessInboxJob>();
+
+        services.AddScoped<IPermissionService, PermissionService>();
     }
 
     private static void AddDomainEventHandlers(this IServiceCollection services)

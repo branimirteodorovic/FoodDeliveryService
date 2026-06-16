@@ -5,7 +5,8 @@
       "commandVersion": "1.0",
       "serviceActions": {
         "fooddeliveryservice.api": "StartDebugging",
-        "fooddeliveryservice.gateway": "StartDebugging"
+        "fooddeliveryservice.gateway": "StartDebugging",
+        "fooddeliveryservice.notifications.api": "StartDebugging"
       }
     }
   }

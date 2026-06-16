@@ -25,7 +25,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\Modules\Notifications\FoodDeliveryService.Modules.Notifications.Infrastructure\FoodDeliveryService.Modules.Notifications.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Orders\FoodDeliveryService.Modules.Orders.Infrastructure\FoodDeliveryService.Modules.Orders.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Users\FoodDeliveryService.Modules.Users.Infrastructure\FoodDeliveryService.Modules.Users.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Restaurants\FoodDeliveryService.Modules.Restaurants.Infrastructure\FoodDeliveryService.Modules.Restaurants.Infrastructure.csproj" />

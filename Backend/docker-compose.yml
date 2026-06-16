@@ -11,6 +11,16 @@ services:
       - 5000:8080
       - 5001:8081
 
+  fooddeliveryservice.notifications.api:
+    image: ${DOCKER_REGISTRY-}fooddeliveryservicenotificationsapi
+    container_name: FoodDeliveryService.Notifications.Api
+    build:
+      context: .
+      dockerfile: src/API/FoodDeliveryService.Notifications.Api/Dockerfile
+    ports:
+      - 5100:8080
+      - 5101:8081
+
   fooddeliveryservice.gateway:
     image: ${DOCKER_REGISTRY-}fooddeliveryservicegateway
     container_name: FoodDeliveryService.Gateway
