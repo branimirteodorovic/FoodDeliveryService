@@ -35,7 +35,7 @@ public class Result
 
 public class Result<TValue> : Result
 {
-    private TValue? _value { get; }
+    private readonly TValue? _value;
 
     public Result(TValue? value, bool isSuccess, Error error)
         : base(isSuccess, error)
