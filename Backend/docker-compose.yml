@@ -32,7 +32,7 @@ services:
       - 3001:8081
 
   fooddeliveryservice.database:
-    image: postgres:latest
+    image: postgres:17
     container_name: FoodDeliveryService.Database
     environment:
       - POSTGRES_DB=fooddeliveryservice
@@ -44,7 +44,7 @@ services:
       - 5432:5432
 
   fooddeliveryservice.identity:
-    image: quay.io/keycloak/keycloak:latest
+    image: quay.io/keycloak/keycloak:26.5.1
     container_name: FoodDeliveryService.Identity
     command: start-dev --import-realm
     environment:
@@ -56,12 +56,15 @@ services:
       - ./.files:/opt/keycloak/data/import
     ports:
       - 18080:8080
+      - 9000:9000
+    user: root # Required to set volume permissions
 
   fooddeliveryservice.seq:
-    image: datalust/seq:latest
+    image: datalust/seq:2025.2
     container_name: FoodDeliveryService.Seq
     environment:
       - ACCEPT_EULA=Y
+      - SEQ_FIRSTRUN_NOAUTHENTICATION=true # local dev only
     ports:
       - 5341:5341
       - 8081:80
