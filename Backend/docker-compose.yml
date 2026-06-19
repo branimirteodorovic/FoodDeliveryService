@@ -41,6 +41,16 @@ services:
       - 5300:8080
       - 5301:8081
 
+  fooddeliveryservice.users.api:
+    image: ${DOCKER_REGISTRY-}fooddeliveryserviceusersapi
+    container_name: FoodDeliveryService.Users.Api
+    build:
+      context: .
+      dockerfile: src/API/FoodDeliveryService.Users.Api/Dockerfile
+    ports:
+      - 5400:8080
+      - 5401:8081
+
   fooddeliveryservice.gateway:
     image: ${DOCKER_REGISTRY-}fooddeliveryservicegateway
     container_name: FoodDeliveryService.Gateway
@@ -116,3 +126,4 @@ services:
     ports:
       - 5672:5672
       - 15672:15672
+  

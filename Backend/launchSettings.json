@@ -8,7 +8,8 @@
         "fooddeliveryservice.gateway": "StartDebugging",
         "fooddeliveryservice.notifications.api": "StartDebugging",
         "fooddeliveryservice.orders.api": "StartDebugging",
-        "fooddeliveryservice.restaurants.api": "StartDebugging"
+        "fooddeliveryservice.restaurants.api": "StartDebugging",
+        "fooddeliveryservice.users.api": "StartDebugging"
       }
     }
   }

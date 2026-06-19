@@ -1,8 +1,4 @@
 using System.Reflection;
-using FoodDeliveryService.Api.Extensions;
-using FoodDeliveryService.Api.Middleware;
-using FoodDeliveryService.Api.OpenTelemetry;
-using FoodDeliveryService.Common.Application;
 using FoodDeliveryService.Common.Infrastructure;
 using FoodDeliveryService.Common.Infrastructure.Configuration;
 using FoodDeliveryService.Common.Infrastructure.EventBus;
@@ -12,16 +8,27 @@ using HealthChecks.UI.Client;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using RabbitMQ.Client;
 using Serilog;
+using FoodDeliveryService.Common.Application;
+using FoodDeliveryService.Users.Api.Extensions;
+using FoodDeliveryService.Users.Api.OpenTelemetry;
+using FoodDeliveryService.Users.Api.Middleware;
 
-WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
+var builder = WebApplication.CreateBuilder(args);
 
 builder.Host.UseSerilog((context, loggerConfig) => loggerConfig.ReadFrom.Configuration(context.Configuration));
 
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
 
+builder.Services.AddOpenApi();
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerDocumentation();
+
+Assembly[] moduleApplicationAssemblies = [
+    FoodDeliveryService.Modules.Users.Application.AssemblyReference.Assembly];
+
+builder.Services.AddApplication(moduleApplicationAssemblies);
 
 string databaseConnectionString = builder.Configuration.GetConnectionStringOrThrow("Database");
 string redisConnectionString = builder.Configuration.GetConnectionStringOrThrow("Cache");
@@ -29,9 +36,7 @@ var rabbitMqSettings = new RabbitMqSettings(builder.Configuration.GetConnectionS
 
 builder.Services.AddInfrastructure(
     DiagnosticsConfig.ServiceName,
-    [
-        //OrdersModule.ConfigureConsumers(redisConnectionString),
-    ],
+    [UsersModule.ConfigureConsumers],
     rabbitMqSettings,
     databaseConnectionString,
     redisConnectionString);
@@ -44,16 +49,16 @@ builder.Services.AddHealthChecks()
     .AddRabbitMQ(sp => sp.GetRequiredService<IConnection>())
     .AddKeyCloak(keyCloakHealthUrl);
 
-builder.Configuration.AddModuleConfiguration([]);
+builder.Configuration.AddModuleConfiguration(["users"]);
+
+builder.Services.AddUsersModule(builder.Configuration);
 
 WebApplication app = builder.Build();
 
+// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
-
-    app.ApplyMigrations();
+    app.MapOpenApi();
 }
 
 app.MapHealthChecks("health", new HealthCheckOptions
