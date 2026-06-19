@@ -1,7 +1,7 @@
-﻿using FoodDeliveryService.Modules.Notifications.Infrastructure.Database;
+﻿using FoodDeliveryService.Modules.Orders.Infrastructure.Database;
 using Microsoft.EntityFrameworkCore;
 
-namespace FoodDeliveryService.Notifications.Api.Extensions;
+namespace FoodDeliveryService.Orders.Api.Extensions;
 
 internal static class MigrationExtensions
 {
@@ -9,7 +9,7 @@ internal static class MigrationExtensions
     {
         using IServiceScope scope = app.ApplicationServices.CreateScope();
 
-        ApplyMigration<NotificationsDbContext>(scope);
+        ApplyMigration<OrdersDbContext>(scope);
     }
 
     private static void ApplyMigration<TDbContext>(IServiceScope scope)

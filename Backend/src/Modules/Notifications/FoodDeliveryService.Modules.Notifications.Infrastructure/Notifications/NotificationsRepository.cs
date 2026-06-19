@@ -1,5 +1,5 @@
 ﻿using FoodDeliveryService.Modules.Notifications.Domain.Notifications;
-using FoodDeliveryService.Modules.Notifications.Infrastructure.Datebase;
+using FoodDeliveryService.Modules.Notifications.Infrastructure.Database;
 using Microsoft.EntityFrameworkCore;
 
 namespace FoodDeliveryService.Modules.Notifications.Infrastructure.Notifications;

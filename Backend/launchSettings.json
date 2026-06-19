@@ -6,7 +6,8 @@
       "serviceActions": {
         "fooddeliveryservice.api": "StartDebugging",
         "fooddeliveryservice.gateway": "StartDebugging",
-        "fooddeliveryservice.notifications.api": "StartDebugging"
+        "fooddeliveryservice.notifications.api": "StartDebugging",
+        "fooddeliveryservice.orders.api": "StartDebugging"
       }
     }
   }

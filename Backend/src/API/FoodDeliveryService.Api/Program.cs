@@ -7,7 +7,6 @@ using FoodDeliveryService.Common.Infrastructure;
 using FoodDeliveryService.Common.Infrastructure.Configuration;
 using FoodDeliveryService.Common.Infrastructure.EventBus;
 using FoodDeliveryService.Common.Presentation.Endpoints;
-using FoodDeliveryService.Modules.Orders.Infrastructure;
 using FoodDeliveryService.Modules.Restaurants.Infrastructure;
 using FoodDeliveryService.Modules.Users.Infrastructure;
 using HealthChecks.UI.Client;
@@ -26,7 +25,6 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerDocumentation();
 
 Assembly[] moduleApplicationAssemblies = [
-    FoodDeliveryService.Modules.Orders.Application.AssemblyReference.Assembly,
     FoodDeliveryService.Modules.Restaurants.Application.AssemblyReference.Assembly,
     FoodDeliveryService.Modules.Users.Application.AssemblyReference.Assembly];
 
@@ -55,14 +53,12 @@ builder.Services.AddHealthChecks()
     .AddRabbitMQ(sp => sp.GetRequiredService<IConnection>())
     .AddKeyCloak(keyCloakHealthUrl);
 
-builder.Configuration.AddModuleConfiguration(["orders", "restaurants", "users"]);
+builder.Configuration.AddModuleConfiguration(["restaurants", "users"]);
 
 #pragma warning disable S125 // Sections of code should not be commented out
                             //builder.Services.AddUsersModule(builder.Configuration);
 
 //builder.Services.AddRestaurantsModule(builder.Configuration);
-
-//builder.Services.AddOrdersModule(builder.Configuration);
 
 WebApplication app = builder.Build();
 #pragma warning restore S125 // Sections of code should not be commented out

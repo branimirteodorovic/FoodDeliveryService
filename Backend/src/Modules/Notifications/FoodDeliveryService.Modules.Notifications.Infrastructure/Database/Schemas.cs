@@ -1,4 +1,4 @@
-﻿namespace FoodDeliveryService.Modules.Notifications.Infrastructure.Datebase;
+﻿namespace FoodDeliveryService.Modules.Notifications.Infrastructure.Database;
 
 internal static class Schemas
 {

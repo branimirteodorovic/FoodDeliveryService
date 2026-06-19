@@ -4,12 +4,9 @@ using FoodDeliveryService.Common.Domain;
 using FoodDeliveryService.Modules.Users.IntegrationEvents;
 using MassTransit;
 
-namespace FoodDeliveryService.Modules.Notifications.Infrastructure.Authorization;
+namespace FoodDeliveryService.Modules.Orders.Infrastructure.Authorization;
 
-#pragma warning disable S1135 // Track uses of "TODO" tags
-                             // TODO: Move to Orders module. Notificationsdon't have permissions, they are just a way to notify users about events in the system.
 internal sealed class PermissionService(
-#pragma warning restore S1135 // Track uses of "TODO" tags
     IRequestClient<GetUserPermissionsRequest> requestClient,
     ICacheService cacheService) : IPermissionService
 {

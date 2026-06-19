@@ -3,10 +3,10 @@ using FoodDeliveryService.Common.Infrastructure;
 using FoodDeliveryService.Common.Infrastructure.Configuration;
 using FoodDeliveryService.Common.Infrastructure.EventBus;
 using FoodDeliveryService.Common.Presentation.Endpoints;
-using FoodDeliveryService.Modules.Notifications.Infrastructure;
-using FoodDeliveryService.Notifications.Api.Extensions;
-using FoodDeliveryService.Notifications.Api.Middleware;
-using FoodDeliveryService.Notifications.Api.OpenTelemetry;
+using FoodDeliveryService.Modules.Orders.Infrastructure;
+using FoodDeliveryService.Orders.Api.Extensions;
+using FoodDeliveryService.Orders.Api.Middleware;
+using FoodDeliveryService.Orders.Api.OpenTelemetry;
 using HealthChecks.UI.Client;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using RabbitMQ.Client;
@@ -26,7 +26,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerDocumentation();
 
 Assembly[] moduleApplicationAssemblies = [
-    FoodDeliveryService.Modules.Notifications.Application.AssemblyReference.Assembly];
+    FoodDeliveryService.Modules.Orders.Application.AssemblyReference.Assembly];
 
 builder.Services.AddApplication(moduleApplicationAssemblies);
 
@@ -36,7 +36,7 @@ var rabbitMqSettings = new RabbitMqSettings(builder.Configuration.GetConnectionS
 
 builder.Services.AddInfrastructure(
     DiagnosticsConfig.ServiceName,
-    [NotificationsModule.ConfigureConsumers],
+    [OrdersModule.ConfigureConsumers],
     rabbitMqSettings,
     databaseConnectionString,
     redisConnectionString);
@@ -49,9 +49,9 @@ builder.Services.AddHealthChecks()
     .AddRabbitMQ(sp => sp.GetRequiredService<IConnection>())
     .AddKeyCloak(keyCloakHealthUrl);
 
-builder.Configuration.AddModuleConfiguration(["notifications"]);
+builder.Configuration.AddModuleConfiguration(["Orders"]);
 
-builder.Services.AddNotificationsModule(builder.Configuration);
+builder.Services.AddOrdersModule(builder.Configuration);
 
 WebApplication app = builder.Build();
 

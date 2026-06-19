@@ -1,20 +1,20 @@
 ﻿using FoodDeliveryService.Common.Infrastructure.Inbox;
 using FoodDeliveryService.Common.Infrastructure.Outbox;
-using FoodDeliveryService.Modules.Notifications.Application.Abstractions.Data;
-using FoodDeliveryService.Modules.Notifications.Domain.Notifications;
+using FoodDeliveryService.Modules.Orders.Application.Abstractions.Data;
+using FoodDeliveryService.Modules.Orders.Domain.Orders;
 using Microsoft.EntityFrameworkCore;
 
-namespace FoodDeliveryService.Modules.Notifications.Infrastructure.Datebase;
+namespace FoodDeliveryService.Modules.Orders.Infrastructure.Database;
 
-public sealed class NotificationsDbContext(DbContextOptions<NotificationsDbContext> options)
+public sealed class OrdersDbContext(DbContextOptions<OrdersDbContext> options)
     : DbContext(options), IUnitOfWork
 {
-    internal DbSet<Notification> Notifications { get; set; }
+    internal DbSet<Order> Orders { get; set; }
 
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        modelBuilder.HasDefaultSchema(Schemas.Notifications);
+        modelBuilder.HasDefaultSchema(Schemas.Orders);
 
         modelBuilder.ApplyConfiguration(new OutboxMessageConfiguration());
         modelBuilder.ApplyConfiguration(new OutboxMessageConsumerConfiguration());

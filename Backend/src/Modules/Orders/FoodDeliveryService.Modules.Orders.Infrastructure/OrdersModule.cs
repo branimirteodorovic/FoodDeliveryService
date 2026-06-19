@@ -3,14 +3,15 @@ using FoodDeliveryService.Common.Application.EventBus;
 using FoodDeliveryService.Common.Application.Messaging;
 using FoodDeliveryService.Common.Infrastructure.Outbox;
 using FoodDeliveryService.Common.Presentation.Endpoints;
-using FoodDeliveryService.Modules.Notifications.Application.Abstractions.Authentication;
-using FoodDeliveryService.Modules.Notifications.Application.Abstractions.Data;
-using FoodDeliveryService.Modules.Notifications.Domain.Notifications;
-using FoodDeliveryService.Modules.Notifications.Infrastructure.Authentication;
-using FoodDeliveryService.Modules.Notifications.Infrastructure.Database;
-using FoodDeliveryService.Modules.Notifications.Infrastructure.Inbox;
-using FoodDeliveryService.Modules.Notifications.Infrastructure.Notifications;
-using FoodDeliveryService.Modules.Notifications.Infrastructure.Outbox;
+using FoodDeliveryService.Modules.Orders.Application.Abstractions.Authentication;
+using FoodDeliveryService.Modules.Orders.Application.Abstractions.Data;
+using FoodDeliveryService.Modules.Orders.Domain.Orders;
+using FoodDeliveryService.Modules.Orders.Infrastructure.Authentication;
+using FoodDeliveryService.Modules.Orders.Infrastructure.Authorization;
+using FoodDeliveryService.Modules.Orders.Infrastructure.Database;
+using FoodDeliveryService.Modules.Orders.Infrastructure.Inbox;
+using FoodDeliveryService.Modules.Orders.Infrastructure.Orders;
+using FoodDeliveryService.Modules.Orders.Infrastructure.Outbox;
 using FoodDeliveryService.Modules.Users.IntegrationEvents;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
@@ -19,11 +20,11 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
-namespace FoodDeliveryService.Modules.Notifications.Infrastructure;
+namespace FoodDeliveryService.Modules.Orders.Infrastructure;
 
-public static class NotificationsModule
+public static class OrdersModule
 {
-    public static IServiceCollection AddNotificationsModule(
+    public static IServiceCollection AddOrdersModule(
         this IServiceCollection services,
         IConfiguration configuration)
     {
@@ -48,28 +49,30 @@ public static class NotificationsModule
 
     private static void AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
-        services.AddDbContext<NotificationsDbContext>((sp, options) =>
+        services.AddDbContext<OrdersDbContext>((sp, options) =>
             options
                 .UseNpgsql(
                     configuration.GetConnectionString("Database"),
                     npgsqlOptions => npgsqlOptions
-                        .MigrationsHistoryTable(HistoryRepository.DefaultTableName, Schemas.Notifications))
+                        .MigrationsHistoryTable(HistoryRepository.DefaultTableName, Schemas.Orders))
                 .UseSnakeCaseNamingConvention()
                 .AddInterceptors(sp.GetRequiredService<InsertOutboxMessagesInterceptor>()));
 
-        services.AddScoped<IUnitOfWork>(sp => sp.GetRequiredService<NotificationsDbContext>());
+        services.AddScoped<IUnitOfWork>(sp => sp.GetRequiredService<OrdersDbContext>());
 
-        services.AddScoped<INotificationsRepository, NotificationsRepository>();
+        services.AddScoped<IOrdersRepository, OrdersRepository>();
 
-        services.AddScoped<INotificationContext, NotificationsContext>();
+        services.AddScoped<IOrdersContext, OrdersContext>();
 
-        services.Configure<OutboxOptions>(configuration.GetSection("Notifications:Outbox"));
+        services.Configure<OutboxOptions>(configuration.GetSection("Orders:Outbox"));
 
         services.ConfigureOptions<ConfigureProcessOutboxJob>();
 
-        services.Configure<InboxOptions>(configuration.GetSection("Notifications:Inbox"));
+        services.Configure<InboxOptions>(configuration.GetSection("Orders:Inbox"));
 
         services.ConfigureOptions<ConfigureProcessInboxJob>();
+
+        services.AddScoped<IPermissionService, PermissionService>();
     }
 
     private static void AddDomainEventHandlers(this IServiceCollection services)
