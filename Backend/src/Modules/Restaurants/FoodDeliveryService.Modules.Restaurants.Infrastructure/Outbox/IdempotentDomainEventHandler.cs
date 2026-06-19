@@ -5,7 +5,7 @@ using FoodDeliveryService.Common.Application.Messaging;
 using FoodDeliveryService.Common.Domain;
 using FoodDeliveryService.Common.Infrastructure.Outbox;
 
-namespace FoodDeliveryService.Modules.Orders.Infrastructure.Outbox;
+namespace FoodDeliveryService.Modules.Restaurants.Infrastructure.Outbox;
 
 internal sealed class IdempotentDomainEventHandler<TDomainEvent>(
     IDomainEventHandler<TDomainEvent> decorated,
@@ -33,11 +33,11 @@ internal sealed class IdempotentDomainEventHandler<TDomainEvent>(
         DbConnection dbConnection,
         OutboxMessageConsumer outboxMessageConsumer)
     {
-        const string sql = 
+        const string sql =
             """
             SELECT EXISTS(
                 SELECT 1
-                FROM orders.outbox_message_consumers
+                FROM restaurants.outbox_message_consumers
                 WHERE outbox_message_id = @OutboxMessageId AND
                       name = @Name
             )
@@ -52,7 +52,7 @@ internal sealed class IdempotentDomainEventHandler<TDomainEvent>(
     {
         const string sql =
             """
-            INSERT INTO orders.outbox_message_consumers(outbox_message_id, name)
+            INSERT INTO restaurants.outbox_message_consumers(outbox_message_id, name)
             VALUES (@OutboxMessageId, @Name)
             """;
 

@@ -1,30 +1,32 @@
 using System.Reflection;
-using FoodDeliveryService.Api.Extensions;
-using FoodDeliveryService.Api.Middleware;
-using FoodDeliveryService.Api.OpenTelemetry;
-using FoodDeliveryService.Common.Application;
 using FoodDeliveryService.Common.Infrastructure;
 using FoodDeliveryService.Common.Infrastructure.Configuration;
 using FoodDeliveryService.Common.Infrastructure.EventBus;
 using FoodDeliveryService.Common.Presentation.Endpoints;
-using FoodDeliveryService.Modules.Users.Infrastructure;
+using FoodDeliveryService.Modules.Restaurants.Infrastructure;
+using FoodDeliveryService.Restaurants.Api.Extensions;
+using FoodDeliveryService.Restaurants.Api.Middleware;
+using FoodDeliveryService.Restaurants.Api.OpenTelemetry;
 using HealthChecks.UI.Client;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using RabbitMQ.Client;
 using Serilog;
+using FoodDeliveryService.Common.Application;
 
-WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
+var builder = WebApplication.CreateBuilder(args);
 
 builder.Host.UseSerilog((context, loggerConfig) => loggerConfig.ReadFrom.Configuration(context.Configuration));
 
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
 
+builder.Services.AddOpenApi();
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerDocumentation();
 
 Assembly[] moduleApplicationAssemblies = [
-    FoodDeliveryService.Modules.Users.Application.AssemblyReference.Assembly];
+    FoodDeliveryService.Modules.Restaurants.Application.AssemblyReference.Assembly];
 
 builder.Services.AddApplication(moduleApplicationAssemblies);
 
@@ -34,10 +36,7 @@ var rabbitMqSettings = new RabbitMqSettings(builder.Configuration.GetConnectionS
 
 builder.Services.AddInfrastructure(
     DiagnosticsConfig.ServiceName,
-    [
-        //OrdersModule.ConfigureConsumers(redisConnectionString),
-        UsersModule.ConfigureConsumers,
-    ],
+    [RestaurantsModule.ConfigureConsumers],
     rabbitMqSettings,
     databaseConnectionString,
     redisConnectionString);
@@ -50,20 +49,16 @@ builder.Services.AddHealthChecks()
     .AddRabbitMQ(sp => sp.GetRequiredService<IConnection>())
     .AddKeyCloak(keyCloakHealthUrl);
 
-builder.Configuration.AddModuleConfiguration(["users"]);
+builder.Configuration.AddModuleConfiguration(["restaurants"]);
 
-#pragma warning disable S125 // Sections of code should not be commented out
-                            //builder.Services.AddUsersModule(builder.Configuration);
+builder.Services.AddRestaurantsModule(builder.Configuration);
 
 WebApplication app = builder.Build();
-#pragma warning restore S125 // Sections of code should not be commented out
 
+// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
-
-    app.ApplyMigrations();
+    app.MapOpenApi();
 }
 
 app.MapHealthChecks("health", new HealthCheckOptions

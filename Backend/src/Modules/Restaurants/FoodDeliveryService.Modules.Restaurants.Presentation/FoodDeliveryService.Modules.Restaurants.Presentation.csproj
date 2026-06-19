@@ -1,13 +1,11 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\Common\FoodDeliveryService.Common.Infrastructure\FoodDeliveryService.Common.Infrastructure.csproj" />
     <ProjectReference Include="..\..\..\Common\FoodDeliveryService.Common.Presentation\FoodDeliveryService.Common.Presentation.csproj" />
+    <ProjectReference Include="..\..\Orders\FoodDeliveryService.Modules.Orders.IntegrationEvents\FoodDeliveryService.Modules.Orders.IntegrationEvents.csproj" />
+    <ProjectReference Include="..\..\Restaurants\FoodDeliveryService.Modules.Restaurants.IntegrationEvents\FoodDeliveryService.Modules.Restaurants.IntegrationEvents.csproj" />
+    <ProjectReference Include="..\..\Users\FoodDeliveryService.Modules.Users.IntegrationEvents\FoodDeliveryService.Modules.Users.IntegrationEvents.csproj" />
     <ProjectReference Include="..\FoodDeliveryService.Modules.Restaurants.Application\FoodDeliveryService.Modules.Restaurants.Application.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <InternalsVisibleTo Include="FoodDeliveryService.Modules.Restaurants.IntegrationTests" />
   </ItemGroup>
 
 </Project>

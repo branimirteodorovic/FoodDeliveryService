@@ -7,7 +7,7 @@ using FoodDeliveryService.Common.Infrastructure.Serialization;
 using MassTransit;
 using Newtonsoft.Json;
 
-namespace FoodDeliveryService.Modules.Orders.Infrastructure.Inbox;
+namespace FoodDeliveryService.Modules.Restaurants.Infrastructure.Inbox;
 
 internal sealed class IntegrationEventConsumer<TIntegrationEvent>(IDbConnectionFactory dbConnectionFactory)
     : IConsumer<TIntegrationEvent>
@@ -29,7 +29,7 @@ internal sealed class IntegrationEventConsumer<TIntegrationEvent>(IDbConnectionF
 
         const string sql =
             """
-            INSERT INTO orders.inbox_messages(id, type, content, occurred_on_utc)
+            INSERT INTO restaurants.inbox_messages(id, type, content, occurred_on_utc)
             VALUES (@Id, @Type, @Content::json, @OccurredOnUtc)
             """;
 

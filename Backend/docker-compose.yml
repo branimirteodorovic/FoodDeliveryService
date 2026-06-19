@@ -23,9 +23,23 @@ services:
 
   fooddeliveryservice.orders.api:
     image: ${DOCKER_REGISTRY-}fooddeliveryserviceordersapi
+    container_name: FoodDeliveryService.Orders.Api
     build:
       context: .
       dockerfile: src/API/FoodDeliveryService.Orders.Api/Dockerfile
+    ports:
+      - 5200:8080
+      - 5201:8081
+
+  fooddeliveryservice.restaurants.api:
+    image: ${DOCKER_REGISTRY-}fooddeliveryservicerestaurantsapi
+    container_name: FoodDeliveryService.Restaurants.Api
+    build:
+      context: .
+      dockerfile: src/API/FoodDeliveryService.Restaurants.Api/Dockerfile
+    ports:
+      - 5300:8080
+      - 5301:8081
 
   fooddeliveryservice.gateway:
     image: ${DOCKER_REGISTRY-}fooddeliveryservicegateway
@@ -102,5 +116,3 @@ services:
     ports:
       - 5672:5672
       - 15672:15672
-  
-

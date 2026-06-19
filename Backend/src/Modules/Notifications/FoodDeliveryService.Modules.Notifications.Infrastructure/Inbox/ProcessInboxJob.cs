@@ -83,7 +83,7 @@ internal sealed class ProcessInboxJob(
              SELECT
                 id AS {nameof(InboxMessageResponse.Id)},
                 content AS {nameof(InboxMessageResponse.Content)}
-             FROM attendance.inbox_messages
+             FROM notifications.inbox_messages
              WHERE processed_on_utc IS NULL
              ORDER BY occurred_on_utc
              LIMIT {inboxOptions.Value.BatchSize}

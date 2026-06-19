@@ -22,7 +22,7 @@ internal sealed class ProcessInboxJob(
     IOptions<InboxOptions> inboxOptions,
     ILogger<ProcessInboxJob> logger) : IJob
 {
-    private const string ModuleName = "Notifications";
+    private const string ModuleName = "Orders";
 
     public async Task Execute(IJobExecutionContext context)
     {
@@ -83,7 +83,7 @@ internal sealed class ProcessInboxJob(
              SELECT
                 id AS {nameof(InboxMessageResponse.Id)},
                 content AS {nameof(InboxMessageResponse.Content)}
-             FROM attendance.inbox_messages
+             FROM orders.inbox_messages
              WHERE processed_on_utc IS NULL
              ORDER BY occurred_on_utc
              LIMIT {inboxOptions.Value.BatchSize}
@@ -105,7 +105,7 @@ internal sealed class ProcessInboxJob(
     {
         const string sql =
             """
-            UPDATE notifications.inbox_messages
+            UPDATE orders.inbox_messages
             SET processed_on_utc = @ProcessedOnUtc,
                 error = @Error
             WHERE id = @Id

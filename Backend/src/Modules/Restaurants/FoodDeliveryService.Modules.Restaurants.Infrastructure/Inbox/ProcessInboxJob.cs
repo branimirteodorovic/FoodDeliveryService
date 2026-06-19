@@ -12,7 +12,7 @@ using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
 using Quartz;
 
-namespace FoodDeliveryService.Modules.Users.Infrastructure.Inbox;
+namespace FoodDeliveryService.Modules.Restaurants.Infrastructure.Inbox;
 
 [DisallowConcurrentExecution]
 internal sealed class ProcessInboxJob(
@@ -22,7 +22,7 @@ internal sealed class ProcessInboxJob(
     IOptions<InboxOptions> inboxOptions,
     ILogger<ProcessInboxJob> logger) : IJob
 {
-    private const string ModuleName = "Users";
+    private const string ModuleName = "Restaurants";
 
     public async Task Execute(IJobExecutionContext context)
     {
@@ -83,7 +83,7 @@ internal sealed class ProcessInboxJob(
              SELECT
                 id AS {nameof(InboxMessageResponse.Id)},
                 content AS {nameof(InboxMessageResponse.Content)}
-             FROM users.inbox_messages
+             FROM restaurants.inbox_messages
              WHERE processed_on_utc IS NULL
              ORDER BY occurred_on_utc
              LIMIT {inboxOptions.Value.BatchSize}
@@ -105,7 +105,7 @@ internal sealed class ProcessInboxJob(
     {
         const string sql =
             """
-            UPDATE users.inbox_messages
+            UPDATE restaurants.inbox_messages
             SET processed_on_utc = @ProcessedOnUtc,
                 error = @Error
             WHERE id = @Id
