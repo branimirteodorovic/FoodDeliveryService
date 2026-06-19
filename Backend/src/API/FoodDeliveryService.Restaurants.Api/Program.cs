@@ -49,8 +49,6 @@ builder.Services.AddHealthChecks()
     .AddRabbitMQ(sp => sp.GetRequiredService<IConnection>())
     .AddKeyCloak(keyCloakHealthUrl);
 
-builder.Configuration.AddModuleConfiguration(["restaurants"]);
-
 builder.Services.AddRestaurantsModule(builder.Configuration);
 
 WebApplication app = builder.Build();

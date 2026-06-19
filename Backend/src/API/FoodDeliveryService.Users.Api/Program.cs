@@ -49,8 +49,6 @@ builder.Services.AddHealthChecks()
     .AddRabbitMQ(sp => sp.GetRequiredService<IConnection>())
     .AddKeyCloak(keyCloakHealthUrl);
 
-builder.Configuration.AddModuleConfiguration(["users"]);
-
 builder.Services.AddUsersModule(builder.Configuration);
 
 WebApplication app = builder.Build();

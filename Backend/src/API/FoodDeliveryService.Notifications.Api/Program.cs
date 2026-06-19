@@ -49,8 +49,6 @@ builder.Services.AddHealthChecks()
     .AddRabbitMQ(sp => sp.GetRequiredService<IConnection>())
     .AddKeyCloak(keyCloakHealthUrl);
 
-builder.Configuration.AddModuleConfiguration(["notifications"]);
-
 builder.Services.AddNotificationsModule(builder.Configuration);
 
 WebApplication app = builder.Build();
