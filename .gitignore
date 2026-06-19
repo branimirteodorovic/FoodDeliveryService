@@ -1,6 +1,9 @@
 # Visual Studio
 .vs/
 
+# Docker containers
+.containers
+
 # Claude Code activity log (local only)
 .claude/activity.log
 

@@ -17,6 +17,7 @@ using Npgsql;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Quartz;
+using RabbitMQ.Client;
 using StackExchange.Redis;
 
 namespace FoodDeliveryService.Common.Infrastructure;
@@ -70,6 +71,16 @@ public static class InfrastructureConfiguration
         }
 
         services.TryAddSingleton<ICacheService, CacheService>();
+
+        services.AddSingleton<IConnection>(sp =>
+        {
+            var factory = new ConnectionFactory
+            {
+                Uri = new Uri(rabbitMqSettings.Host)
+            };
+
+            return factory.CreateConnectionAsync().GetAwaiter().GetResult();
+        });
 
         services.AddMassTransit(configure =>
         {

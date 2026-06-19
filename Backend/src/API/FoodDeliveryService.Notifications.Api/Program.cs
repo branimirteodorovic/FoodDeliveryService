@@ -46,7 +46,7 @@ Uri keyCloakHealthUrl = builder.Configuration.GetKeyCloakHealthUrl();
 builder.Services.AddHealthChecks()
     .AddNpgSql(databaseConnectionString)
     .AddRedis(redisConnectionString)
-    .AddRabbitMQ(sp => new ConnectionFactory { Uri = new Uri(rabbitMqSettings.Host) }.CreateConnectionAsync().GetAwaiter().GetResult())
+    .AddRabbitMQ(sp => sp.GetRequiredService<IConnection>())
     .AddKeyCloak(keyCloakHealthUrl);
 
 builder.Configuration.AddModuleConfiguration(["notifications"]);
