@@ -12,8 +12,10 @@ using FoodDeliveryService.Modules.Users.Infrastructure.Identity;
 using FoodDeliveryService.Modules.Users.Infrastructure.Inbox;
 using FoodDeliveryService.Modules.Users.Infrastructure.Outbox;
 using FoodDeliveryService.Modules.Users.Infrastructure.Users;
+using FoodDeliveryService.Modules.Users.IntegrationEvents;
 using FoodDeliveryService.Modules.Users.Presentation.Users;
 using MassTransit;
+using MassTransit.Configuration;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.Configuration;
@@ -41,10 +43,13 @@ public static class UsersModule
         return services;
     }
 
-    public static void ConfigureConsumers(IRegistrationConfigurator registrationConfigurator, string instanceId)
+    public static Action<IRegistrationConfigurator, string, string> ConfigureConsumers()
     {
-        registrationConfigurator.AddConsumer<GetUserPermissionsRequestConsumer>()
+        return (registration, instanceId, redisConnectionString) =>
+        {
+            registration.AddConsumer<GetUserPermissionsRequestConsumer>()
             .Endpoint(c => c.InstanceId = instanceId);
+        };
     }
 
     private static void AddInfrastructure(this IServiceCollection services, IConfiguration configuration)

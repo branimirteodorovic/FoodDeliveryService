@@ -27,7 +27,7 @@ public static class InfrastructureConfiguration
     public static IServiceCollection AddInfrastructure(
         this IServiceCollection services,
         string serviceName,
-        Action<IRegistrationConfigurator, string>[] moduleConfigureConsumers,
+        Action<IRegistrationConfigurator, string, string>[] moduleConfigureConsumers,
         RabbitMqSettings rabbitMqSettings,
         string databaseConnectionString,
         string redisConnectionString)
@@ -69,7 +69,7 @@ public static class InfrastructureConfiguration
         {
             services.AddDistributedMemoryCache();
         }
-
+            
         services.TryAddSingleton<ICacheService, CacheService>();
 
         services.AddSingleton<IConnection>(sp =>
@@ -81,13 +81,13 @@ public static class InfrastructureConfiguration
 
             return factory.CreateConnectionAsync().GetAwaiter().GetResult();
         });
-
+            
         services.AddMassTransit(configure =>
         {
             string instanceId = serviceName.ToLowerInvariant().Replace('.', '-'); // FoodDeliveryService.Api -> fooddeliveryservice-api
-            foreach (Action<IRegistrationConfigurator, string> configureConsumers in moduleConfigureConsumers)
+            foreach (Action<IRegistrationConfigurator, string, string> configureConsumers in moduleConfigureConsumers)
             {
-                configureConsumers(configure, instanceId);
+                configureConsumers(configure, instanceId, redisConnectionString);
             }
 
             configure.SetKebabCaseEndpointNameFormatter();

@@ -13,6 +13,7 @@ using FoodDeliveryService.Modules.Restaurants.Infrastructure.Outbox;
 using FoodDeliveryService.Modules.Restaurants.Infrastructure.Restaurants;
 using FoodDeliveryService.Modules.Users.IntegrationEvents;
 using MassTransit;
+using MassTransit.Configuration;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.Configuration;
@@ -38,12 +39,15 @@ public static class RestaurantsModule
         return services;
     }
 
-    public static void ConfigureConsumers(IRegistrationConfigurator registrationConfigurator, string instanceId)
+    public static Action<IRegistrationConfigurator, string, string> ConfigureConsumers()
     {
-        registrationConfigurator.AddConsumer<IntegrationEventConsumer<UserRegisteredIntegrationEvent>>()
+        return (registration, instanceId, redisConnectionString) =>
+        {
+            registration.AddConsumer<IntegrationEventConsumer<UserRegisteredIntegrationEvent>>()
             .Endpoint(c => c.InstanceId = instanceId);
-        registrationConfigurator.AddConsumer<IntegrationEventConsumer<UserProfileUpdatedIntegrationEvent>>()
-            .Endpoint(c => c.InstanceId = instanceId);
+            registration.AddConsumer<IntegrationEventConsumer<UserProfileUpdatedIntegrationEvent>>()
+                .Endpoint(c => c.InstanceId = instanceId);
+        };
     }
 
     private static void AddInfrastructure(this IServiceCollection services, IConfiguration configuration)

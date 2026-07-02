@@ -36,7 +36,7 @@ var rabbitMqSettings = new RabbitMqSettings(builder.Configuration.GetConnectionS
 
 builder.Services.AddInfrastructure(
     DiagnosticsConfig.ServiceName,
-    [NotificationsModule.ConfigureConsumers],
+    [NotificationsModule.ConfigureConsumers()],
     rabbitMqSettings,
     databaseConnectionString,
     redisConnectionString);

@@ -39,13 +39,21 @@ public static class OrdersModule
         return services;
     }
 
-    public static void ConfigureConsumers(IRegistrationConfigurator registrationConfigurator, string instanceId)
+#pragma warning disable IDE0060 // Remove unused parameter
+    public static void ConfigureConsumers(IRegistrationConfigurator registrationConfigurator, string instanceId, string redisConnectionString)
+#pragma warning restore IDE0060 // Remove unused parameter
+#pragma warning disable S125 // Sections of code should not be commented out
     {
         registrationConfigurator.AddConsumer<IntegrationEventConsumer<UserRegisteredIntegrationEvent>>()
             .Endpoint(c => c.InstanceId = instanceId);
         registrationConfigurator.AddConsumer<IntegrationEventConsumer<UserProfileUpdatedIntegrationEvent>>()
             .Endpoint(c => c.InstanceId = instanceId);
+
+        //registrationConfigurator
+        //    .AddSagaStateMachine<CancelEventSaga, CancelEventState>()
+        //    .RedisRepository(redisConnectionString);
     }
+#pragma warning restore S125 // Sections of code should not be commented out
 
     private static void AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
