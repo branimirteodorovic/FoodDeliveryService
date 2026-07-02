@@ -15,6 +15,17 @@ WORKDIR /src
 COPY ["Directory.Packages.props", "."]
 COPY ["Directory.Build.props", "."]
 COPY ["src/API/FoodDeliveryService.Restaurants.Api/FoodDeliveryService.Restaurants.Api.csproj", "src/API/FoodDeliveryService.Restaurants.Api/"]
+COPY ["src/Modules/Restaurants/FoodDeliveryService.Modules.Restaurants.Infrastructure/FoodDeliveryService.Modules.Restaurants.Infrastructure.csproj", "src/Modules/Restaurants/FoodDeliveryService.Modules.Restaurants.Infrastructure/"]
+COPY ["src/Common/FoodDeliveryService.Common.Infrastructure/FoodDeliveryService.Common.Infrastructure.csproj", "src/Common/FoodDeliveryService.Common.Infrastructure/"]
+COPY ["src/Common/FoodDeliveryService.Common.Application/FoodDeliveryService.Common.Application.csproj", "src/Common/FoodDeliveryService.Common.Application/"]
+COPY ["src/Common/FoodDeliveryService.Common.Domain/FoodDeliveryService.Common.Domain.csproj", "src/Common/FoodDeliveryService.Common.Domain/"]
+COPY ["src/Modules/Restaurants/FoodDeliveryService.Modules.Restaurants.Application/FoodDeliveryService.Modules.Restaurants.Application.csproj", "src/Modules/Restaurants/FoodDeliveryService.Modules.Restaurants.Application/"]
+COPY ["src/Modules/Restaurants/FoodDeliveryService.Modules.Restaurants.Domain/FoodDeliveryService.Modules.Restaurants.Domain.csproj", "src/Modules/Restaurants/FoodDeliveryService.Modules.Restaurants.Domain/"]
+COPY ["src/Modules/Restaurants/FoodDeliveryService.Modules.Restaurants.IntegrationEvents/FoodDeliveryService.Modules.Restaurants.IntegrationEvents.csproj", "src/Modules/Restaurants/FoodDeliveryService.Modules.Restaurants.IntegrationEvents/"]
+COPY ["src/Modules/Restaurants/FoodDeliveryService.Modules.Restaurants.Presentation/FoodDeliveryService.Modules.Restaurants.Presentation.csproj", "src/Modules/Restaurants/FoodDeliveryService.Modules.Restaurants.Presentation/"]
+COPY ["src/Common/FoodDeliveryService.Common.Presentation/FoodDeliveryService.Common.Presentation.csproj", "src/Common/FoodDeliveryService.Common.Presentation/"]
+COPY ["src/Modules/Orders/FoodDeliveryService.Modules.Orders.IntegrationEvents/FoodDeliveryService.Modules.Orders.IntegrationEvents.csproj", "src/Modules/Orders/FoodDeliveryService.Modules.Orders.IntegrationEvents/"]
+COPY ["src/Modules/Users/FoodDeliveryService.Modules.Users.IntegrationEvents/FoodDeliveryService.Modules.Users.IntegrationEvents.csproj", "src/Modules/Users/FoodDeliveryService.Modules.Users.IntegrationEvents/"]
 RUN dotnet restore "./src/API/FoodDeliveryService.Restaurants.Api/FoodDeliveryService.Restaurants.Api.csproj"
 COPY . .
 WORKDIR "/src/src/API/FoodDeliveryService.Restaurants.Api"

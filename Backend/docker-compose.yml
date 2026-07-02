@@ -1,16 +1,6 @@
 version: '3.9'
 
 services:
-  fooddeliveryservice.api:
-    image: ${DOCKER_REGISTRY-}fooddeliveryserviceapi
-    container_name: FoodDeliveryService.Api
-    build:
-      context: .
-      dockerfile: src/API/FoodDeliveryService.Api/Dockerfile
-    ports:
-      - 5000:8080
-      - 5001:8081
-
   fooddeliveryservice.notifications.api:
     image: ${DOCKER_REGISTRY-}fooddeliveryservicenotificationsapi
     container_name: FoodDeliveryService.Notifications.Api

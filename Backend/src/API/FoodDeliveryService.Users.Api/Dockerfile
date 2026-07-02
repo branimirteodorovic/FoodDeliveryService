@@ -15,6 +15,15 @@ WORKDIR /src
 COPY ["Directory.Packages.props", "."]
 COPY ["Directory.Build.props", "."]
 COPY ["src/API/FoodDeliveryService.Users.Api/FoodDeliveryService.Users.Api.csproj", "src/API/FoodDeliveryService.Users.Api/"]
+COPY ["src/Modules/Users/FoodDeliveryService.Modules.Users.Infrastructure/FoodDeliveryService.Modules.Users.Infrastructure.csproj", "src/Modules/Users/FoodDeliveryService.Modules.Users.Infrastructure/"]
+COPY ["src/Common/FoodDeliveryService.Common.Infrastructure/FoodDeliveryService.Common.Infrastructure.csproj", "src/Common/FoodDeliveryService.Common.Infrastructure/"]
+COPY ["src/Common/FoodDeliveryService.Common.Application/FoodDeliveryService.Common.Application.csproj", "src/Common/FoodDeliveryService.Common.Application/"]
+COPY ["src/Common/FoodDeliveryService.Common.Domain/FoodDeliveryService.Common.Domain.csproj", "src/Common/FoodDeliveryService.Common.Domain/"]
+COPY ["src/Modules/Users/FoodDeliveryService.Modules.Users.Application/FoodDeliveryService.Modules.Users.Application.csproj", "src/Modules/Users/FoodDeliveryService.Modules.Users.Application/"]
+COPY ["src/Modules/Users/FoodDeliveryService.Modules.Users.Domain/FoodDeliveryService.Modules.Users.Domain.csproj", "src/Modules/Users/FoodDeliveryService.Modules.Users.Domain/"]
+COPY ["src/Modules/Users/FoodDeliveryService.Modules.Users.IntegrationEvents/FoodDeliveryService.Modules.Users.IntegrationEvents.csproj", "src/Modules/Users/FoodDeliveryService.Modules.Users.IntegrationEvents/"]
+COPY ["src/Modules/Users/FoodDeliveryService.Modules.Users.Presentation/FoodDeliveryService.Modules.Users.Presentation.csproj", "src/Modules/Users/FoodDeliveryService.Modules.Users.Presentation/"]
+COPY ["src/Common/FoodDeliveryService.Common.Presentation/FoodDeliveryService.Common.Presentation.csproj", "src/Common/FoodDeliveryService.Common.Presentation/"]
 RUN dotnet restore "./src/API/FoodDeliveryService.Users.Api/FoodDeliveryService.Users.Api.csproj"
 COPY . .
 WORKDIR "/src/src/API/FoodDeliveryService.Users.Api"

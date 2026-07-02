@@ -12,6 +12,7 @@ EXPOSE 8081
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
+COPY ["Directory.Packages.props", "."]
 COPY ["Directory.Build.props", "."]
 COPY ["src/API/FoodDeliveryService.Notifications.Api/FoodDeliveryService.Notifications.Api.csproj", "src/API/FoodDeliveryService.Notifications.Api/"]
 COPY ["src/Modules/Notifications/FoodDeliveryService.Modules.Notifications.Infrastructure/FoodDeliveryService.Modules.Notifications.Infrastructure.csproj", "src/Modules/Notifications/FoodDeliveryService.Modules.Notifications.Infrastructure/"]

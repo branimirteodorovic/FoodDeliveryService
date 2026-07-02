@@ -84,7 +84,7 @@ public static class InfrastructureConfiguration
             
         services.AddMassTransit(configure =>
         {
-            string instanceId = serviceName.ToLowerInvariant().Replace('.', '-'); // FoodDeliveryService.Api -> fooddeliveryservice-api
+            string instanceId = serviceName.ToLowerInvariant().Replace('.', '-'); // FoodDeliveryService.Users.Api -> fooddeliveryservice-users-api
             foreach (Action<IRegistrationConfigurator, string, string> configureConsumers in moduleConfigureConsumers)
             {
                 configureConsumers(configure, instanceId, redisConnectionString);

@@ -12,6 +12,7 @@ EXPOSE 8081
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
+COPY ["Directory.Packages.props", "."]
 COPY ["Directory.Build.props", "."]
 COPY ["src/API/FoodDeliveryService.Gateway/FoodDeliveryService.Gateway.csproj", "src/API/FoodDeliveryService.Gateway/"]
 RUN dotnet restore "./src/API/FoodDeliveryService.Gateway/FoodDeliveryService.Gateway.csproj"
