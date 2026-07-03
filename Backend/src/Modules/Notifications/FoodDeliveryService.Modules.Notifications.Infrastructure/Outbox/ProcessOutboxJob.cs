@@ -84,7 +84,7 @@ internal sealed class ProcessOutboxJob(
              SELECT
                 id AS {nameof(OutboxMessageResponse.Id)},
                 content AS {nameof(OutboxMessageResponse.Content)}
-             FROM notifications.outbox_messages
+             FROM outbox_messages
              WHERE processed_on_utc IS NULL
              ORDER BY occurred_on_utc
              LIMIT {outboxOptions.Value.BatchSize}
@@ -106,7 +106,7 @@ internal sealed class ProcessOutboxJob(
     {
         const string sql =
             """
-            UPDATE notifications.outbox_messages
+            UPDATE outbox_messages
             SET processed_on_utc = @ProcessedOnUtc,
                 error = @Error
             WHERE id = @Id

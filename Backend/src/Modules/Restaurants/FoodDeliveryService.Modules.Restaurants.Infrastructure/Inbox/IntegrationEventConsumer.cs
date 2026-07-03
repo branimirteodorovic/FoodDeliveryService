@@ -29,7 +29,7 @@ internal sealed class IntegrationEventConsumer<TIntegrationEvent>(IDbConnectionF
 
         const string sql =
             """
-            INSERT INTO restaurants.inbox_messages(id, type, content, occurred_on_utc)
+            INSERT INTO inbox_messages(id, type, content, occurred_on_utc)
             VALUES (@Id, @Type, @Content::json, @OccurredOnUtc)
             """;
 

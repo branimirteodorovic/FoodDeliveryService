@@ -17,8 +17,7 @@ namespace FoodDeliveryService.Modules.Users.Infrastructure.Database.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasDefaultSchema("users")
-                .HasAnnotation("ProductVersion", "8.0.3")
+                .HasAnnotation("ProductVersion", "10.0.9")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -33,7 +32,7 @@ namespace FoodDeliveryService.Modules.Users.Infrastructure.Database.Migrations
                     b.Property<string>("Content")
                         .IsRequired()
                         .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)")
+                        .HasColumnType("jsonb")
                         .HasColumnName("content");
 
                     b.Property<string>("Error")
@@ -56,7 +55,7 @@ namespace FoodDeliveryService.Modules.Users.Infrastructure.Database.Migrations
                     b.HasKey("Id")
                         .HasName("pk_inbox_messages");
 
-                    b.ToTable("inbox_messages", "users");
+                    b.ToTable("inbox_messages", (string)null);
                 });
 
             modelBuilder.Entity("FoodDeliveryService.Common.Infrastructure.Inbox.InboxMessageConsumer", b =>
@@ -73,7 +72,7 @@ namespace FoodDeliveryService.Modules.Users.Infrastructure.Database.Migrations
                     b.HasKey("InboxMessageId", "Name")
                         .HasName("pk_inbox_message_consumers");
 
-                    b.ToTable("inbox_message_consumers", "users");
+                    b.ToTable("inbox_message_consumers", (string)null);
                 });
 
             modelBuilder.Entity("FoodDeliveryService.Common.Infrastructure.Outbox.OutboxMessage", b =>
@@ -86,7 +85,7 @@ namespace FoodDeliveryService.Modules.Users.Infrastructure.Database.Migrations
                     b.Property<string>("Content")
                         .IsRequired()
                         .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)")
+                        .HasColumnType("jsonb")
                         .HasColumnName("content");
 
                     b.Property<string>("Error")
@@ -109,7 +108,7 @@ namespace FoodDeliveryService.Modules.Users.Infrastructure.Database.Migrations
                     b.HasKey("Id")
                         .HasName("pk_outbox_messages");
 
-                    b.ToTable("outbox_messages", "users");
+                    b.ToTable("outbox_messages", (string)null);
                 });
 
             modelBuilder.Entity("FoodDeliveryService.Common.Infrastructure.Outbox.OutboxMessageConsumer", b =>
@@ -126,7 +125,7 @@ namespace FoodDeliveryService.Modules.Users.Infrastructure.Database.Migrations
                     b.HasKey("OutboxMessageId", "Name")
                         .HasName("pk_outbox_message_consumers");
 
-                    b.ToTable("outbox_message_consumers", "users");
+                    b.ToTable("outbox_message_consumers", (string)null);
                 });
 
             modelBuilder.Entity("FoodDeliveryService.Modules.Users.Domain.Users.Permission", b =>
@@ -139,7 +138,7 @@ namespace FoodDeliveryService.Modules.Users.Infrastructure.Database.Migrations
                     b.HasKey("Code")
                         .HasName("pk_permissions");
 
-                    b.ToTable("permissions", "users");
+                    b.ToTable("permissions", (string)null);
 
                     b.HasData(
                         new
@@ -222,7 +221,7 @@ namespace FoodDeliveryService.Modules.Users.Infrastructure.Database.Migrations
                     b.HasKey("Name")
                         .HasName("pk_roles");
 
-                    b.ToTable("roles", "users");
+                    b.ToTable("roles", (string)null);
 
                     b.HasData(
                         new
@@ -276,7 +275,7 @@ namespace FoodDeliveryService.Modules.Users.Infrastructure.Database.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_users_identity_id");
 
-                    b.ToTable("users", "users");
+                    b.ToTable("users", (string)null);
                 });
 
             modelBuilder.Entity("PermissionRole", b =>
@@ -295,7 +294,7 @@ namespace FoodDeliveryService.Modules.Users.Infrastructure.Database.Migrations
                     b.HasIndex("RoleName")
                         .HasDatabaseName("ix_role_permissions_role_name");
 
-                    b.ToTable("role_permissions", "users");
+                    b.ToTable("role_permissions", (string)null);
 
                     b.HasData(
                         new
@@ -456,7 +455,7 @@ namespace FoodDeliveryService.Modules.Users.Infrastructure.Database.Migrations
                     b.HasIndex("UserId")
                         .HasDatabaseName("ix_user_roles_user_id");
 
-                    b.ToTable("user_roles", "users");
+                    b.ToTable("user_roles", (string)null);
                 });
 
             modelBuilder.Entity("PermissionRole", b =>

@@ -38,7 +38,7 @@ internal sealed class IdempotentIntegrationEventHandler<TIntegrationEvent>(
             """
             SELECT EXISTS(
                 SELECT 1
-                FROM notifications.inbox_message_consumers
+                FROM inbox_message_consumers
                 WHERE inbox_message_id = @InboxMessageId AND
                       name = @Name
             )
@@ -53,7 +53,7 @@ internal sealed class IdempotentIntegrationEventHandler<TIntegrationEvent>(
     {
         const string sql =
             """
-            INSERT INTO notifications.inbox_message_consumers(inbox_message_id, name)
+            INSERT INTO inbox_message_consumers(inbox_message_id, name)
             VALUES (@InboxMessageId, @Name)
             """;
 
