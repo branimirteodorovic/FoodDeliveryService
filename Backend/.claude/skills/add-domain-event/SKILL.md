@@ -1,26 +1,30 @@
 ---
-description: Add a domain event and its handler that publishes an integration event via DAPR. Use when an aggregate state change needs to notify other parts of the system.
+description: Add a domain event and its handler that publishes an integration event via the outbox and MassTransit/RabbitMQ. Use when an aggregate state change needs to notify other microservices.
 disable-model-invocation: true
 argument-hint: [ModuleName] [Action] [Entity]
 ---
 
 # Add Domain Event
 
-Arguments: `$ARGUMENTS` — format: `{ModuleName} {Action} {Entity}` (e.g. `Orders Placed Order` or `Restaurants Created Restaurant`)
+Arguments: `$ARGUMENTS` — format: `{ModuleName} {Action} {Entity}` (e.g. `Orders OrderPlaced Order` or `Users UserRegistered User`)
 
-Reference:
-- Event: `evently_source_code/evently/src/Modules/Events/Evently.Modules.Events.Domain/Events/EventCreatedDomainEvent.cs`
-- Handler: `evently_source_code/evently/src/Modules/Events/Evently.Modules.Events.Application/Events/PublishEvent/EventPublishedDomainEventHandler.cs`
+Reference (complete working example):
+- Event: `src/Modules/Users/FoodDeliveryService.Modules.Users.Domain/Users/UserRegisteredDomainEvent.cs`
+- Handler: `src/Modules/Users/FoodDeliveryService.Modules.Users.Application/Users/RegisterUser/UserRegisteredDomainEventHandler.cs`
+- Contract: `src/Modules/Users/FoodDeliveryService.Modules.Users.IntegrationEvents/UserRegisteredIntegrationEvent.cs`
+
+## Flow being wired
+`Raise(...)` in aggregate → `InsertOutboxMessagesInterceptor` writes `outbox_messages` (same transaction) → `ProcessOutboxJob` (Quartz) → domain event handler → `IEventBus.PublishAsync` → MassTransit → RabbitMQ → consuming services' inboxes.
 
 ## Files to Create
 
 ### 1. Domain Event — in Domain project
-Path: `src/Modules/{ModuleName}/FoodDelivery.Modules.{ModuleName}.Domain/{Entity}s/{Action}DomainEvent.cs`
+Path: `src/Modules/{ModuleName}/FoodDeliveryService.Modules.{ModuleName}.Domain/{Entity}s/{Action}DomainEvent.cs`
 
 ```csharp
-using FoodDelivery.Common.Domain;
+using FoodDeliveryService.Common.Domain;
 
-namespace FoodDelivery.Modules.{ModuleName}.Domain.{Entity}s;
+namespace FoodDeliveryService.Modules.{ModuleName}.Domain.{Entity}s;
 
 public sealed class {Action}DomainEvent(Guid {entity}Id) : DomainEvent
 {
@@ -35,18 +39,17 @@ Raise(new {Action}DomainEvent(Id));
 ```
 
 ### 3. Domain Event Handler — in Application project
-Path: `src/Modules/{ModuleName}/FoodDelivery.Modules.{ModuleName}.Application/{Entity}s/{Action}/`
+Path: `src/Modules/{ModuleName}/FoodDeliveryService.Modules.{ModuleName}.Application/{Entity}s/{UseCase}/{Action}DomainEventHandler.cs`
 
 ```csharp
-using FoodDelivery.Common.Application.EventBus;
-using FoodDelivery.Common.Application.Exceptions;
-using FoodDelivery.Common.Application.Messaging;
-using FoodDelivery.Common.Domain;
-using FoodDelivery.Modules.{ModuleName}.Domain.{Entity}s;
-using FoodDelivery.Modules.{ModuleName}.IntegrationEvents;
+using FoodDeliveryService.Common.Application.EventBus;
+using FoodDeliveryService.Common.Application.Messaging;
+using FoodDeliveryService.Common.Domain;
+using FoodDeliveryService.Modules.{ModuleName}.Domain.{Entity}s;
+using FoodDeliveryService.Modules.{ModuleName}.IntegrationEvents;
 using MediatR;
 
-namespace FoodDelivery.Modules.{ModuleName}.Application.{Entity}s.{Action};
+namespace FoodDeliveryService.Modules.{ModuleName}.Application.{Entity}s.{UseCase};
 
 internal sealed class {Action}DomainEventHandler(ISender sender, IEventBus eventBus)
     : DomainEventHandler<{Action}DomainEvent>
@@ -58,9 +61,9 @@ internal sealed class {Action}DomainEventHandler(ISender sender, IEventBus event
             new Get{Entity}Query(domainEvent.{Entity}Id), cancellationToken);
 
         if (result.IsFailure)
-            throw new FoodDeliveryException(nameof(Get{Entity}Query), result.Error);
+            throw new Common.Application.Exceptions.ApplicationException(nameof(Get{Entity}Query), result.Error);
 
-        // Publish to DAPR pub/sub — other modules subscribe via WithTopic()
+        // Publish to RabbitMQ via MassTransit — the outbox job retries on exception
         await eventBus.PublishAsync(
             new {Action}IntegrationEvent(
                 domainEvent.Id,
@@ -74,12 +77,12 @@ internal sealed class {Action}DomainEventHandler(ISender sender, IEventBus event
 ```
 
 ### 4. Integration Event Contract — in IntegrationEvents project
-Path: `src/Modules/{ModuleName}/FoodDelivery.Modules.{ModuleName}.IntegrationEvents/{Action}IntegrationEvent.cs`
+Path: `src/Modules/{ModuleName}/FoodDeliveryService.Modules.{ModuleName}.IntegrationEvents/{Action}IntegrationEvent.cs`
 
 ```csharp
-using FoodDelivery.Common.Application.EventBus;
+using FoodDeliveryService.Common.Application.EventBus;
 
-namespace FoodDelivery.Modules.{ModuleName}.IntegrationEvents;
+namespace FoodDeliveryService.Modules.{ModuleName}.IntegrationEvents;
 
 public sealed class {Action}IntegrationEvent : IntegrationEvent
 {
@@ -87,7 +90,7 @@ public sealed class {Action}IntegrationEvent : IntegrationEvent
         : base(id, occurredOnUtc)
     {
         {Entity}Id = {entity}Id;
-        // include all data that consuming modules need — be a complete snapshot
+        // include all data that consuming services need — be a complete snapshot
     }
 
     public Guid {Entity}Id { get; init; }
@@ -96,7 +99,8 @@ public sealed class {Action}IntegrationEvent : IntegrationEvent
 ```
 
 ## Notes
-- The domain event handler is discovered automatically by `AddDomainEventHandlers()` in the module registration
-- The integration event is published via `IEventBus` → `DaprEventBus` → DAPR pub/sub
-- Always include a complete data snapshot in the integration event (consuming modules should not need to call back)
-- The `ProcessOutboxJob` dispatches domain event handlers asynchronously for eventual consistency
+- The domain event handler is discovered automatically by `AddDomainEventHandlers()` in `{ModuleName}Module.cs` and decorated with `IdempotentDomainEventHandler`
+- If the event is purely internal to the module (no other service cares), skip steps 3–4 — a domain event without an integration event is fine
+- Always include a complete data snapshot in the integration event — consuming services CANNOT call back (separate databases, message-bus-only communication)
+- To consume this event in another service, run `/add-integration-event`
+- MassTransit propagates the OpenTelemetry trace context, so the publish→consume hop shows up in Jaeger automatically

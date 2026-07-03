@@ -1,30 +1,48 @@
 ---
-description: Use when the user describes a feature, user story, or requirement to implement. Implements the feature following FoodDeliveryService DDD/CQRS modular monolith patterns (MediatR, DAPR, Duende IdentityServer, EF Core, Dapper). Automatically triggered when the user pastes a feature description or asks to implement something new.
+description: Use when the user describes a feature, user story, or requirement to implement. Implements the feature following FoodDeliveryService DDD/CQRS microservices patterns (YARP gateway, MediatR, MassTransit/RabbitMQ, Duende IdentityServer, EF Core, Dapper, outbox/inbox). Automatically triggered when the user pastes a feature description or asks to implement something new.
 ---
 
 # Implement Feature
 
 ## Pre-flight (always do these steps first)
 1. Read `CLAUDE.md` to confirm current rules and patterns
-2. Identify which module this feature belongs to (or whether a new module is needed)
-3. Study the **closest evently equivalent** pattern:
-   - Domain: `evently_source_code/evently/src/Modules/{ClosestModule}/Evently.Modules.{ClosestModule}.Domain/`
-   - Application: `evently_source_code/evently/src/Modules/{ClosestModule}/Evently.Modules.{ClosestModule}.Application/`
-   - Presentation: `evently_source_code/evently/src/Modules/{ClosestModule}/Evently.Modules.{ClosestModule}.Presentation/`
-   - Module registration: `evently_source_code/evently/src/Modules/{ClosestModule}/Evently.Modules.{ClosestModule}.Infrastructure/EventsModule.cs`
+2. Decide **which service owns the feature** (see Feature Analysis below)
+3. Study the closest existing equivalent in this repo:
+   - Domain: `src/Modules/Users/FoodDeliveryService.Modules.Users.Domain/Users/`
+   - Command + validator + handler: `src/Modules/Users/...Users.Application/Users/RegisterUser/`
+   - Query (Dapper): `src/Modules/Users/...Users.Application/Users/GetUser/`
+   - Domain event → integration event: `...Users.Application/Users/RegisterUser/UserRegisteredDomainEventHandler.cs`
+   - Consumer registration: `src/Modules/Orders/...Orders.Infrastructure/OrdersModule.cs` (`ConfigureConsumers`)
+   - API host: `src/API/FoodDeliveryService.Orders.Api/Program.cs`
 
-## Feature Analysis
-Before writing code, answer:
-- What aggregate(s) are involved?
-- What commands (writes) are needed?
-- What queries (reads) are needed?
-- What domain events are triggered?
-- Are any integration events needed (cross-module)?
-- Which module owns this feature?
+## Feature Analysis (answer before writing code)
+
+**Ownership** — which service owns the state being changed?
+- Users: registration, profiles, roles, permissions
+- Orders: order lifecycle, cart, delivery status; has a local replica of user data
+- Restaurants: restaurants, menus, availability
+- Notifications: reactions to other services' events (email/push)
+- A new bounded context → new microservice via `/add-module`
+
+**Shape of the work:**
+- What aggregate(s) are involved? New or existing?
+- What commands (writes) and queries (reads) are needed?
+- What domain events does each state change raise?
+
+**Cross-service impact (critical in this architecture):**
+- Does any OTHER service care about this state change? → integration event (outbox) + consumer in each interested service (inbox). Ask per service: does Notifications need to notify anyone? Does Orders/Restaurants need a local data replica?
+- Does this feature need data OWNED by another service? → do NOT call it; consume its integration events and replicate locally (pattern: Orders consumes `UserRegistered`/`UserProfileUpdated`). If the event doesn't exist yet, add it to the owning service first
+- Truly synchronous need? Only MassTransit request/response (`IRequestClient<T>`, pattern: `GetUserPermissionsRequest`) — use sparingly, cache in Redis if hot-path
+- **Saga check**: does the flow span 3+ steps across services, need compensation/rollback, or timeouts (e.g. place order → restaurant confirms → delivery → notify)? Then PROPOSE a MassTransit state machine saga (`AddSagaStateMachine<TSaga, TState>().RedisRepository(...)` — commented scaffold in `OrdersModule.ConfigureConsumers`) instead of chaining event handlers, and explain the trade-off to the user before building it
+
+**Edge concerns:**
+- Endpoint route: falls under the module's existing YARP prefix (`{module}/**`)? If a new prefix, add route + cluster in the Gateway appsettings
+- Auth: which permission guards the endpoint? Anonymous endpoints need an explicit `anonymous` YARP route (like `users/register`)
+- Observability: MassTransit/EF/HTTP are auto-instrumented; any NEW external dependency needs OTel instrumentation + a health check in the host
 
 ## Implementation Order
 
-### Step 1 — Domain Layer (`src/Modules/{Module}/FoodDelivery.Modules.{Module}.Domain/`)
+### Step 1 — Domain Layer (`src/Modules/{Module}/FoodDeliveryService.Modules.{Module}.Domain/`)
 
 **Aggregate / Entity:**
 ```csharp
@@ -35,7 +53,7 @@ public sealed class {Entity} : Entity
     public Guid Id { get; private set; }
     // All properties: private set
 
-    public static Result<{Entity}> Create(...) // Factory method — returns Result<T> if creation can fail
+    public static Result<{Entity}> Create(...) // Factory method
     {
         // Guard clauses → return Result.Failure<{Entity}>({Entity}Errors.XyzError)
         var entity = new {Entity} { Id = Guid.NewGuid(), ... };
@@ -53,199 +71,82 @@ public sealed class {Entity} : Entity
 }
 ```
 
-**Errors class** (same folder as entity):
+Also create: `{Entity}Errors` static class, one file per domain event, and `I{Entity}Repository` (all in Domain).
+
+### Step 2 — Application Layer (`.../FoodDeliveryService.Modules.{Module}.Application/`)
+
+- **Command** `public sealed record {Action}{Entity}Command(...) : ICommand<Guid>` + `internal sealed` handler (fetch → domain method → `unitOfWork.SaveChangesAsync`) + FluentValidation validator — see `/add-command`
+- **Query** + `internal sealed` handler using **Dapper via `IDbConnectionFactory`** (snake_case tables, no schema prefix, own DB only) + response record — see `/add-query`
+- **Domain event handler** (`DomainEventHandler<T>`) that publishes the integration event via `IEventBus.PublishAsync`; throw `Common.Application.Exceptions.ApplicationException` on failure so the outbox retries — see `/add-domain-event`
+
+### Step 3 — Integration Events (`.../FoodDeliveryService.Modules.{Module}.IntegrationEvents/`)
+
 ```csharp
-public static class {Entity}Errors
+public sealed class {Action}IntegrationEvent : IntegrationEvent
 {
-    public static readonly Error NotFound = Error.NotFound("{Module}.{Entity}NotFound", "...");
-    public static readonly Error AlreadyExists = Error.Conflict("{Module}.{Entity}AlreadyExists", "...");
-    public static Error NotFoundById(Guid id) => Error.NotFound("{Module}.{Entity}NotFound", $"... {id}");
-}
-```
-
-**Domain events** (one file per event):
-```csharp
-public sealed class {Entity}CreatedDomainEvent(Guid {entity}Id) : DomainEvent
-{
-    public Guid {Entity}Id { get; init; } = {entity}Id;
-}
-```
-
-**Repository interface** (in Domain):
-```csharp
-public interface I{Entity}Repository
-{
-    Task<{Entity}?> GetAsync(Guid id, CancellationToken cancellationToken = default);
-    void Insert({Entity} {entity});
-}
-```
-
-### Step 2 — Application Layer (`src/Modules/{Module}/FoodDelivery.Modules.{Module}.Application/`)
-
-**Command** (one file per command):
-```csharp
-public sealed record Create{Entity}Command(...) : ICommand<Guid>;
-```
-
-**Command Handler:**
-```csharp
-internal sealed class Create{Entity}CommandHandler(
-    I{Dependency}Repository dependencyRepository,
-    I{Entity}Repository {entity}Repository,
-    IUnitOfWork unitOfWork)
-    : ICommandHandler<Create{Entity}Command, Guid>
-{
-    public async Task<Result<Guid>> Handle(Create{Entity}Command request, CancellationToken cancellationToken)
-    {
-        // 1. Fetch domain dependencies
-        // 2. Call domain factory/method — NO business logic here
-        Result<{Entity}> result = {Entity}.Create(...);
-        if (result.IsFailure) return Result.Failure<Guid>(result.Error);
-        // 3. Persist
-        {entity}Repository.Insert(result.Value);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
-        return result.Value.Id;
-    }
-}
-```
-
-**Validator:**
-```csharp
-internal sealed class Create{Entity}CommandValidator : AbstractValidator<Create{Entity}Command>
-{
-    public Create{Entity}CommandValidator()
-    {
-        RuleFor(c => c.Name).NotEmpty().MaximumLength(200);
-    }
-}
-```
-
-**Query Handler (Dapper — NEVER EF Core for reads):**
-```csharp
-internal sealed class Get{Entity}QueryHandler(IDbConnectionFactory dbConnectionFactory)
-    : IQueryHandler<Get{Entity}Query, {Entity}Response>
-{
-    public async Task<Result<{Entity}Response>> Handle(Get{Entity}Query request, CancellationToken cancellationToken)
-    {
-        await using DbConnection connection = await dbConnectionFactory.OpenConnectionAsync();
-        const string sql = $"""
-            SELECT id AS {nameof({Entity}Response.Id)}, ...
-            FROM {schema}.{table}
-            WHERE id = @{nameof(request.{Entity}Id)}
-            """;
-        var response = await connection.QuerySingleOrDefaultAsync<{Entity}Response>(sql, request);
-        return response ?? Result.Failure<{Entity}Response>({Entity}Errors.NotFoundById(request.{Entity}Id));
-    }
-}
-```
-
-**Domain Event Handler** (publishes integration event):
-```csharp
-internal sealed class {Entity}CreatedDomainEventHandler(ISender sender, IEventBus eventBus)
-    : DomainEventHandler<{Entity}CreatedDomainEvent>
-{
-    public override async Task Handle({Entity}CreatedDomainEvent domainEvent, CancellationToken cancellationToken = default)
-    {
-        Result<{Entity}Response> result = await sender.Send(new Get{Entity}Query(domainEvent.{Entity}Id), cancellationToken);
-        if (result.IsFailure) throw new FoodDeliveryException(nameof(Get{Entity}Query), result.Error);
-
-        await eventBus.PublishAsync(
-            new {Entity}CreatedIntegrationEvent(domainEvent.Id, domainEvent.OccurredOnUtc, result.Value...),
-            cancellationToken);
-    }
-}
-```
-
-### Step 3 — Integration Events (`src/Modules/{Module}/FoodDelivery.Modules.{Module}.IntegrationEvents/`)
-
-```csharp
-public sealed class {Entity}CreatedIntegrationEvent : IntegrationEvent
-{
-    public {Entity}CreatedIntegrationEvent(Guid id, DateTime occurredOnUtc, Guid {entity}Id, ...)
+    public {Action}IntegrationEvent(Guid id, DateTime occurredOnUtc, Guid {entity}Id, ...)
         : base(id, occurredOnUtc)
     {
         {Entity}Id = {entity}Id;
-        // ... snapshot of data needed by other modules
+        // full snapshot — consumers cannot call back across services
     }
     public Guid {Entity}Id { get; init; }
 }
 ```
 
-### Step 4 — Infrastructure Layer (`src/Modules/{Module}/FoodDelivery.Modules.{Module}.Infrastructure/`)
+### Step 4 — Infrastructure Layer (`.../FoodDeliveryService.Modules.{Module}.Infrastructure/`)
 
-**EF Core configuration:**
-```csharp
-internal sealed class {Entity}Configuration : IEntityTypeConfiguration<{Entity}>
-{
-    public void Configure(EntityTypeBuilder<{Entity}> builder)
-    {
-        builder.HasKey(e => e.Id);
-        builder.Property(e => e.Name).HasMaxLength(200).IsRequired();
-        builder.ToTable("{table}", Schemas.{Module});
-    }
-}
-```
+- `IEntityTypeConfiguration<{Entity}>` (`builder.ToTable("{table}")` — no schema; `UseSnakeCaseNamingConvention` handles columns)
+- `{Entity}Repository` implementing the Domain interface via the module's DbContext
+- Register repository in `{Module}Module.AddInfrastructure`
+- If consuming another service's event: add `AddConsumer<IntegrationEventConsumer<TEvent>>().Endpoint(c => c.InstanceId = instanceId)` in `ConfigureConsumers` — see `/add-integration-event`
+- Migration: `dotnet ef migrations add {Name} --project src/Modules/{Module}/FoodDeliveryService.Modules.{Module}.Infrastructure --startup-project src/API/FoodDeliveryService.{Module}.Api`
 
-**Repository:**
-```csharp
-internal sealed class {Entity}Repository(I{Module}DbContext context) : I{Entity}Repository
-{
-    public async Task<{Entity}?> GetAsync(Guid id, CancellationToken ct) =>
-        await context.{Entities}.SingleOrDefaultAsync(e => e.Id == id, ct);
-
-    public void Insert({Entity} {entity}) => context.{Entities}.Add({entity});
-}
-```
-
-**Register in `{Module}Module.cs` AddInfrastructure():**
-```csharp
-services.AddScoped<I{Entity}Repository, {Entity}Repository>();
-```
-
-### Step 5 — Presentation Layer (`src/Modules/{Module}/FoodDelivery.Modules.{Module}.Presentation/`)
+### Step 5 — Presentation Layer (`.../FoodDeliveryService.Modules.{Module}.Presentation/`)
 
 **Endpoint:**
 ```csharp
-internal sealed class Create{Entity} : IEndpoint
+internal sealed class {Action}{Entity} : IEndpoint
 {
     public void MapEndpoint(IEndpointRouteBuilder app)
     {
-        app.MapPost("{route}", async (Request request, ISender sender) =>
+        app.MapPost("{route-under-module-prefix}", async (Request request, ISender sender) =>
         {
-            Result<Guid> result = await sender.Send(new Create{Entity}Command(...));
+            Result<Guid> result = await sender.Send(new {Action}{Entity}Command(...));
             return result.Match(Results.Ok, ApiResults.Problem);
         })
-        .RequireAuthorization(Permissions.Modify{Entity})
+        .RequireAuthorization(Permissions.{Action}{Entity})
         .WithTags(Tags.{Module});
     }
 
-    internal sealed class Request { /* input properties */ }
+    internal sealed class Request { /* input DTO */ }
 }
 ```
 
-**Integration event consumer** (if this module reacts to another module's events):
+**Integration event handler** (if this module reacts to another service's events):
 ```csharp
-internal sealed class {Entity}CreatedIntegrationEventHandler(ISender sender) : IEndpoint
+internal sealed class {Event}IntegrationEventHandler(ISender sender)
+    : IntegrationEventHandler<{Event}IntegrationEvent>
 {
-    public void MapEndpoint(IEndpointRouteBuilder app)
+    public override async Task Handle({Event}IntegrationEvent integrationEvent, CancellationToken cancellationToken = default)
     {
-        app.MapPost("/dapr/subscribe/{topic}",
-            async ([FromBody] {Entity}CreatedIntegrationEvent @event, ISender sender) =>
-            {
-                Result result = await sender.Send(new Create{LocalEntity}Command(@event.{Entity}Id, ...));
-                if (result.IsFailure) throw new FoodDeliveryException(nameof(Create{LocalEntity}Command), result.Error);
-                return Results.Ok();
-            })
-            .WithTopic("fooddelivery-pubsub", nameof({Entity}CreatedIntegrationEvent));
+        Result result = await sender.Send(new {LocalAction}Command(integrationEvent....), cancellationToken);
+        if (result.IsFailure)
+            throw new Common.Application.Exceptions.ApplicationException(nameof({LocalAction}Command), result.Error);
     }
 }
 ```
+(Dispatched by `ProcessInboxJob`; the paired `IntegrationEventConsumer<T>` registration from Step 4 feeds the inbox.)
 
 ## Post-Implementation Checklist
 - [ ] `dotnet build` — zero compilation errors
-- [ ] Domain entity has no EF Core / DAPR / MediatR using statements
-- [ ] Query handlers use `IDbConnectionFactory` + Dapper (grep for `DbSet` in query files)
-- [ ] All commands/queries return `Result<T>`
+- [ ] Domain entity has no EF Core / MassTransit / MediatR using statements
+- [ ] Query handlers use `IDbConnectionFactory` + Dapper (grep for `DbSet` in query files) and touch only this service's DB
+- [ ] All commands/queries return `Result<T>`; endpoints use `result.Match(Results.Ok, ApiResults.Problem)`
 - [ ] Domain event raised in every state-changing method
-- [ ] Module registration updated in `{Module}Module.cs`
-- [ ] `IEndpoint` implementations registered via `AddEndpoints(Presentation.AssemblyReference.Assembly)`
+- [ ] Cross-service reactions: integration event published (outbox) AND consumer registered + handler added in every consuming service (inbox)
+- [ ] Migration added for schema changes
+- [ ] Route reachable through the Gateway; new prefixes added to YARP config
+- [ ] Endpoint has `.RequireAuthorization(...)` (or an intentional anonymous YARP route)
+- [ ] If a saga was warranted, it was proposed to the user
+- [ ] Verify the flow end-to-end in Jaeger (http://localhost:16686) and Seq (http://localhost:8081) when running via `docker-compose up -d`

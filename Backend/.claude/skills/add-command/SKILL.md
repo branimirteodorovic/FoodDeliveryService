@@ -8,17 +8,17 @@ argument-hint: [ModuleName] [ActionEntity]
 
 Arguments: `$ARGUMENTS` — format: `{ModuleName} {ActionEntity}` (e.g. `Orders PlaceOrder` or `Restaurants CreateRestaurant`)
 
-Reference: `evently_source_code/evently/src/Modules/Events/Evently.Modules.Events.Application/Events/CreateEvent/`
+Reference: `src/Modules/Users/FoodDeliveryService.Modules.Users.Application/Users/RegisterUser/`
 
 ## Files to Create
 
-Path: `src/Modules/{ModuleName}/FoodDelivery.Modules.{ModuleName}.Application/{Domain}/{ActionEntity}/`
+Path: `src/Modules/{ModuleName}/FoodDeliveryService.Modules.{ModuleName}.Application/{Entity}s/{ActionEntity}/`
 
 ### 1. `{ActionEntity}Command.cs`
 ```csharp
-using FoodDelivery.Common.Application.Messaging;
+using FoodDeliveryService.Common.Application.Messaging;
 
-namespace FoodDelivery.Modules.{ModuleName}.Application.{Domain}.{ActionEntity};
+namespace FoodDeliveryService.Modules.{ModuleName}.Application.{Entity}s.{ActionEntity};
 
 public sealed record {ActionEntity}Command(
     // properties matching the operation inputs
@@ -27,12 +27,12 @@ public sealed record {ActionEntity}Command(
 
 ### 2. `{ActionEntity}CommandHandler.cs`
 ```csharp
-using FoodDelivery.Common.Application.Messaging;
-using FoodDelivery.Common.Domain;
-using FoodDelivery.Modules.{ModuleName}.Application.Abstractions.Data;
-using FoodDelivery.Modules.{ModuleName}.Domain.{Domain}s;
+using FoodDeliveryService.Common.Application.Messaging;
+using FoodDeliveryService.Common.Domain;
+using FoodDeliveryService.Modules.{ModuleName}.Application.Abstractions.Data;
+using FoodDeliveryService.Modules.{ModuleName}.Domain.{Entity}s;
 
-namespace FoodDelivery.Modules.{ModuleName}.Application.{Domain}.{ActionEntity};
+namespace FoodDeliveryService.Modules.{ModuleName}.Application.{Entity}s.{ActionEntity};
 
 internal sealed class {ActionEntity}CommandHandler(
     I{Entity}Repository {entity}Repository,
@@ -44,7 +44,7 @@ internal sealed class {ActionEntity}CommandHandler(
         // 1. Fetch domain dependencies (repos, other aggregates needed)
         {Entity}? {entity} = await {entity}Repository.GetAsync(request.{Entity}Id, cancellationToken);
         if ({entity} is null)
-            return Result.Failure<Guid>({Entity}Errors.NotFound(request.{Entity}Id));
+            return Result.Failure<Guid>({Entity}Errors.NotFoundById(request.{Entity}Id));
 
         // 2. Call domain method — ALL business logic lives in the domain entity
         Result result = {entity}.{BusinessAction}(request.SomeParam);
@@ -62,7 +62,7 @@ internal sealed class {ActionEntity}CommandHandler(
 ```csharp
 using FluentValidation;
 
-namespace FoodDelivery.Modules.{ModuleName}.Application.{Domain}.{ActionEntity};
+namespace FoodDeliveryService.Modules.{ModuleName}.Application.{Entity}s.{ActionEntity};
 
 internal sealed class {ActionEntity}CommandValidator : AbstractValidator<{ActionEntity}Command>
 {
@@ -75,9 +75,28 @@ internal sealed class {ActionEntity}CommandValidator : AbstractValidator<{Action
 }
 ```
 
+### 4. Endpoint (Presentation project) — if the command is triggered over HTTP
+```csharp
+internal sealed class {ActionEntity} : IEndpoint
+{
+    public void MapEndpoint(IEndpointRouteBuilder app)
+    {
+        app.MapPost("{module-route}", async (Request request, ISender sender) =>
+        {
+            Result<Guid> result = await sender.Send(new {ActionEntity}Command(...));
+            return result.Match(Results.Ok, ApiResults.Problem);
+        })
+        .RequireAuthorization(Permissions.{ActionEntity})
+        .WithTags(Tags.{ModuleName});
+    }
+}
+```
+The route must fall under the module's YARP prefix (`{module}/**`) — no gateway change needed then. Commands can also be triggered by integration event handlers (inbox) instead of HTTP.
+
 ## Rules
 - Handler is `internal sealed` — never `public`
 - Handler ONLY orchestrates: fetch → call domain method → persist. No if/else business logic
 - Always `await unitOfWork.SaveChangesAsync(cancellationToken)` — never `SaveChanges()`
 - Validator covers every property that can be invalid
 - If creating a new aggregate, call the static factory: `{Entity}.Create(...)` — never `new {Entity}(...)`
+- If the state change matters to other services, add a domain event + integration event (`/add-domain-event`)

@@ -8,17 +8,17 @@ argument-hint: [ModuleName] [EntityName]
 
 Arguments: `$ARGUMENTS` — format: `{ModuleName} {EntityName}` (e.g. `Orders Order` or `Restaurants Restaurant`)
 
-Reference: `evently_source_code/evently/src/Modules/Events/Evently.Modules.Events.Application/Categories/GetCategories/`
+Reference: `src/Modules/Users/FoodDeliveryService.Modules.Users.Application/Users/GetUser/`
 
 ## Files to Create
 
-Path: `src/Modules/{ModuleName}/FoodDelivery.Modules.{ModuleName}.Application/{Domain}s/Get{Entity}/`
+Path: `src/Modules/{ModuleName}/FoodDeliveryService.Modules.{ModuleName}.Application/{Entity}s/Get{Entity}/`
 
 ### 1. `Get{Entity}Query.cs`
 ```csharp
-using FoodDelivery.Common.Application.Messaging;
+using FoodDeliveryService.Common.Application.Messaging;
 
-namespace FoodDelivery.Modules.{ModuleName}.Application.{Domain}s.Get{Entity};
+namespace FoodDeliveryService.Modules.{ModuleName}.Application.{Entity}s.Get{Entity};
 
 public sealed record Get{Entity}Query(Guid {Entity}Id) : IQuery<{Entity}Response>;
 ```
@@ -30,7 +30,7 @@ public sealed record Get{Entities}Query : IQuery<IReadOnlyCollection<{Entity}Res
 
 ### 2. `{Entity}Response.cs`
 ```csharp
-namespace FoodDelivery.Modules.{ModuleName}.Application.{Domain}s.Get{Entity};
+namespace FoodDeliveryService.Modules.{ModuleName}.Application.{Entity}s.Get{Entity};
 
 public sealed record {Entity}Response(
     Guid Id,
@@ -43,12 +43,12 @@ public sealed record {Entity}Response(
 ```csharp
 using System.Data.Common;
 using Dapper;
-using FoodDelivery.Common.Application.Data;
-using FoodDelivery.Common.Application.Messaging;
-using FoodDelivery.Common.Domain;
-using FoodDelivery.Modules.{ModuleName}.Domain.{Domain}s;
+using FoodDeliveryService.Common.Application.Data;
+using FoodDeliveryService.Common.Application.Messaging;
+using FoodDeliveryService.Common.Domain;
+using FoodDeliveryService.Modules.{ModuleName}.Domain.{Entity}s;
 
-namespace FoodDelivery.Modules.{ModuleName}.Application.{Domain}s.Get{Entity};
+namespace FoodDeliveryService.Modules.{ModuleName}.Application.{Entity}s.Get{Entity};
 
 internal sealed class Get{Entity}QueryHandler(IDbConnectionFactory dbConnectionFactory)
     : IQueryHandler<Get{Entity}Query, {Entity}Response>
@@ -64,12 +64,12 @@ internal sealed class Get{Entity}QueryHandler(IDbConnectionFactory dbConnectionF
              SELECT
                  id AS {nameof({Entity}Response.Id)},
                  name AS {nameof({Entity}Response.Name)}
-             FROM {schema}.{table}
+             FROM {table}
              WHERE id = @{Entity}Id
              """;
 
         {Entity}Response? response = await connection.QuerySingleOrDefaultAsync<{Entity}Response>(
-            sql, new {{ request.{Entity}Id }});
+            sql, new { request.{Entity}Id });
 
         return response is not null
             ? response
@@ -90,19 +90,38 @@ internal sealed class Get{Entities}QueryHandler(IDbConnectionFactory dbConnectio
 
         const string sql = $"""
             SELECT id AS {nameof({Entity}Response.Id)}, name AS {nameof({Entity}Response.Name)}
-            FROM {schema}.{table}
+            FROM {table}
             ORDER BY name
+            LIMIT @Limit
             """;
 
-        List<{Entity}Response> responses = (await connection.QueryAsync<{Entity}Response>(sql)).AsList();
+        List<{Entity}Response> responses = (await connection.QueryAsync<{Entity}Response>(sql, request)).AsList();
         return responses;
+    }
+}
+```
+
+### 4. Endpoint (Presentation project)
+```csharp
+internal sealed class Get{Entity} : IEndpoint
+{
+    public void MapEndpoint(IEndpointRouteBuilder app)
+    {
+        app.MapGet("{module-route}/{id:guid}", async (Guid id, ISender sender) =>
+        {
+            Result<{Entity}Response> result = await sender.Send(new Get{Entity}Query(id));
+            return result.Match(Results.Ok, ApiResults.Problem);
+        })
+        .RequireAuthorization(Permissions.Get{Entity})
+        .WithTags(Tags.{ModuleName});
     }
 }
 ```
 
 ## Rules
 - **NEVER use EF Core DbSet in query handlers** — always Dapper via `IDbConnectionFactory`
+- Tables are snake_case in the default (`public`) schema of the service's OWN database — no schema prefix, no cross-service queries
+- If you need data owned by another service, it must be replicated into this module via integration events first
 - Use `nameof(ResponseType.Property)` for column aliases to keep SQL refactor-safe
-- Response types are `sealed record` (or `sealed class`) — NOT domain entities
-- Column aliases must match response property names exactly (case-sensitive with snake_case DB columns)
-- Schema comes from `Schemas.{ModuleName}` constant in Infrastructure — use the string value in raw SQL
+- Response types are `sealed record` — NOT domain entities
+- Parameterize everything (including `LIMIT`) — never interpolate user input into SQL

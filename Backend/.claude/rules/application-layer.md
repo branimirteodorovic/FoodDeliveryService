@@ -1,6 +1,6 @@
 ---
 name: application-layer-rules
-description: Rules that apply when working in FoodDelivery Application layer projects
+description: Rules that apply when working in FoodDeliveryService Application layer projects
 paths: ["**/Application/**/*.cs", "**/Modules/**/*.Application/**/*.cs"]
 ---
 
@@ -21,7 +21,7 @@ public sealed record Create{Entity}Command(
 ```csharp
 internal sealed class Create{Entity}CommandHandler(         // internal sealed — always
     I{Entity}Repository repository,
-    IUnitOfWork unitOfWork)
+    IUnitOfWork unitOfWork)                                 // module's own IUnitOfWork abstraction
     : ICommandHandler<Create{Entity}Command, Guid>          // NOT IRequestHandler directly
 {
     public async Task<Result<Guid>> Handle(Create{Entity}Command request, CancellationToken cancellationToken)
@@ -47,10 +47,11 @@ internal sealed class Get{Entity}QueryHandler(IDbConnectionFactory dbConnectionF
     {
         await using DbConnection connection = await dbConnectionFactory.OpenConnectionAsync();
 
-        // Raw SQL with Dapper — NEVER EF Core DbSet for reads
+        // Raw SQL with Dapper — NEVER EF Core DbSet for reads.
+        // Tables are snake_case in the default (public) schema — no schema prefix.
         const string sql = $"""
             SELECT id AS {nameof({Entity}Response.Id)}, name AS {nameof({Entity}Response.Name)}
-            FROM {schema}.{table} WHERE id = @{nameof(request.{Entity}Id)}
+            FROM {table} WHERE id = @{nameof(request.{Entity}Id)}
             """;
 
         var result = await connection.QuerySingleOrDefaultAsync<{Entity}Response>(sql, request);
@@ -59,7 +60,7 @@ internal sealed class Get{Entity}QueryHandler(IDbConnectionFactory dbConnectionF
 }
 ```
 
-**NEVER use `DbSet<T>` or `_context.{Entities}` in query handlers.** Use `IDbConnectionFactory` + Dapper.
+**NEVER use `DbSet<T>` or `_context.{Entities}` in query handlers.** Use `IDbConnectionFactory` + Dapper. Each service can only query its OWN database — if you need another service's data, it must be replicated locally via integration events.
 
 ## Validators
 ```csharp
@@ -73,7 +74,7 @@ internal sealed class Create{Entity}CommandValidator : AbstractValidator<Create{
 }
 ```
 
-## Domain Event Handlers
+## Domain Event Handlers (publish integration events)
 ```csharp
 internal sealed class {Entity}CreatedDomainEventHandler(ISender sender, IEventBus eventBus)
     : DomainEventHandler<{Entity}CreatedDomainEvent>          // NOT INotificationHandler
@@ -81,7 +82,8 @@ internal sealed class {Entity}CreatedDomainEventHandler(ISender sender, IEventBu
     public override async Task Handle({Entity}CreatedDomainEvent domainEvent, CancellationToken cancellationToken = default)
     {
         Result<{Entity}Response> result = await sender.Send(new Get{Entity}Query(domainEvent.{Entity}Id), cancellationToken);
-        if (result.IsFailure) throw new FoodDeliveryException(nameof(Get{Entity}Query), result.Error);
+        if (result.IsFailure)
+            throw new Common.Application.Exceptions.ApplicationException(nameof(Get{Entity}Query), result.Error);
 
         await eventBus.PublishAsync(
             new {Entity}CreatedIntegrationEvent(domainEvent.Id, domainEvent.OccurredOnUtc, result.Value...),
@@ -89,11 +91,14 @@ internal sealed class {Entity}CreatedDomainEventHandler(ISender sender, IEventBu
     }
 }
 ```
+These run from `ProcessOutboxJob` (Quartz), are decorated with `IdempotentDomainEventHandler`, and publish to RabbitMQ via MassTransit (`IEventBus`). Reference: `src/Modules/Users/...Users.Application/Users/RegisterUser/UserRegisteredDomainEventHandler.cs`.
 
 ## Rules Summary
 1. **No business logic in handlers** — if you're writing `if/else` that encodes business rules, move it to the domain entity
-2. **Dapper for all reads** — never `DbSet<T>` in query handlers
+2. **Dapper for all reads** — never `DbSet<T>` in query handlers; snake_case tables, no schema prefix
 3. **Always async** — `SaveChangesAsync` not `SaveChanges`; `OpenConnectionAsync` not `OpenConnection`
 4. **All types internal sealed** — commands, queries, handlers, validators
 5. **Use `ISender` for cross-handler calls** — never instantiate handlers directly
-6. **Throw on integration event failure** — if publishing fails, throw `FoodDeliveryException` so the outbox retries
+6. **Throw `Common.Application.Exceptions.ApplicationException` on integration event failure** — the outbox job catches it and retries
+7. **Publish only via `IEventBus`** — never inject MassTransit's `IBus`/`IPublishEndpoint` here
+8. **Integration events are full snapshots** — include everything consumers need; they cannot call back across services

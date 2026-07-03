@@ -1,5 +1,5 @@
 ---
-description: Add a cross-module integration event consumer for FoodDeliveryService. Use when one module needs to react to events published by another module via DAPR pub/sub.
+description: Add a cross-service integration event consumer for FoodDeliveryService. Use when one microservice needs to react to events published by another service via MassTransit/RabbitMQ with the inbox pattern.
 disable-model-invocation: true
 argument-hint: [PublishingModule] [ConsumingModule] [EventName]
 ---
@@ -8,26 +8,30 @@ argument-hint: [PublishingModule] [ConsumingModule] [EventName]
 
 Arguments: `$ARGUMENTS` — format: `{PublishingModule} {ConsumingModule} {EventName}` (e.g. `Orders Notifications OrderPlaced`)
 
-Reference:
-- Consumer: `evently_source_code/evently/src/Modules/Attendance/Evently.Modules.Attendance.Presentation/Events/EventPublishedIntegrationEventHandler.cs`
-- Integration event: `evently_source_code/evently/src/Modules/Events/Evently.Modules.Events.IntegrationEvents/EventPublishedIntegrationEvent.cs`
+Reference (working example — Orders consuming Users events):
+- Consumer registration: `src/Modules/Orders/FoodDeliveryService.Modules.Orders.Infrastructure/OrdersModule.cs` (`ConfigureConsumers`)
+- Generic inbox consumer: `src/Modules/Orders/FoodDeliveryService.Modules.Orders.Infrastructure/Inbox/IntegrationEventConsumer.cs`
+- Contract: `src/Modules/Users/FoodDeliveryService.Modules.Users.IntegrationEvents/UserRegisteredIntegrationEvent.cs`
+
+## Flow being wired
+RabbitMQ → MassTransit `IntegrationEventConsumer<TEvent>` (writes `inbox_messages` only) → `ProcessInboxJob` (Quartz) → `IIntegrationEventHandler<TEvent>` in the consuming module's **Presentation** assembly (decorated with `IdempotentIntegrationEventHandler` — safe against duplicate delivery).
 
 ## Files to Create / Modify
 
-### 1. Integration Event Contract (if not already exists)
-Path: `src/Modules/{PublishingModule}/FoodDelivery.Modules.{PublishingModule}.IntegrationEvents/{EventName}IntegrationEvent.cs`
+### 1. Integration Event Contract (if it doesn't exist yet)
+Path: `src/Modules/{PublishingModule}/FoodDeliveryService.Modules.{PublishingModule}.IntegrationEvents/{EventName}IntegrationEvent.cs`
 
 ```csharp
-using FoodDelivery.Common.Application.EventBus;
+using FoodDeliveryService.Common.Application.EventBus;
 
-namespace FoodDelivery.Modules.{PublishingModule}.IntegrationEvents;
+namespace FoodDeliveryService.Modules.{PublishingModule}.IntegrationEvents;
 
 public sealed class {EventName}IntegrationEvent : IntegrationEvent
 {
     public {EventName}IntegrationEvent(Guid id, DateTime occurredOnUtc, ...)
         : base(id, occurredOnUtc)
     {
-        // Include all data consuming modules need
+        // Include all data consuming services need — full snapshot, no call-backs possible
     }
 
     public Guid SomeId { get; init; }
@@ -35,57 +39,56 @@ public sealed class {EventName}IntegrationEvent : IntegrationEvent
 }
 ```
 
-### 2. Project Reference
-In `FoodDelivery.Modules.{ConsumingModule}.Presentation.csproj`, add:
+### 2. Project References
+The consuming module references ONLY the publisher's IntegrationEvents project:
+- In `FoodDeliveryService.Modules.{ConsumingModule}.Presentation.csproj` (for the handler)
+- In `FoodDeliveryService.Modules.{ConsumingModule}.Infrastructure.csproj` (for the consumer registration)
 ```xml
-<ProjectReference Include="..\..\..\..\{PublishingModule}\FoodDelivery.Modules.{PublishingModule}.IntegrationEvents\FoodDelivery.Modules.{PublishingModule}.IntegrationEvents.csproj" />
+<ProjectReference Include="..\..\Users\FoodDeliveryService.Modules.{PublishingModule}.IntegrationEvents\FoodDeliveryService.Modules.{PublishingModule}.IntegrationEvents.csproj" />
 ```
 
-### 3. Integration Event Consumer Endpoint
-Path: `src/Modules/{ConsumingModule}/FoodDelivery.Modules.{ConsumingModule}.Presentation/{Entity}s/{EventName}IntegrationEventHandler.cs`
+### 3. Register the MassTransit Consumer — consuming module Infrastructure
+In `src/Modules/{ConsumingModule}/FoodDeliveryService.Modules.{ConsumingModule}.Infrastructure/{ConsumingModule}Module.cs`, inside `ConfigureConsumers`:
 
 ```csharp
-using FoodDelivery.Common.Application.Exceptions;
-using FoodDelivery.Common.Domain;
-using FoodDelivery.Common.Presentation.Endpoints;
-using FoodDelivery.Modules.{PublishingModule}.IntegrationEvents;
+registrationConfigurator.AddConsumer<IntegrationEventConsumer<{EventName}IntegrationEvent>>()
+    .Endpoint(c => c.InstanceId = instanceId);   // REQUIRED — gives this service its own queue
+```
+`IntegrationEventConsumer<T>` already exists in the module's `Infrastructure/Inbox/` — it only persists the message to `inbox_messages`. Do not add logic to it.
+
+### 4. Integration Event Handler — consuming module Presentation
+Path: `src/Modules/{ConsumingModule}/FoodDeliveryService.Modules.{ConsumingModule}.Presentation/{Entity}s/{EventName}IntegrationEventHandler.cs`
+
+```csharp
+using FoodDeliveryService.Common.Application.EventBus;
+using FoodDeliveryService.Common.Domain;
+using FoodDeliveryService.Modules.{PublishingModule}.IntegrationEvents;
 using MediatR;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Routing;
 
-namespace FoodDelivery.Modules.{ConsumingModule}.Presentation.{Entity}s;
+namespace FoodDeliveryService.Modules.{ConsumingModule}.Presentation.{Entity}s;
 
-internal sealed class {EventName}IntegrationEventHandler(ISender sender) : IEndpoint
+internal sealed class {EventName}IntegrationEventHandler(ISender sender)
+    : IntegrationEventHandler<{EventName}IntegrationEvent>
 {
-    public void MapEndpoint(IEndpointRouteBuilder app)
+    public override async Task Handle(
+        {EventName}IntegrationEvent integrationEvent,
+        CancellationToken cancellationToken = default)
     {
-        app.MapPost("/dapr/subscribe/{consuming-module}/{event-topic}",
-            async ([FromBody] {EventName}IntegrationEvent @event, ISender sender) =>
-            {
-                Result result = await sender.Send(
-                    new Create{LocalEntity}Command(@event.SomeId, ...),
-                    CancellationToken.None);
+        Result result = await sender.Send(
+            new {LocalAction}Command(integrationEvent.SomeId, ...),
+            cancellationToken);
 
-                if (result.IsFailure)
-                    throw new FoodDeliveryException(nameof(Create{LocalEntity}Command), result.Error);
-
-                return Results.Ok();
-            })
-            .WithTopic("fooddelivery-pubsub", nameof({EventName}IntegrationEvent))
-            .ExcludeFromDescription(); // hide from Swagger — internal subscription endpoint
+        if (result.IsFailure)
+            throw new Common.Application.Exceptions.ApplicationException(nameof({LocalAction}Command), result.Error);
     }
 }
 ```
-
-### 4. Add Inbox Idempotency (if needed)
-For idempotent processing, the `IdempotentIntegrationEventHandler<T>` decorator is applied automatically
-by `AddIntegrationEventHandlers()` in the module registration. No extra work needed.
+Discovered automatically by `AddIntegrationEventHandlers()` in `{ConsumingModule}Module.cs` (scans the Presentation assembly) and decorated with `IdempotentIntegrationEventHandler`. The `{LocalAction}Command` is a normal command in the consuming module's Application layer — create it with `/add-command` if missing.
 
 ## Notes
-- The DAPR topic name MUST match `nameof({EventName}IntegrationEvent)` on both publisher and consumer
-- `app.MapSubscribeHandler()` in Program.cs exposes `/dapr/subscribe` so DAPR can discover subscriptions
-- The inbox pattern prevents double-processing if DAPR delivers the same event twice
-- One integration event can have multiple consumers in different modules — each module has its own handler
-- Return `Results.Ok()` from the endpoint — DAPR marks the message as consumed; exception = retry
+- Idempotency is automatic (inbox table + idempotent decorator) — duplicate deliveries are ignored
+- Throwing from the handler leaves the inbox message unprocessed → `ProcessInboxJob` retries
+- One integration event can have consumers in several services — each registers its own `IntegrationEventConsumer<T>` and handler
+- Typical use: replicate publisher data into the consuming module's own tables so its queries never cross service boundaries
+- If this event is part of a multi-step workflow (3+ services, compensation, timeouts), consider a MassTransit saga instead of chaining handlers — see the commented `AddSagaStateMachine` scaffold in `OrdersModule.ConfigureConsumers`
+- Trace context flows through MassTransit automatically — verify the full publish→consume chain in Jaeger (http://localhost:16686)

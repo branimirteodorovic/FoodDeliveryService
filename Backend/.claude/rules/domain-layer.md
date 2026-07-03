@@ -1,22 +1,22 @@
 ---
 name: domain-layer-rules
-description: Rules that apply when working in FoodDelivery Domain layer projects
+description: Rules that apply when working in FoodDeliveryService Domain layer projects
 paths: ["**/Domain/**/*.cs", "**/Modules/**/*.Domain/**/*.cs"]
 ---
 
 # Domain Layer Rules
 
-You are currently editing a **Domain layer** file. Domain projects contain the core business model and must be kept pure.
+You are currently editing a **Domain layer** file. Domain projects contain the core business model and must be kept pure. Domain events raised here feed the outbox and ultimately other microservices — a missing `Raise(...)` silently breaks cross-service integration.
 
 ## Absolute Constraints
 
-**No infrastructure dependencies.** Domain projects only reference `FoodDelivery.Common.Domain`.
+**No infrastructure dependencies.** Domain projects only reference `FoodDeliveryService.Common.Domain`.
 These imports are FORBIDDEN in Domain projects:
 - `Microsoft.EntityFrameworkCore` (any EF Core namespace)
-- `Dapr` (any DAPR namespace)
+- `MassTransit`, `RabbitMQ` (any messaging namespace)
 - `MediatR` (any MediatR namespace)
-- `Quartz`, `StackExchange.Redis`, `MassTransit`
-- Any NuGet package not in `FoodDelivery.Common.Domain`
+- `Quartz`, `StackExchange.Redis`, `Dapper`
+- Any NuGet package not referenced by `FoodDeliveryService.Common.Domain`
 
 ## Required Patterns
 
@@ -79,7 +79,18 @@ public sealed record {Name}(decimal Amount, string Currency)  // sealed record =
 }
 ```
 
+### Repository Interface (lives in Domain, implemented in Infrastructure)
+```csharp
+public interface I{Name}Repository
+{
+    Task<{Name}?> GetAsync(Guid id, CancellationToken cancellationToken = default);
+    void Insert({Name} {name});
+}
+```
+
 ## Quick Reference
-- Base classes: `Entity`, `DomainEvent`, `IDomainEvent` — from `FoodDelivery.Common.Domain`
-- Result types: `Result`, `Result<T>`, `Error` — from `FoodDelivery.Common.Domain`
+- Base classes: `Entity`, `DomainEvent`, `IDomainEvent` — from `FoodDeliveryService.Common.Domain`
+- Result types: `Result`, `Result<T>`, `Error` — from `FoodDeliveryService.Common.Domain`
 - Raise events: `protected void Raise(IDomainEvent domainEvent)` — inherited from `Entity`
+- Reference example: `src/Modules/Users/FoodDeliveryService.Modules.Users.Domain/Users/User.cs`
+- If the new state change matters to other services, remember the Application layer needs a `DomainEventHandler<T>` that publishes an integration event

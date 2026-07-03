@@ -45,7 +45,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo 'REMINDER: Context was compacted. Re-read CLAUDE.md before continuing. Key rules: (1) domain logic ONLY in Domain layer, (2) Dapper for queries never EF Core, (3) DAPR pub/sub for integration events, (4) Duende IdentityServer for auth, (5) cross-module communication via integration events only. Reference evently_source_code for all patterns.'"
+            "command": "echo 'REMINDER: Context was compacted. Re-read CLAUDE.md before continuing. Key rules: (1) domain logic ONLY in Domain layer, (2) Dapper for queries never EF Core, (3) cross-service communication ONLY via MassTransit/RabbitMQ with outbox/inbox (no HTTP between services, no shared DBs), (4) Duende IdentityServer for auth, YARP gateway is the only public entry, (5) each service has its own database. Reference the Users module for patterns.'"
           }
         ]
       }
