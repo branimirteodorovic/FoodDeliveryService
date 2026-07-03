@@ -41,17 +41,19 @@ builder.Services.AddInfrastructure(
     databaseConnectionString,
     redisConnectionString);
 
-Uri keyCloakHealthUrl = builder.Configuration.GetKeyCloakHealthUrl();
+Uri duendeHealthUrl = builder.Configuration.GetDuendeHealthUrl();
 
 builder.Services.AddHealthChecks()
     .AddNpgSql(databaseConnectionString)
     .AddRedis(redisConnectionString)
     .AddRabbitMQ(sp => sp.GetRequiredService<IConnection>())
-    .AddKeyCloak(keyCloakHealthUrl);
+    .AddDuende(duendeHealthUrl);
 
 builder.Services.AddOrdersModule(builder.Configuration);
 
 WebApplication app = builder.Build();
+
+app.ApplyMigrations();
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())

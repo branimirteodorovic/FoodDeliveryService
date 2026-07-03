@@ -12,17 +12,14 @@ using FoodDeliveryService.Modules.Users.Infrastructure.Identity;
 using FoodDeliveryService.Modules.Users.Infrastructure.Inbox;
 using FoodDeliveryService.Modules.Users.Infrastructure.Outbox;
 using FoodDeliveryService.Modules.Users.Infrastructure.Users;
-using FoodDeliveryService.Modules.Users.IntegrationEvents;
 using FoodDeliveryService.Modules.Users.Presentation.Users;
 using MassTransit;
-using MassTransit.Configuration;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
-using static System.Net.Mime.MediaTypeNames;
 
 namespace FoodDeliveryService.Modules.Users.Infrastructure;
 
@@ -56,19 +53,19 @@ public static class UsersModule
     {
         services.AddScoped<IPermissionService, PermissionService>();
 
-        services.Configure<KeyCloakOptions>(configuration.GetSection("Users:KeyCloak"));
+        services.Configure<DuendeOptions>(configuration.GetSection("Duende"));
 
-        services.AddTransient<KeyCloakAuthDelegatingHandler>();
+        services.AddTransient<DuendeAuthDelegatingHandler>();
 
         services
-            .AddHttpClient<KeyCloakClient>((serviceProvider, httpClient) =>
+            .AddHttpClient<DuendeIdentityClient>((serviceProvider, httpClient) =>
             {
-                KeyCloakOptions keycloakOptions = serviceProvider
-                    .GetRequiredService<IOptions<KeyCloakOptions>>().Value;
+                DuendeOptions duendeOptions = serviceProvider
+                    .GetRequiredService<IOptions<DuendeOptions>>().Value;
 
-                httpClient.BaseAddress = new Uri(keycloakOptions.AdminUrl);
+                httpClient.BaseAddress = new Uri(duendeOptions.AdminUrl);
             })
-            .AddHttpMessageHandler<KeyCloakAuthDelegatingHandler>();
+            .AddHttpMessageHandler<DuendeAuthDelegatingHandler>();
 
         services.AddTransient<IIdentityProviderService, IdentityProviderService>();
 
@@ -85,11 +82,11 @@ public static class UsersModule
 
         services.AddScoped<IUnitOfWork>(sp => sp.GetRequiredService<UsersDbContext>());
 
-        services.Configure<OutboxOptions>(configuration.GetSection("Users:Outbox"));
+        services.Configure<OutboxOptions>(configuration.GetSection("MessageProcessor:Outbox"));
 
         services.ConfigureOptions<ConfigureProcessOutboxJob>();
 
-        services.Configure<InboxOptions>(configuration.GetSection("Users:Inbox"));
+        services.Configure<InboxOptions>(configuration.GetSection("MessageProcessor:Inbox"));
 
         services.ConfigureOptions<ConfigureProcessInboxJob>();
     }

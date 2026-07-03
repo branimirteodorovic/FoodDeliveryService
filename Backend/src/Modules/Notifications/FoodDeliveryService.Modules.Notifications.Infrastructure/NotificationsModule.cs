@@ -67,11 +67,11 @@ public static class NotificationsModule
 
         services.AddScoped<INotificationContext, NotificationsContext>();
 
-        services.Configure<OutboxOptions>(configuration.GetSection("Notifications:Outbox"));
+        services.Configure<OutboxOptions>(configuration.GetSection("MessageProcessor:Outbox"));
 
         services.ConfigureOptions<ConfigureProcessOutboxJob>();
 
-        services.Configure<InboxOptions>(configuration.GetSection("Notifications:Inbox"));
+        services.Configure<InboxOptions>(configuration.GetSection("MessageProcessor:Inbox"));
 
         services.ConfigureOptions<ConfigureProcessInboxJob>();
     }

@@ -1,6 +1,6 @@
-﻿namespace FoodDeliveryService.Modules.Users.Infrastructure.Identity;
+namespace FoodDeliveryService.Modules.Users.Infrastructure.Identity;
 
-internal sealed class KeyCloakOptions
+internal sealed class DuendeOptions
 {
     public string AdminUrl { get; set; }
 
@@ -11,4 +11,6 @@ internal sealed class KeyCloakOptions
     public string ConfidentialClientSecret { get; set; }
 
     public string PublicClientId { get; set; }
+
+    public string Scope { get; set; }
 }

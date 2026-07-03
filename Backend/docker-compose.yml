@@ -64,20 +64,16 @@ services:
       - 5432:5432
 
   fooddeliveryservice.identity:
-    image: quay.io/keycloak/keycloak:26.5.1
+    image: ${DOCKER_REGISTRY-}fooddeliveryserviceidentity
     container_name: FoodDeliveryService.Identity
-    command: start-dev --import-realm
-    environment:
-      - KC_HEALTH_ENABLED=true
-      - KEYCLOAK_ADMIN=admin
-      - KEYCLOAK_ADMIN_PASSWORD=admin
-    volumes:
-      - ./.containers/identity:/opt/keycloak/data
-      - ./.files:/opt/keycloak/data/import
+    build:
+      context: .
+      dockerfile: src/API/FoodDeliveryService.Identity/Dockerfile
+    depends_on:
+      - fooddeliveryservice.database
     ports:
       - 18080:8080
-      - 9000:9000
-    user: root # Required to set volume permissions
+      - 18081:8081
 
   fooddeliveryservice.seq:
     image: datalust/seq:2025.2

@@ -1,5 +1,4 @@
-﻿using FoodDeliveryService.Common.Application.Authorization;
-using FoodDeliveryService.Common.Application.EventBus;
+﻿using FoodDeliveryService.Common.Application.EventBus;
 using FoodDeliveryService.Common.Application.Messaging;
 using FoodDeliveryService.Common.Infrastructure.Outbox;
 using FoodDeliveryService.Common.Presentation.Endpoints;
@@ -13,7 +12,6 @@ using FoodDeliveryService.Modules.Restaurants.Infrastructure.Outbox;
 using FoodDeliveryService.Modules.Restaurants.Infrastructure.Restaurants;
 using FoodDeliveryService.Modules.Users.IntegrationEvents;
 using MassTransit;
-using MassTransit.Configuration;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.Configuration;
@@ -67,11 +65,11 @@ public static class RestaurantsModule
 
         services.AddScoped<IRestaurantsContext, RestaurantsContext>();
 
-        services.Configure<OutboxOptions>(configuration.GetSection("Restaurants:Outbox"));
+        services.Configure<OutboxOptions>(configuration.GetSection("MessageProcessor:Outbox"));
 
         services.ConfigureOptions<ConfigureProcessOutboxJob>();
 
-        services.Configure<InboxOptions>(configuration.GetSection("Restaurants:Inbox"));
+        services.Configure<InboxOptions>(configuration.GetSection("MessageProcessor:Inbox"));
 
         services.ConfigureOptions<ConfigureProcessInboxJob>();
     }

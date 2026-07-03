@@ -1,31 +1,27 @@
-﻿using System.Net;
+using System.Net;
 using FoodDeliveryService.Common.Domain;
 using FoodDeliveryService.Modules.Users.Application.Abstractions.Identity;
-using FoodDeliveryService.Modules.Users.Infrastructure.Identity;
 using Microsoft.Extensions.Logging;
 
 namespace FoodDeliveryService.Modules.Users.Infrastructure.Identity;
 
-internal sealed class IdentityProviderService(KeyCloakClient keyCloakClient, ILogger<IdentityProviderService> logger)
+internal sealed class IdentityProviderService(
+    DuendeIdentityClient duendeIdentityClient,
+    ILogger<IdentityProviderService> logger)
     : IIdentityProviderService
 {
-    private const string PasswordCredentialType = "password";
-
-    // POST /admin/realms/{realm}/users
+    // POST /api/users
     public async Task<Result<string>> RegisterUserAsync(UserModel user, CancellationToken cancellationToken = default)
     {
-        var userRepresentation = new UserRepresentation(
-            user.Email,
+        var registerUserRequest = new RegisterUserRequest(
             user.Email,
             user.FirstName,
             user.LastName,
-            true,
-            true,
-            [new CredentialRepresentation(PasswordCredentialType, user.Password, false)]);
+            user.Password);
 
         try
         {
-            string identityId = await keyCloakClient.RegisterUserAsync(userRepresentation, cancellationToken);
+            string identityId = await duendeIdentityClient.RegisterUserAsync(registerUserRequest, cancellationToken);
 
             return identityId;
         }

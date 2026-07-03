@@ -1,13 +1,13 @@
-﻿using System.Net.Http.Headers;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
 
 namespace FoodDeliveryService.Modules.Users.Infrastructure.Identity;
 
-internal sealed class KeyCloakAuthDelegatingHandler(IOptions<KeyCloakOptions> options) : DelegatingHandler
+internal sealed class DuendeAuthDelegatingHandler(IOptions<DuendeOptions> options) : DelegatingHandler
 {
-    private readonly KeyCloakOptions _options = options.Value;
+    private readonly DuendeOptions _options = options.Value;
 
     protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
@@ -30,7 +30,7 @@ internal sealed class KeyCloakAuthDelegatingHandler(IOptions<KeyCloakOptions> op
         {
             new("client_id", _options.ConfidentialClientId),
             new("client_secret", _options.ConfidentialClientSecret),
-            new("scope", "openid"),
+            new("scope", _options.Scope),
             new("grant_type", "client_credentials")
         };
 
