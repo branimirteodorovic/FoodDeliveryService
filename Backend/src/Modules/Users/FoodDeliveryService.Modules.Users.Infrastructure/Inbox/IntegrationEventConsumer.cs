@@ -9,6 +9,13 @@ using Newtonsoft.Json;
 
 namespace FoodDeliveryService.Modules.Users.Infrastructure.Inbox;
 
+/// <summary>
+/// Generic MassTransit consumer — the receiving side of the inbox pattern. Registered once per
+/// consumed event type in the module's ConfigureConsumers, it does nothing but persist the
+/// incoming RabbitMQ message to inbox_messages; the actual business reaction happens later when
+/// the Quartz ProcessInboxJob dispatches the IIntegrationEventHandler for it. Keeping the
+/// consumer dumb makes message receipt durable and idempotent — never put logic here.
+/// </summary>
 internal sealed class IntegrationEventConsumer<TIntegrationEvent>(IDbConnectionFactory dbConnectionFactory)
     : IConsumer<TIntegrationEvent>
     where TIntegrationEvent : IntegrationEvent

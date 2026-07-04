@@ -6,6 +6,14 @@ using Newtonsoft.Json;
 
 namespace FoodDeliveryService.Common.Infrastructure.Outbox;
 
+/// <summary>
+/// EF Core <see cref="SaveChangesInterceptor"/> implementing the transactional-outbox write side:
+/// just before SaveChanges, it drains the domain events raised by tracked entities and stores
+/// them as JSON rows in outbox_messages — in the SAME transaction as the business change, so an
+/// event can never be persisted without its state change (or vice versa). The Quartz-scheduled
+/// ProcessOutboxJob later reads these rows and dispatches the domain event handlers, which
+/// publish integration events to RabbitMQ. Registered on every module DbContext.
+/// </summary>
 public sealed class InsertOutboxMessagesInterceptor : SaveChangesInterceptor
 {
     public override ValueTask<InterceptionResult<int>> SavingChangesAsync(

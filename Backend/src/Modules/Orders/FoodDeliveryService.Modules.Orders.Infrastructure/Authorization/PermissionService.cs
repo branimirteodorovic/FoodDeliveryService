@@ -6,6 +6,14 @@ using MassTransit;
 
 namespace FoodDeliveryService.Modules.Orders.Infrastructure.Authorization;
 
+/// <summary>
+/// Resolves a user's permissions for authorization (called by CustomClaimsTransformation on each
+/// authenticated request). Permissions are owned by the Users service, so this uses MassTransit
+/// request/response (<see cref="IRequestClient{T}"/>) — a synchronous RPC over RabbitMQ answered
+/// by GetUserPermissionsRequestConsumer in Users — with a 5-minute Redis cache in front so the
+/// bus is not hit on every request. This is the system's only synchronous cross-service call;
+/// prefer replicating data via integration events before adding another.
+/// </summary>
 internal sealed class PermissionService(
     IRequestClient<GetUserPermissionsRequest> requestClient,
     ICacheService cacheService) : IPermissionService

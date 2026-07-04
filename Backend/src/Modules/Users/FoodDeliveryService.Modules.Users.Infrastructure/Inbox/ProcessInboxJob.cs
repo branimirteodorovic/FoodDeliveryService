@@ -14,6 +14,14 @@ using Quartz;
 
 namespace FoodDeliveryService.Modules.Users.Infrastructure.Inbox;
 
+/// <summary>
+/// Quartz job — the processing side of the inbox pattern. Integration events arriving from
+/// RabbitMQ are first parked in inbox_messages by IntegrationEventConsumer; this job then uses
+/// Dapper to lock (FOR UPDATE) and load a batch and invokes the matching
+/// IIntegrationEventHandler implementations from the Presentation assembly (decorated with
+/// IdempotentIntegrationEventHandler so retries are safe). Decoupling receipt from processing
+/// means a handler failure never loses the message — it is retried on a later run.
+/// </summary>
 [DisallowConcurrentExecution]
 internal sealed class ProcessInboxJob(
     IDbConnectionFactory dbConnectionFactory,

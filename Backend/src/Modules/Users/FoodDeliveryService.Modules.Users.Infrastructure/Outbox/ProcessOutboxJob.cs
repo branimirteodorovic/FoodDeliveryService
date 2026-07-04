@@ -15,6 +15,14 @@ using Quartz;
 
 namespace FoodDeliveryService.Modules.Users.Infrastructure.Outbox;
 
+/// <summary>
+/// Quartz job — the read side of the transactional outbox. On a fixed interval it uses Dapper to
+/// lock (FOR UPDATE) and load a batch of unprocessed outbox_messages, deserializes each domain
+/// event and invokes its IDomainEventHandler implementations (decorated with
+/// IdempotentDomainEventHandler so retries are safe). Those handlers are what publish
+/// integration events to RabbitMQ via IEventBus. Failures are recorded on the row and the
+/// message is retried on a later run.
+/// </summary>
 [DisallowConcurrentExecution]
 internal sealed class ProcessOutboxJob(
     IDbConnectionFactory dbConnectionFactory,

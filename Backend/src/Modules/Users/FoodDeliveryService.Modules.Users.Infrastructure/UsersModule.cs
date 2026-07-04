@@ -23,6 +23,12 @@ using Microsoft.Extensions.Options;
 
 namespace FoodDeliveryService.Modules.Users.Infrastructure;
 
+/// <summary>
+/// Composition root of the Users module — everything the module needs beyond the shared
+/// AddInfrastructure stack is registered here: its EF Core DbContext, repositories, event
+/// handlers, endpoints, the Duende provisioning HTTP client and the outbox/inbox Quartz jobs.
+/// This is the reference implementation other modules follow.
+/// </summary>
 public static class UsersModule
 {
     public static IServiceCollection AddUsersModule(
@@ -40,6 +46,12 @@ public static class UsersModule
         return services;
     }
 
+    /// <summary>
+    /// MassTransit consumers this module brings to its host, invoked from AddInfrastructure's
+    /// AddMassTransit call. The Users module consumes no integration events; it only serves the
+    /// GetUserPermissionsRequest request/response used by other services for authorization.
+    /// The instanceId suffix gives the host its own queue name.
+    /// </summary>
     public static Action<IRegistrationConfigurator, string, string> ConfigureConsumers()
     {
         return (registration, instanceId, redisConnectionString) =>
@@ -51,8 +63,15 @@ public static class UsersModule
 
     private static void AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
+        // In the Users service permissions are read straight from its own database — the other
+        // services' PermissionService implementations reach this data via MassTransit
+        // request/response instead.
         services.AddScoped<IPermissionService, PermissionService>();
 
+        // Typed HttpClient for Duende IdentityServer's local API (api/users). The delegating
+        // handler transparently obtains a client-credentials token (scope users:register) and
+        // attaches it as a Bearer header. This is the only sanctioned service-to-service HTTP
+        // call in the system — used to provision credentials during user registration.
         services.Configure<DuendeOptions>(configuration.GetSection("Duende"));
 
         services.AddTransient<DuendeAuthDelegatingHandler>();
@@ -69,6 +88,9 @@ public static class UsersModule
 
         services.AddTransient<IIdentityProviderService, IdentityProviderService>();
 
+        // EF Core (write side only — queries use Dapper): PostgreSQL via Npgsql, snake_case
+        // table/column names, plus the outbox interceptor that persists raised domain events in
+        // the same transaction as the business change.
         services.AddDbContext<UsersDbContext>((sp, options) =>
             options
                 .UseNpgsql(
@@ -80,8 +102,12 @@ public static class UsersModule
 
         services.AddScoped<IUserRepository, UserRepository>();
 
+        // IUnitOfWork is the DbContext itself; handlers commit through it, never SaveChanges directly.
         services.AddScoped<IUnitOfWork>(sp => sp.GetRequiredService<UsersDbContext>());
 
+        // Schedules the module's Quartz jobs (interval/batch size from "MessageProcessor" config):
+        // ProcessOutboxJob dispatches stored domain events, ProcessInboxJob dispatches stored
+        // integration events.
         services.Configure<OutboxOptions>(configuration.GetSection("MessageProcessor:Outbox"));
 
         services.ConfigureOptions<ConfigureProcessOutboxJob>();

@@ -8,6 +8,14 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace FoodDeliveryService.Common.Infrastructure.Authorization;
 
+/// <summary>
+/// Runs after JWT validation on every authenticated request and enriches the principal with the
+/// user's module-side id and permission claims. The Duende-issued token only proves identity;
+/// permissions live in the Users service, so <see cref="IPermissionService"/> resolves them —
+/// inside the Users service directly from its database, in every other service via a MassTransit
+/// request/response call to Users, cached in Redis for 5 minutes. The permission claims added
+/// here are what PermissionAuthorizationHandler checks for .RequireAuthorization("permission").
+/// </summary>
 internal sealed class CustomClaimsTransformation(IServiceScopeFactory serviceScopeFactory) : IClaimsTransformation
 {
     public async Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)

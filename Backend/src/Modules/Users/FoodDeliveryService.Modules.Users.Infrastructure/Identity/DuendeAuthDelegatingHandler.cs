@@ -5,6 +5,12 @@ using Microsoft.Extensions.Options;
 
 namespace FoodDeliveryService.Modules.Users.Infrastructure.Identity;
 
+/// <summary>
+/// HttpClient middleware for calls to Duende IdentityServer's local API: before each request it
+/// performs an OAuth2 client-credentials flow against Duende's token endpoint (confidential
+/// client, scope users:register) and attaches the resulting access token as a Bearer header.
+/// Plugged into the DuendeIdentityClient pipeline in UsersModule.
+/// </summary>
 internal sealed class DuendeAuthDelegatingHandler(IOptions<DuendeOptions> options) : DelegatingHandler
 {
     private readonly DuendeOptions _options = options.Value;
