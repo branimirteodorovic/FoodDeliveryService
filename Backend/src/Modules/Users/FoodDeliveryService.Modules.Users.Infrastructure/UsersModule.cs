@@ -48,15 +48,19 @@ public static class UsersModule
 
     /// <summary>
     /// MassTransit consumers this module brings to its host, invoked from AddInfrastructure's
-    /// AddMassTransit call. The Users module consumes no integration events; it only serves the
-    /// GetUserPermissionsRequest request/response used by other services for authorization.
-    /// The instanceId suffix gives the host its own queue name.
+    /// AddMassTransit call. The Users module consumes no integration events; it serves two
+    /// request/response RPCs: GetUserPermissionsRequest (authorization, used by every service) and
+    /// ProvisionManagerUserRequest (Restaurants provisioning a manager account). The instanceId
+    /// suffix gives the host its own queue name.
     /// </summary>
     public static Action<IRegistrationConfigurator, string, string> ConfigureConsumers()
     {
         return (registration, instanceId, redisConnectionString) =>
         {
             registration.AddConsumer<GetUserPermissionsRequestConsumer>()
+            .Endpoint(c => c.InstanceId = instanceId);
+
+            registration.AddConsumer<ProvisionManagerUserRequestConsumer>()
             .Endpoint(c => c.InstanceId = instanceId);
         };
     }

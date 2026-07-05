@@ -5,9 +5,11 @@ using FoodDeliveryService.Common.Infrastructure.Outbox;
 using FoodDeliveryService.Common.Presentation.Endpoints;
 using FoodDeliveryService.Modules.Notifications.Application.Abstractions.Authentication;
 using FoodDeliveryService.Modules.Notifications.Application.Abstractions.Data;
+using FoodDeliveryService.Modules.Notifications.Application.Abstractions.Email;
 using FoodDeliveryService.Modules.Notifications.Domain.Notifications;
 using FoodDeliveryService.Modules.Notifications.Infrastructure.Authentication;
 using FoodDeliveryService.Modules.Notifications.Infrastructure.Database;
+using FoodDeliveryService.Modules.Notifications.Infrastructure.Email;
 using FoodDeliveryService.Modules.Notifications.Infrastructure.Inbox;
 using FoodDeliveryService.Modules.Notifications.Infrastructure.Notifications;
 using FoodDeliveryService.Modules.Notifications.Infrastructure.Outbox;
@@ -47,6 +49,8 @@ public static class NotificationsModule
                 .Endpoint(c => c.InstanceId = instanceId);
             registration.AddConsumer<IntegrationEventConsumer<UserProfileUpdatedIntegrationEvent>>()
                 .Endpoint(c => c.InstanceId = instanceId);
+            registration.AddConsumer<IntegrationEventConsumer<UserInvitedIntegrationEvent>>()
+                .Endpoint(c => c.InstanceId = instanceId);
         };
     }
 
@@ -66,6 +70,12 @@ public static class NotificationsModule
         services.AddScoped<INotificationsRepository, NotificationsRepository>();
 
         services.AddScoped<INotificationContext, NotificationsContext>();
+
+        // Invitation email sender (dev: logs the activation link). Instrumented via its own
+        // ActivitySource; registered singleton as it holds no per-request state.
+        services.Configure<InvitationEmailOptions>(configuration.GetSection(InvitationEmailOptions.SectionName));
+
+        services.AddSingleton<IEmailService, EmailService>();
 
         services.Configure<OutboxOptions>(configuration.GetSection("MessageProcessor:Outbox"));
 

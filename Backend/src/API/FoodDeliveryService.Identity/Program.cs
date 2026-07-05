@@ -26,8 +26,13 @@ string databaseConnectionString = builder.Configuration.GetConnectionString("Dat
 
 // EF Core on PostgreSQL (Npgsql provider) with Identity's own database
 // (fooddeliveryservice_identity) — separate from every module database.
+// EnableRetryOnFailure adds a retrying execution strategy so the startup schema bootstrap
+// self-heals when Postgres is still initializing (transient "57P03: the database system is
+// starting up") instead of crashing the host on first boot.
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseNpgsql(databaseConnectionString));
+    options.UseNpgsql(
+        databaseConnectionString,
+        npgsqlOptions => npgsqlOptions.EnableRetryOnFailure()));
 
 // ASP.NET Core Identity: stores user credentials (password hashes, emails) and handles
 // password validation. Duende sits on top of this store to issue tokens.
@@ -54,6 +59,11 @@ builder.Services
     })
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddDefaultTokenProviders();
+
+// Lifespan of the one-time activation tokens minted for invited accounts (GeneratePasswordResetToken).
+// A few days gives invitees time to accept; expired links require the admin to re-issue the invitation.
+builder.Services.Configure<DataProtectionTokenProviderOptions>(options =>
+    options.TokenLifespan = TimeSpan.FromDays(3));
 
 // Duende IdentityServer: token issuance (OpenID Connect discovery, /connect/token, etc.).
 // Clients, scopes and resources are defined in-memory in Config.cs — there are two clients:
@@ -129,7 +139,10 @@ static async Task ApplyDatabaseMigrationsAsync(WebApplication app)
     ApplicationDbContext dbContext =
         scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
-    // Creates the ASP.NET Core Identity schema on first run. Replace with
-    // dbContext.Database.MigrateAsync() once EF Core migrations are added.
-    await dbContext.Database.EnsureCreatedAsync();
+    // Applies EF Core migrations (Data/Migrations) at startup — mirrors the modules'
+    // app.ApplyMigrations(). Unlike EnsureCreated this evolves the schema, so changes to
+    // ApplicationUser (e.g. MustChangePassword) ship as new migrations instead of requiring the
+    // identity database to be dropped and recreated. The retrying execution strategy configured on
+    // the DbContext lets this survive Postgres still starting up on first boot.
+    await dbContext.Database.MigrateAsync();
 }

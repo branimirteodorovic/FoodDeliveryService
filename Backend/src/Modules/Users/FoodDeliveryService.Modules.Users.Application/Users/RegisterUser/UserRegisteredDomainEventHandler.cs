@@ -1,5 +1,4 @@
 ﻿using FoodDeliveryService.Common.Application.EventBus;
-using FoodDeliveryService.Common.Application.Exceptions;
 using FoodDeliveryService.Common.Application.Messaging;
 using FoodDeliveryService.Common.Domain;
 using FoodDeliveryService.Modules.Users.IntegrationEvents;
@@ -32,7 +31,8 @@ internal sealed class UserRegisteredDomainEventHandler(ISender sender, IEventBus
                 result.Value.Id,
                 result.Value.Email,
                 result.Value.FirstName,
-                result.Value.LastName),
+                result.Value.LastName,
+                domainEvent.Roles),
             cancellationToken);
     }
 }

@@ -33,4 +33,44 @@ internal sealed class DuendeIdentityClient(HttpClient httpClient)
 
         return response.Id;
     }
+
+    // POST api/users/invite — provisions an invited account (no password) and returns the identity
+    // id + one-time activation token.
+    internal async Task<InviteUserResponse> InviteUserAsync(
+        InviteUserRequest user,
+        CancellationToken cancellationToken = default)
+    {
+        HttpResponseMessage httpResponseMessage = await httpClient.PostAsJsonAsync(
+            "users/invite",
+            user,
+            cancellationToken);
+
+        httpResponseMessage.EnsureSuccessStatusCode();
+
+        InviteUserResponse? response = await httpResponseMessage.Content
+            .ReadFromJsonAsync<InviteUserResponse>(cancellationToken);
+
+        if (response is null ||
+            string.IsNullOrWhiteSpace(response.Id) ||
+            string.IsNullOrWhiteSpace(response.ActivationToken))
+        {
+            throw new InvalidOperationException(
+                "The identity provider did not return an invitation result.");
+        }
+
+        return response;
+    }
+
+    // POST api/users/set-password — consumes the activation token and sets the invitee's password.
+    internal async Task SetPasswordAsync(
+        SetPasswordRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        HttpResponseMessage httpResponseMessage = await httpClient.PostAsJsonAsync(
+            "users/set-password",
+            request,
+            cancellationToken);
+
+        httpResponseMessage.EnsureSuccessStatusCode();
+    }
 }
