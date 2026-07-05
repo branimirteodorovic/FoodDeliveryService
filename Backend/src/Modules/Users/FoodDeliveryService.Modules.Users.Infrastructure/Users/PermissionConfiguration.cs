@@ -31,7 +31,13 @@ internal sealed class PermissionConfiguration : IEntityTypeConfiguration<Permiss
             Permission.CreateOrder,
             Permission.GetTickets,
             Permission.CheckInTicket,
-            Permission.GetEventStatistics);
+            Permission.GetEventStatistics,
+            Permission.GetRestaurants,
+            Permission.CreateRestaurant,
+            Permission.ModifyRestaurant,
+            Permission.ManageMenu,
+            Permission.GetMenu,
+            Permission.ProvisionUsers);
 
         builder
             .HasMany<Role>()
@@ -41,18 +47,21 @@ internal sealed class PermissionConfiguration : IEntityTypeConfiguration<Permiss
                 joinBuilder.ToTable("role_permissions");
 
                 joinBuilder.HasData(
-                    // Member permissions
-                    CreateRolePermission(Role.Member, Permission.GetUser),
-                    CreateRolePermission(Role.Member, Permission.ModifyUser),
-                    CreateRolePermission(Role.Member, Permission.SearchEvents),
-                    CreateRolePermission(Role.Member, Permission.GetTicketTypes),
-                    CreateRolePermission(Role.Member, Permission.GetCart),
-                    CreateRolePermission(Role.Member, Permission.AddToCart),
-                    CreateRolePermission(Role.Member, Permission.RemoveFromCart),
-                    CreateRolePermission(Role.Member, Permission.GetOrders),
-                    CreateRolePermission(Role.Member, Permission.CreateOrder),
-                    CreateRolePermission(Role.Member, Permission.GetTickets),
-                    CreateRolePermission(Role.Member, Permission.CheckInTicket),
+                    // Customer permissions (was Member) — the only self-registering actor.
+                    CreateRolePermission(Role.Customer, Permission.GetUser),
+                    CreateRolePermission(Role.Customer, Permission.ModifyUser),
+                    CreateRolePermission(Role.Customer, Permission.SearchEvents),
+                    CreateRolePermission(Role.Customer, Permission.GetTicketTypes),
+                    CreateRolePermission(Role.Customer, Permission.GetCart),
+                    CreateRolePermission(Role.Customer, Permission.AddToCart),
+                    CreateRolePermission(Role.Customer, Permission.RemoveFromCart),
+                    CreateRolePermission(Role.Customer, Permission.GetOrders),
+                    CreateRolePermission(Role.Customer, Permission.CreateOrder),
+                    CreateRolePermission(Role.Customer, Permission.GetTickets),
+                    CreateRolePermission(Role.Customer, Permission.CheckInTicket),
+                    // Read-only restaurant browsing (full browse endpoints arrive with the ordering work).
+                    CreateRolePermission(Role.Customer, Permission.GetRestaurants),
+                    CreateRolePermission(Role.Customer, Permission.GetMenu),
                     // Admin permissions
                     CreateRolePermission(Role.Administrator, Permission.GetUser),
                     CreateRolePermission(Role.Administrator, Permission.ModifyUser),
@@ -70,7 +79,22 @@ internal sealed class PermissionConfiguration : IEntityTypeConfiguration<Permiss
                     CreateRolePermission(Role.Administrator, Permission.CreateOrder),
                     CreateRolePermission(Role.Administrator, Permission.GetTickets),
                     CreateRolePermission(Role.Administrator, Permission.CheckInTicket),
-                    CreateRolePermission(Role.Administrator, Permission.GetEventStatistics));
+                    CreateRolePermission(Role.Administrator, Permission.GetEventStatistics),
+                    // Restaurant oversight: admin can onboard/provision and manage any restaurant/menu.
+                    CreateRolePermission(Role.Administrator, Permission.ProvisionUsers),
+                    CreateRolePermission(Role.Administrator, Permission.CreateRestaurant),
+                    CreateRolePermission(Role.Administrator, Permission.GetRestaurants),
+                    CreateRolePermission(Role.Administrator, Permission.ModifyRestaurant),
+                    CreateRolePermission(Role.Administrator, Permission.GetMenu),
+                    CreateRolePermission(Role.Administrator, Permission.ManageMenu),
+                    // RestaurantManager: manage only their own restaurant/menu (ownership-enforced in handlers)
+                    // + their own profile. No CreateRestaurant/ProvisionUsers. Seeded now, exercised in later milestones.
+                    CreateRolePermission(Role.RestaurantManager, Permission.GetRestaurants),
+                    CreateRolePermission(Role.RestaurantManager, Permission.ModifyRestaurant),
+                    CreateRolePermission(Role.RestaurantManager, Permission.ManageMenu),
+                    CreateRolePermission(Role.RestaurantManager, Permission.GetMenu),
+                    CreateRolePermission(Role.RestaurantManager, Permission.GetUser),
+                    CreateRolePermission(Role.RestaurantManager, Permission.ModifyUser));
             });
     }
 

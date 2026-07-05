@@ -12,6 +12,7 @@ using FoodDeliveryService.Common.Application;
 using FoodDeliveryService.Users.Api.Extensions;
 using FoodDeliveryService.Users.Api.OpenTelemetry;
 using FoodDeliveryService.Users.Api.Middleware;
+using FoodDeliveryService.Users.Api.Seed;
 
 // API host for the Users module (:5400) — reached through the YARP gateway via users/**.
 // Owns registration, profiles, roles and permissions, and answers GetUserPermissionsRequest
@@ -73,6 +74,11 @@ WebApplication app = builder.Build();
 
 // EF Core migrations are applied automatically at startup — no manual `dotnet ef database update`.
 app.ApplyMigrations();
+
+// Config-driven administrator record seed, aligned to the Identity admin credential via a shared
+// IdentityId (idempotent; no-ops when "AdminSeed" is empty). Must run after migrations so the
+// roles table is populated.
+await AdminSeeder.SeedAdminAsync(app);
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())

@@ -20,6 +20,14 @@ public sealed class Permission
     public static readonly Permission CheckInTicket = new("tickets:check-in");
     public static readonly Permission GetEventStatistics = new("event-statistics:read");
 
+    // Restaurants / menu (Phase 1). Assigned to roles in PermissionConfiguration.
+    public static readonly Permission GetRestaurants = new("restaurants:read");
+    public static readonly Permission CreateRestaurant = new("restaurants:create");   // = onboard restaurant + manager
+    public static readonly Permission ModifyRestaurant = new("restaurants:update");
+    public static readonly Permission ManageMenu = new("menu:manage");
+    public static readonly Permission GetMenu = new("menu:read");
+    public static readonly Permission ProvisionUsers = new("users:provision");        // create staff/partner accounts
+
     public Permission(string code)
     {
         Code = code;

@@ -60,11 +60,14 @@ internal static class Config
             },
 
             // Public client used by end users to obtain access tokens for the APIs.
+            // Resource-owner-password only: a public (secret-less) client cannot use the
+            // client_credentials grant, and Duende rejects that combination outright
+            // ("RequireClientSecret is false, but client is using client credentials grant type").
             new Client
             {
                 ClientId = publicClientId,
                 ClientName = "FoodDeliveryService Public Client",
-                AllowedGrantTypes = GrantTypes.ResourceOwnerPasswordAndClientCredentials,
+                AllowedGrantTypes = GrantTypes.ResourceOwnerPassword,
                 RequireClientSecret = false,
                 AllowOfflineAccess = true,
                 AllowedScopes =

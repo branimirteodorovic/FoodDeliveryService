@@ -1,6 +1,7 @@
 using Duende.IdentityServer;
 using FoodDeliveryService.Identity;
 using FoodDeliveryService.Identity.Data;
+using FoodDeliveryService.Identity.Seed;
 using FoodDeliveryService.Identity.Users;
 using HealthChecks.UI.Client;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
@@ -34,7 +35,22 @@ builder.Services
     .AddIdentity<ApplicationUser, IdentityRole>(options =>
     {
         options.User.RequireUniqueEmail = true;
-        options.Password.RequiredLength = 8;
+
+        if (builder.Environment.IsDevelopment())
+        {
+            // Relax password strength locally so the intentionally weak dev admin password
+            // (see appsettings.Development.json "AdminSeed") can be seeded. Real environments
+            // keep the strong defaults below.
+            options.Password.RequiredLength = 1;
+            options.Password.RequireDigit = false;
+            options.Password.RequireLowercase = false;
+            options.Password.RequireUppercase = false;
+            options.Password.RequireNonAlphanumeric = false;
+        }
+        else
+        {
+            options.Password.RequiredLength = 8;
+        }
     })
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddDefaultTokenProviders();
@@ -83,6 +99,9 @@ builder.Services.AddHealthChecks()
 WebApplication app = builder.Build();
 
 await ApplyDatabaseMigrationsAsync(app);
+
+// Config-driven initial-administrator seed (idempotent; no-ops when "AdminSeed" is empty).
+await AdminSeeder.SeedAdminAsync(app);
 
 app.UseSerilogRequestLogging();
 

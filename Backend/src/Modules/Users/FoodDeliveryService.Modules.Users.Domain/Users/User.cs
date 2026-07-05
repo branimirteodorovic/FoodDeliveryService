@@ -23,7 +23,10 @@ public sealed class User : Entity
 
     public IReadOnlyCollection<Role> Roles => _roles.ToList();
 
-    public static User Create(string email, string firstName, string lastName, string identityId)
+    public static User Create(string email, string firstName, string lastName, string identityId) =>
+        Create(email, firstName, lastName, identityId, Role.Customer);
+
+    public static User Create(string email, string firstName, string lastName, string identityId, Role role)
     {
         var user = new User
         {
@@ -34,7 +37,7 @@ public sealed class User : Entity
             IdentityId = identityId,
         };
 
-        user._roles.Add(Role.Member);
+        user._roles.Add(role);
 
         user.Raise(new UserRegisteredDomainEvent(user.Id));
 

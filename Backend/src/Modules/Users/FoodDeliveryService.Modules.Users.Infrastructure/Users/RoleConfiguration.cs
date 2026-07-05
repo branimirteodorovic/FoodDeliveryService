@@ -25,7 +25,8 @@ internal sealed class RoleConfiguration : IEntityTypeConfiguration<Role>
             });
 
         builder.HasData(
-            Role.Member,
-            Role.Administrator);
+            Role.Customer,
+            Role.Administrator,
+            Role.RestaurantManager);
     }
 }
