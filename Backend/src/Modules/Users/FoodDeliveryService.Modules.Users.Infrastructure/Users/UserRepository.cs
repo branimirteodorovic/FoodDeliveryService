@@ -20,4 +20,9 @@ internal sealed class UserRepository(UsersDbContext context) : IUserRepository
 
         context.Users.Add(user);
     }
+
+    public void Remove(User user)
+    {
+        context.Users.Remove(user);
+    }
 }

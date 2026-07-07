@@ -4,11 +4,15 @@ using FoodDeliveryService.Common.Infrastructure.Outbox;
 using FoodDeliveryService.Common.Presentation.Endpoints;
 using FoodDeliveryService.Modules.Restaurants.Application.Abstractions.Authentication;
 using FoodDeliveryService.Modules.Restaurants.Application.Abstractions.Data;
+using FoodDeliveryService.Modules.Restaurants.Application.Abstractions.Provisioning;
+using FoodDeliveryService.Modules.Restaurants.Domain.Managers;
 using FoodDeliveryService.Modules.Restaurants.Domain.Restaurants;
 using FoodDeliveryService.Modules.Restaurants.Infrastructure.Authentication;
 using FoodDeliveryService.Modules.Restaurants.Infrastructure.Database;
 using FoodDeliveryService.Modules.Restaurants.Infrastructure.Inbox;
+using FoodDeliveryService.Modules.Restaurants.Infrastructure.Managers;
 using FoodDeliveryService.Modules.Restaurants.Infrastructure.Outbox;
+using FoodDeliveryService.Modules.Restaurants.Infrastructure.Provisioning;
 using FoodDeliveryService.Modules.Restaurants.Infrastructure.Restaurants;
 using FoodDeliveryService.Modules.Users.IntegrationEvents;
 using MassTransit;
@@ -63,7 +67,13 @@ public static class RestaurantsModule
 
         services.AddScoped<IRestaurantsRepository, RestaurantsRepository>();
 
+        services.AddScoped<IRestaurantManagersRepository, RestaurantManagersRepository>();
+
         services.AddScoped<IRestaurantsContext, RestaurantsContext>();
+
+        // Synchronous onboarding calls to Users (MassTransit request/response — IRequestClient<T>
+        // is resolved by MassTransit's DI integration, no explicit registration needed).
+        services.AddScoped<IManagerProvisioningService, ManagerProvisioningService>();
 
         services.Configure<OutboxOptions>(configuration.GetSection("MessageProcessor:Outbox"));
 

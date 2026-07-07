@@ -23,4 +23,11 @@ public interface IIdentityProviderService
         string token,
         string newPassword,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes a NEVER-ACTIVATED invited account — the compensation for a failed onboarding.
+    /// Identity refuses to delete an account whose invitation was already accepted; an already
+    /// missing account counts as success (the call is idempotent).
+    /// </summary>
+    Task<Result> DeleteInvitedUserAsync(string identityId, CancellationToken cancellationToken = default);
 }

@@ -54,6 +54,26 @@ internal sealed class IdentityProviderService(
         }
     }
 
+    // DELETE /api/users/{id}
+    public async Task<Result> DeleteInvitedUserAsync(
+        string identityId,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await duendeIdentityClient.DeleteInvitedUserAsync(identityId, cancellationToken);
+
+            return Result.Success();
+        }
+        catch (HttpRequestException exception) when (exception.StatusCode == HttpStatusCode.Conflict)
+        {
+            // The invitation was accepted in the meantime — never delete an activated account.
+            logger.LogError(exception, "Compensating removal of invited user {IdentityId} refused", identityId);
+
+            return Result.Failure(IdentityProviderErrors.AccountAlreadyActivated);
+        }
+    }
+
     // POST /api/users/set-password
     public async Task<Result> SetPasswordAsync(
         string email,

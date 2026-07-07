@@ -23,6 +23,11 @@ internal static class UserEndpoints
         builder.MapPost("api/users/set-password", SetPassword)
             .RequireAuthorization(Config.UsersRegisterPolicy);
 
+        // Compensation path: remove a provisioned account whose onboarding failed downstream.
+        // Only never-activated invited accounts may be deleted.
+        builder.MapDelete("api/users/{id}", DeleteInvitedUser)
+            .RequireAuthorization(Config.UsersRegisterPolicy);
+
         return builder;
     }
 
@@ -113,6 +118,41 @@ internal static class UserEndpoints
         return Results.Created(
             $"/api/users/{user.Id}",
             new InviteUserResponse(user.Id, activationToken, expiresOnUtc));
+    }
+
+    private static async Task<IResult> DeleteInvitedUser(
+        string id,
+        UserManager<ApplicationUser> userManager,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        ApplicationUser? user = await userManager.FindByIdAsync(id);
+
+        // Idempotent: an already-removed account means the compensation goal is reached.
+        if (user is null)
+        {
+            return Results.NotFound();
+        }
+
+        // Safety guard: compensation must never destroy an account the invitee already activated.
+        if (!user.MustChangePassword)
+        {
+            return Results.Conflict();
+        }
+
+        IdentityResult result = await userManager.DeleteAsync(user);
+
+        if (!result.Succeeded)
+        {
+            var errors = result.Errors.ToDictionary(
+                error => error.Code,
+                error => new[] { error.Description });
+
+            return Results.ValidationProblem(errors);
+        }
+
+        return Results.NoContent();
     }
 
     private static async Task<IResult> SetPassword(

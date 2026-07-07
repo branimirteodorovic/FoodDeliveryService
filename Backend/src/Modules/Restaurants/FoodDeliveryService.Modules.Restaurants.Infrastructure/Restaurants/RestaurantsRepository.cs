@@ -1,4 +1,4 @@
-﻿using FoodDeliveryService.Modules.Restaurants.Domain.Restaurants;
+using FoodDeliveryService.Modules.Restaurants.Domain.Restaurants;
 using FoodDeliveryService.Modules.Restaurants.Infrastructure.Database;
 using Microsoft.EntityFrameworkCore;
 
@@ -8,7 +8,12 @@ internal sealed class RestaurantsRepository(RestaurantsDbContext context) : IRes
 {
     public async Task<Restaurant?> GetAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        return await context.Restaurants.SingleOrDefaultAsync(c => c.Id == id, cancellationToken);
+        // Full aggregate load — menu invariants (duplicate names, category existence) are enforced
+        // by the root, so writes need categories + items in memory.
+        return await context.Restaurants
+            .Include(r => r.MenuCategories)
+            .ThenInclude(c => c.Items)
+            .SingleOrDefaultAsync(r => r.Id == id, cancellationToken);
     }
 
     public void Insert(Restaurant restaurant)

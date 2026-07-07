@@ -61,6 +61,25 @@ internal sealed class DuendeIdentityClient(HttpClient httpClient)
         return response;
     }
 
+    // DELETE api/users/{id} — removes a never-activated invited account (onboarding
+    // compensation). Identity answers 409 for an already-activated account.
+    internal async Task DeleteInvitedUserAsync(
+        string identityId,
+        CancellationToken cancellationToken = default)
+    {
+        HttpResponseMessage httpResponseMessage = await httpClient.DeleteAsync(
+            $"users/{Uri.EscapeDataString(identityId)}",
+            cancellationToken);
+
+        // Already gone == compensation goal reached; keep the call idempotent.
+        if (httpResponseMessage.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return;
+        }
+
+        httpResponseMessage.EnsureSuccessStatusCode();
+    }
+
     // POST api/users/set-password — consumes the activation token and sets the invitee's password.
     internal async Task SetPasswordAsync(
         SetPasswordRequest request,

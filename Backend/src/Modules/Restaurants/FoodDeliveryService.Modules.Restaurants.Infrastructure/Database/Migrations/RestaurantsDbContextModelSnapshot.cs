@@ -128,6 +128,119 @@ namespace FoodDeliveryService.Modules.Restaurants.Infrastructure.Database.Migrat
                     b.ToTable("outbox_message_consumers", (string)null);
                 });
 
+            modelBuilder.Entity("FoodDeliveryService.Modules.Restaurants.Domain.Managers.RestaurantManager", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("email");
+
+                    b.Property<string>("FirstName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("first_name");
+
+                    b.Property<string>("LastName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("last_name");
+
+                    b.HasKey("Id")
+                        .HasName("pk_restaurant_managers");
+
+                    b.ToTable("restaurant_managers", (string)null);
+                });
+
+            modelBuilder.Entity("FoodDeliveryService.Modules.Restaurants.Domain.Restaurants.MenuCategory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("display_order");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("restaurant_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_menu_categories");
+
+                    b.HasIndex("RestaurantId")
+                        .HasDatabaseName("ix_menu_categories_restaurant_id");
+
+                    b.ToTable("menu_categories", (string)null);
+                });
+
+            modelBuilder.Entity("FoodDeliveryService.Modules.Restaurants.Domain.Restaurants.MenuItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("CategoryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("category_id");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("description");
+
+                    b.Property<bool>("IsAvailable")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_available");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("PhotoUrl")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("photo_url");
+
+                    b.Property<decimal>("Price")
+                        .HasPrecision(10, 2)
+                        .HasColumnType("numeric(10,2)")
+                        .HasColumnName("price");
+
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("restaurant_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_menu_items");
+
+                    b.HasIndex("CategoryId")
+                        .HasDatabaseName("ix_menu_items_category_id");
+
+                    b.HasIndex("RestaurantId")
+                        .HasDatabaseName("ix_menu_items_restaurant_id");
+
+                    b.ToTable("menu_items", (string)null);
+                });
+
             modelBuilder.Entity("FoodDeliveryService.Modules.Restaurants.Domain.Restaurants.Restaurant", b =>
                 {
                     b.Property<Guid>("Id")
@@ -135,10 +248,143 @@ namespace FoodDeliveryService.Modules.Restaurants.Infrastructure.Database.Migrat
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<decimal>("CommissionRate")
+                        .HasPrecision(5, 4)
+                        .HasColumnType("numeric(5,4)")
+                        .HasColumnName("commission_rate");
+
+                    b.Property<DateTime>("CreatedOnUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_on_utc");
+
+                    b.Property<string>("CuisineType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("cuisine_type");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("email");
+
+                    b.Property<Guid>("ManagerUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("manager_user_id");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("PhoneNumber")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("phone_number");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<string>("TaxIdentification")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("tax_identification");
+
                     b.HasKey("Id")
                         .HasName("pk_restaurants");
 
+                    b.HasIndex("ManagerUserId")
+                        .HasDatabaseName("ix_restaurants_manager_user_id");
+
                     b.ToTable("restaurants", (string)null);
+                });
+
+            modelBuilder.Entity("FoodDeliveryService.Modules.Restaurants.Domain.Restaurants.MenuCategory", b =>
+                {
+                    b.HasOne("FoodDeliveryService.Modules.Restaurants.Domain.Restaurants.Restaurant", null)
+                        .WithMany("MenuCategories")
+                        .HasForeignKey("RestaurantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_menu_categories_restaurants_restaurant_id");
+                });
+
+            modelBuilder.Entity("FoodDeliveryService.Modules.Restaurants.Domain.Restaurants.MenuItem", b =>
+                {
+                    b.HasOne("FoodDeliveryService.Modules.Restaurants.Domain.Restaurants.MenuCategory", null)
+                        .WithMany("Items")
+                        .HasForeignKey("CategoryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_menu_items_menu_categories_category_id");
+                });
+
+            modelBuilder.Entity("FoodDeliveryService.Modules.Restaurants.Domain.Restaurants.Restaurant", b =>
+                {
+                    b.OwnsOne("FoodDeliveryService.Modules.Restaurants.Domain.Restaurants.Address", "Address", b1 =>
+                        {
+                            b1.Property<Guid>("RestaurantId")
+                                .HasColumnType("uuid")
+                                .HasColumnName("id");
+
+                            b1.Property<string>("City")
+                                .IsRequired()
+                                .HasMaxLength(200)
+                                .HasColumnType("character varying(200)")
+                                .HasColumnName("address_city");
+
+                            b1.Property<string>("Country")
+                                .IsRequired()
+                                .HasMaxLength(100)
+                                .HasColumnType("character varying(100)")
+                                .HasColumnName("address_country");
+
+                            b1.Property<double?>("Latitude")
+                                .HasColumnType("double precision")
+                                .HasColumnName("address_latitude");
+
+                            b1.Property<double?>("Longitude")
+                                .HasColumnType("double precision")
+                                .HasColumnName("address_longitude");
+
+                            b1.Property<string>("PostalCode")
+                                .IsRequired()
+                                .HasMaxLength(20)
+                                .HasColumnType("character varying(20)")
+                                .HasColumnName("address_postal_code");
+
+                            b1.Property<string>("Street")
+                                .IsRequired()
+                                .HasMaxLength(300)
+                                .HasColumnType("character varying(300)")
+                                .HasColumnName("address_street");
+
+                            b1.HasKey("RestaurantId");
+
+                            b1.ToTable("restaurants");
+
+                            b1.WithOwner()
+                                .HasForeignKey("RestaurantId")
+                                .HasConstraintName("fk_restaurants_restaurants_id");
+                        });
+
+                    b.Navigation("Address")
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("FoodDeliveryService.Modules.Restaurants.Domain.Restaurants.MenuCategory", b =>
+                {
+                    b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("FoodDeliveryService.Modules.Restaurants.Domain.Restaurants.Restaurant", b =>
+                {
+                    b.Navigation("MenuCategories");
                 });
 #pragma warning restore 612, 618
         }

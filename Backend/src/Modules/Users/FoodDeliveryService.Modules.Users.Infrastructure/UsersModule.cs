@@ -62,6 +62,10 @@ public static class UsersModule
 
             registration.AddConsumer<ProvisionManagerUserRequestConsumer>()
             .Endpoint(c => c.InstanceId = instanceId);
+
+            // Compensation for a failed onboarding: removes the orphaned invited manager account.
+            registration.AddConsumer<DeactivateProvisionedUserRequestConsumer>()
+            .Endpoint(c => c.InstanceId = instanceId);
         };
     }
 
