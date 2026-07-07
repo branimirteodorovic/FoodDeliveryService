@@ -5,9 +5,11 @@ using FoodDeliveryService.Common.Infrastructure.Outbox;
 using FoodDeliveryService.Common.Presentation.Endpoints;
 using FoodDeliveryService.Modules.Orders.Application.Abstractions.Authentication;
 using FoodDeliveryService.Modules.Orders.Application.Abstractions.Data;
+using FoodDeliveryService.Modules.Orders.Domain.Customers;
 using FoodDeliveryService.Modules.Orders.Domain.Orders;
 using FoodDeliveryService.Modules.Orders.Infrastructure.Authentication;
 using FoodDeliveryService.Modules.Orders.Infrastructure.Authorization;
+using FoodDeliveryService.Modules.Orders.Infrastructure.Customers;
 using FoodDeliveryService.Modules.Orders.Infrastructure.Database;
 using FoodDeliveryService.Modules.Orders.Infrastructure.Inbox;
 using FoodDeliveryService.Modules.Orders.Infrastructure.Orders;
@@ -69,6 +71,8 @@ public static class OrdersModule
         services.AddScoped<IUnitOfWork>(sp => sp.GetRequiredService<OrdersDbContext>());
 
         services.AddScoped<IOrdersRepository, OrdersRepository>();
+
+        services.AddScoped<ICustomerRepository, CustomersRepository>();
 
         services.AddScoped<IOrdersContext, OrdersContext>();
 

@@ -29,6 +29,7 @@ internal sealed class PermissionConfiguration : IEntityTypeConfiguration<Permiss
             Permission.RemoveFromCart,
             Permission.GetOrders,
             Permission.CreateOrder,
+            Permission.ManageOrders,
             Permission.GetTickets,
             Permission.CheckInTicket,
             Permission.GetEventStatistics,
@@ -77,6 +78,7 @@ internal sealed class PermissionConfiguration : IEntityTypeConfiguration<Permiss
                     CreateRolePermission(Role.Administrator, Permission.RemoveFromCart),
                     CreateRolePermission(Role.Administrator, Permission.GetOrders),
                     CreateRolePermission(Role.Administrator, Permission.CreateOrder),
+                    CreateRolePermission(Role.Administrator, Permission.ManageOrders),
                     CreateRolePermission(Role.Administrator, Permission.GetTickets),
                     CreateRolePermission(Role.Administrator, Permission.CheckInTicket),
                     CreateRolePermission(Role.Administrator, Permission.GetEventStatistics),
@@ -94,7 +96,9 @@ internal sealed class PermissionConfiguration : IEntityTypeConfiguration<Permiss
                     CreateRolePermission(Role.RestaurantManager, Permission.ManageMenu),
                     CreateRolePermission(Role.RestaurantManager, Permission.GetMenu),
                     CreateRolePermission(Role.RestaurantManager, Permission.GetUser),
-                    CreateRolePermission(Role.RestaurantManager, Permission.ModifyUser));
+                    CreateRolePermission(Role.RestaurantManager, Permission.ModifyUser),
+                    // Manage order status for their own restaurants (ownership enforced in the Orders handlers).
+                    CreateRolePermission(Role.RestaurantManager, Permission.ManageOrders));
             });
     }
 
