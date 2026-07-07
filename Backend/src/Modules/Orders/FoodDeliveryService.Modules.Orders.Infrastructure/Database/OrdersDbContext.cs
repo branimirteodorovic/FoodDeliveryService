@@ -3,6 +3,7 @@ using FoodDeliveryService.Common.Infrastructure.Outbox;
 using FoodDeliveryService.Modules.Orders.Application.Abstractions.Data;
 using FoodDeliveryService.Modules.Orders.Domain.Customers;
 using FoodDeliveryService.Modules.Orders.Domain.Orders;
+using FoodDeliveryService.Modules.Orders.Domain.Restaurants;
 using Microsoft.EntityFrameworkCore;
 
 namespace FoodDeliveryService.Modules.Orders.Infrastructure.Database;
@@ -13,6 +14,10 @@ public sealed class OrdersDbContext(DbContextOptions<OrdersDbContext> options)
     internal DbSet<Order> Orders { get; set; }
 
     internal DbSet<Customer> Customers { get; set; }
+
+    internal DbSet<Restaurant> Restaurants { get; set; }
+
+    internal DbSet<MenuItem> MenuItems { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

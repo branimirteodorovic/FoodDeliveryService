@@ -7,6 +7,7 @@ using FoodDeliveryService.Modules.Orders.Application.Abstractions.Authentication
 using FoodDeliveryService.Modules.Orders.Application.Abstractions.Data;
 using FoodDeliveryService.Modules.Orders.Domain.Customers;
 using FoodDeliveryService.Modules.Orders.Domain.Orders;
+using FoodDeliveryService.Modules.Orders.Domain.Restaurants;
 using FoodDeliveryService.Modules.Orders.Infrastructure.Authentication;
 using FoodDeliveryService.Modules.Orders.Infrastructure.Authorization;
 using FoodDeliveryService.Modules.Orders.Infrastructure.Customers;
@@ -14,6 +15,8 @@ using FoodDeliveryService.Modules.Orders.Infrastructure.Database;
 using FoodDeliveryService.Modules.Orders.Infrastructure.Inbox;
 using FoodDeliveryService.Modules.Orders.Infrastructure.Orders;
 using FoodDeliveryService.Modules.Orders.Infrastructure.Outbox;
+using FoodDeliveryService.Modules.Orders.Infrastructure.Restaurants;
+using FoodDeliveryService.Modules.Restaurants.IntegrationEvents;
 using FoodDeliveryService.Modules.Users.IntegrationEvents;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
@@ -51,6 +54,15 @@ public static class OrdersModule
         registrationConfigurator.AddConsumer<IntegrationEventConsumer<UserProfileUpdatedIntegrationEvent>>()
             .Endpoint(c => c.InstanceId = instanceId);
 
+        registrationConfigurator.AddConsumer<IntegrationEventConsumer<RestaurantRegisteredIntegrationEvent>>()
+            .Endpoint(c => c.InstanceId = instanceId);
+        registrationConfigurator.AddConsumer<IntegrationEventConsumer<MenuItemAddedIntegrationEvent>>()
+            .Endpoint(c => c.InstanceId = instanceId);
+        registrationConfigurator.AddConsumer<IntegrationEventConsumer<MenuItemUpdatedIntegrationEvent>>()
+            .Endpoint(c => c.InstanceId = instanceId);
+        registrationConfigurator.AddConsumer<IntegrationEventConsumer<MenuItemAvailabilityChangedIntegrationEvent>>()
+            .Endpoint(c => c.InstanceId = instanceId);
+
         //registrationConfigurator
         //    .AddSagaStateMachine<CancelEventSaga, CancelEventState>()
         //    .RedisRepository(redisConnectionString);
@@ -73,6 +85,10 @@ public static class OrdersModule
         services.AddScoped<IOrdersRepository, OrdersRepository>();
 
         services.AddScoped<ICustomerRepository, CustomersRepository>();
+
+        services.AddScoped<IRestaurantReplicaRepository, RestaurantReplicaRepository>();
+
+        services.AddScoped<IMenuItemReplicaRepository, MenuItemReplicaRepository>();
 
         services.AddScoped<IOrdersContext, OrdersContext>();
 
