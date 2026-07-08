@@ -7,6 +7,16 @@ namespace FoodDeliveryService.Modules.Notifications.Application.Abstractions.Ema
 /// </summary>
 public interface IEmailService
 {
+    /// <summary>
+    /// The generic send used by the Email notification channel. Every other send (including the
+    /// invitation email) is expressed on top of this so there is a single code path.
+    /// </summary>
+    Task SendEmailAsync(
+        string toEmail,
+        string subject,
+        string htmlBody,
+        CancellationToken cancellationToken = default);
+
     Task SendInvitationEmailAsync(
         string email,
         string firstName,

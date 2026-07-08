@@ -6,6 +6,7 @@ using FoodDeliveryService.Common.Presentation.Endpoints;
 using FoodDeliveryService.Modules.Notifications.Application.Abstractions.Authentication;
 using FoodDeliveryService.Modules.Notifications.Application.Abstractions.Data;
 using FoodDeliveryService.Modules.Notifications.Application.Abstractions.Email;
+using FoodDeliveryService.Modules.Notifications.Application.Abstractions.Notifications;
 using FoodDeliveryService.Modules.Notifications.Domain.Notifications;
 using FoodDeliveryService.Modules.Notifications.Infrastructure.Authentication;
 using FoodDeliveryService.Modules.Notifications.Infrastructure.Database;
@@ -75,11 +76,21 @@ public static class NotificationsModule
 
         services.AddScoped<INotificationContext, NotificationsContext>();
 
-        // Invitation email sender (dev: logs the activation link). Instrumented via its own
-        // ActivitySource; registered singleton as it holds no per-request state.
+        // Email sender (dev: logs the message). Instrumented via its own ActivitySource; registered
+        // singleton as it holds no per-request state. InvitationEmail options keep the activation-link
+        // base URL; Email options select the provider (Log now, SMTP/SendGrid later).
         services.Configure<InvitationEmailOptions>(configuration.GetSection(InvitationEmailOptions.SectionName));
 
+        services.Configure<EmailOptions>(configuration.GetSection(EmailOptions.SectionName));
+
         services.AddSingleton<IEmailService, EmailService>();
+
+        // Notification send pipeline: the template renderer plus every delivery channel. Only the Email
+        // channel is registered now; Phase 2 adds SignalR/push channels here and the send handler picks
+        // them up through IEnumerable<INotificationChannel>.
+        services.AddSingleton<INotificationTemplateRenderer, NotificationTemplateRenderer>();
+
+        services.AddScoped<INotificationChannel, EmailNotificationChannel>();
 
         services.Configure<OutboxOptions>(configuration.GetSection("MessageProcessor:Outbox"));
 
