@@ -13,6 +13,8 @@ using FoodDeliveryService.Modules.Notifications.Infrastructure.Email;
 using FoodDeliveryService.Modules.Notifications.Infrastructure.Inbox;
 using FoodDeliveryService.Modules.Notifications.Infrastructure.Notifications;
 using FoodDeliveryService.Modules.Notifications.Infrastructure.Outbox;
+using FoodDeliveryService.Modules.Notifications.Infrastructure.RecipientUsers;
+using FoodDeliveryService.Modules.Notifications.Domain.RecipientUsers;
 using FoodDeliveryService.Modules.Users.IntegrationEvents;
 using MassTransit;
 using MassTransit.Configuration;
@@ -68,6 +70,8 @@ public static class NotificationsModule
         services.AddScoped<IUnitOfWork>(sp => sp.GetRequiredService<NotificationsDbContext>());
 
         services.AddScoped<INotificationsRepository, NotificationsRepository>();
+
+        services.AddScoped<IRecipientUserRepository, RecipientUsersRepository>();
 
         services.AddScoped<INotificationContext, NotificationsContext>();
 
