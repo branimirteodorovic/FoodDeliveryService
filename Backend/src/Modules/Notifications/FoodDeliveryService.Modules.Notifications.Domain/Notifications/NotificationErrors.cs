@@ -22,4 +22,9 @@ public static class NotificationErrors
         Error.Problem(
             "Notifications.SendFailed",
             $"Sending the notification on the {channel} channel failed");
+
+    public static Error RecipientNotFound(Guid userId) =>
+        Error.NotFound(
+            "Notifications.RecipientNotFound",
+            $"No recipient replica exists for user '{userId}'");
 }

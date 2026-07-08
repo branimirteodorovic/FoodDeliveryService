@@ -16,6 +16,7 @@ using FoodDeliveryService.Modules.Notifications.Infrastructure.Notifications;
 using FoodDeliveryService.Modules.Notifications.Infrastructure.Outbox;
 using FoodDeliveryService.Modules.Notifications.Infrastructure.RecipientUsers;
 using FoodDeliveryService.Modules.Notifications.Domain.RecipientUsers;
+using FoodDeliveryService.Modules.Orders.IntegrationEvents;
 using FoodDeliveryService.Modules.Users.IntegrationEvents;
 using MassTransit;
 using MassTransit.Configuration;
@@ -53,6 +54,8 @@ public static class NotificationsModule
             registration.AddConsumer<IntegrationEventConsumer<UserProfileUpdatedIntegrationEvent>>()
                 .Endpoint(c => c.InstanceId = instanceId);
             registration.AddConsumer<IntegrationEventConsumer<UserInvitedIntegrationEvent>>()
+                .Endpoint(c => c.InstanceId = instanceId);
+            registration.AddConsumer<IntegrationEventConsumer<OrderPlacedIntegrationEvent>>()
                 .Endpoint(c => c.InstanceId = instanceId);
         };
     }

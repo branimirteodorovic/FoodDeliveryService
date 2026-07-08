@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\Common\FoodDeliveryService.Common.Infrastructure\FoodDeliveryService.Common.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Orders\FoodDeliveryService.Modules.Orders.IntegrationEvents\FoodDeliveryService.Modules.Orders.IntegrationEvents.csproj" />
     <ProjectReference Include="..\FoodDeliveryService.Modules.Notifications.Application\FoodDeliveryService.Modules.Notifications.Application.csproj" />
     <ProjectReference Include="..\FoodDeliveryService.Modules.Notifications.Presentation\FoodDeliveryService.Modules.Notifications.Presentation.csproj" />
   </ItemGroup>
