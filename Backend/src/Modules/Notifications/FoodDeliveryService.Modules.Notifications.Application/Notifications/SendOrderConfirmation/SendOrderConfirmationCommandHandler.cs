@@ -1,6 +1,6 @@
-using System.Globalization;
 using FoodDeliveryService.Common.Application.Messaging;
 using FoodDeliveryService.Common.Domain;
+using FoodDeliveryService.Modules.Notifications.Application.Abstractions.Notifications;
 using FoodDeliveryService.Modules.Notifications.Application.Notifications.SendNotification;
 using FoodDeliveryService.Modules.Notifications.Domain.Notifications;
 using FoodDeliveryService.Modules.Notifications.Domain.RecipientUsers;
@@ -24,19 +24,11 @@ internal sealed class SendOrderConfirmationCommandHandler(
             return Result.Failure(NotificationErrors.RecipientNotFound(request.CustomerId));
         }
 
-        var tokens = new Dictionary<string, string>
-        {
-            ["firstName"] = recipient.FirstName,
-            ["orderShortId"] = request.OrderId.ToString("N")[..8].ToUpperInvariant(),
-            ["subtotal"] = request.Subtotal.ToString("F2", CultureInfo.InvariantCulture)
-        };
-
         return await sender.Send(
             new SendNotificationCommand(
                 recipient.Email,
                 recipient.Id,
-                NotificationType.OrderConfirmation,
-                tokens),
+                new OrderConfirmationModel(recipient.FirstName, request.OrderId, request.Subtotal)),
             cancellationToken);
     }
 }

@@ -17,9 +17,9 @@ internal sealed class SendNotificationCommandHandler(
 {
     public async Task<Result> Handle(SendNotificationCommand request, CancellationToken cancellationToken)
     {
-        IReadOnlyList<NotificationChannel> targetChannels = NotificationChannelRouter.Resolve(request.Type);
+        IReadOnlyList<NotificationChannel> targetChannels = NotificationChannelRouter.Resolve(request.Model.Type);
 
-        RenderedTemplate template = templateRenderer.Render(request.Type, request.Tokens);
+        RenderedTemplate template = templateRenderer.Render(request.Model);
 
         foreach (NotificationChannel targetChannel in targetChannels)
         {
@@ -50,7 +50,7 @@ internal sealed class SendNotificationCommandHandler(
         Result<Notification> notificationResult = Notification.Create(
             request.RecipientEmail,
             request.RecipientUserId,
-            request.Type,
+            request.Model.Type,
             targetChannel,
             template.Subject,
             dateTimeProvider.UtcNow);
