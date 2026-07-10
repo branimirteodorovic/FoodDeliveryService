@@ -12,8 +12,4 @@
     <ProjectReference Include="..\FoodDeliveryService.Common.Domain\FoodDeliveryService.Common.Domain.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    
-  </ItemGroup>
-
 </Project>
