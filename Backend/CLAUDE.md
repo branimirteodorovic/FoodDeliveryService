@@ -167,6 +167,12 @@ Discovered via `AddEndpoints(Presentation.AssemblyReference.Assembly)`, mapped b
 | YARP config | `src/API/FoodDeliveryService.Gateway/appsettings.Development.json` |
 | Entity base + Result<T> | `src/Common/FoodDeliveryService.Common.Domain/` |
 | Pipeline behaviors | `src/Common/FoodDeliveryService.Common.Application/Behaviors/` |
+| Domain unit tests | `src/Modules/Restaurants/...Restaurants.UnitTests/` (skill: `/write-unit-tests`) |
+| Full-stack integration tests | `src/Modules/Restaurants/...Restaurants.IntegrationTests/` (skill: `/write-integration-tests`) |
+
+## Testing
+- **Unit tests** (`{Module}.UnitTests`, references Domain only): xUnit v3 + AwesomeAssertions + Bogus. Cover an aggregate's factory, business methods, invariants, and the domain events they raise (or must NOT raise on a no-op). No DI/DB/HTTP. Use `/write-unit-tests {Module} {Aggregate}`.
+- **Integration tests** (`{Module}.IntegrationTests`): drive the real HTTP endpoint through the full pipeline against ephemeral Postgres/Redis/RabbitMQ Testcontainers, with real Duende JWTs (needs `fooddeliveryservice.identity` up on `:18080`). Host other modules' APIs in-process to assert cross-service event propagation. Use `/write-integration-tests {Module} {Feature}`.
 
 ## Build & Run
 ```bash
