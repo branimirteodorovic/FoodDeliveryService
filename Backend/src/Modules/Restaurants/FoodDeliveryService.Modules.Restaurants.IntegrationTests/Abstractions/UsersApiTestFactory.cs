@@ -16,6 +16,8 @@ namespace FoodDeliveryService.Modules.Restaurants.IntegrationTests.Abstractions;
 internal sealed class UsersApiTestFactory(string redisConnectionString, string rabbitMqConnectionString)
     : WebApplicationFactory<UsersApi::Program>, IAsyncLifetime
 {
+    private const string IdentityBaseUrl = "http://localhost:18080";
+
     private readonly PostgreSqlContainer _dbContainer = new PostgreSqlBuilder("postgres:17")
         .WithDatabase("fooddeliveryservice_users")
         .WithUsername("postgres")
@@ -32,6 +34,16 @@ internal sealed class UsersApiTestFactory(string redisConnectionString, string r
         Environment.SetEnvironmentVariable("ConnectionStrings:Database", _dbContainer.GetConnectionString());
         Environment.SetEnvironmentVariable("ConnectionStrings:Cache", redisConnectionString);
         Environment.SetEnvironmentVariable("ConnectionStrings:Queue", rabbitMqConnectionString);
+
+        // appsettings.Development.json points the Duende provisioning client at the docker-internal
+        // hostname (fooddeliveryservice.identity:8080), which a plain "dotnet test" process can't
+        // resolve. Now that manager onboarding runs the REAL ProvisionManagerUserRequest RPC (no
+        // fake), this host actually calls Identity's local API to create the invited account — so it
+        // must reach Identity at the same localhost:18080 the Restaurants host and SeedTestUserAsync
+        // already use. Without this, the invited-registration HTTP call throws a DNS failure, faults
+        // the RPC, and onboarding returns 500.
+        Environment.SetEnvironmentVariable("Duende:AdminUrl", $"{IdentityBaseUrl}/api/");
+        Environment.SetEnvironmentVariable("Duende:TokenUrl", $"{IdentityBaseUrl}/connect/token");
     }
 
     public async ValueTask InitializeAsync()

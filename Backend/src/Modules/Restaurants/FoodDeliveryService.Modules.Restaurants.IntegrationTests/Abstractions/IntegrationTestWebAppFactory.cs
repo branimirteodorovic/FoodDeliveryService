@@ -1,15 +1,11 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
-using FoodDeliveryService.Modules.Restaurants.Application.Abstractions.Provisioning;
-using FoodDeliveryService.Modules.Restaurants.IntegrationTests.Fakes;
 using FoodDeliveryService.Modules.Users.Application.Abstractions.Data;
 using FoodDeliveryService.Modules.Users.Domain.Users;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Testcontainers.PostgreSql;
 using Testcontainers.Redis;
 using Testcontainers.RabbitMq;
@@ -82,16 +78,6 @@ public class IntegrationTestWebAppFactory : WebApplicationFactory<Program>, IAsy
         Environment.SetEnvironmentVariable(
             "Authentication:MetadataAddress",
             $"{IdentityBaseUrl}/.well-known/openid-configuration");
-
-        builder.ConfigureTestServices(services =>
-        {
-            // The manager-onboarding RPC (ProvisionManagerUserRequest) is faked here — see
-            // FakeManagerProvisioningService for why. Permission resolution is NOT faked:
-            // GetUserPermissionsRequest goes over the RabbitMQ testcontainer to the real Users
-            // test host (see UsersApiTestFactory), exercising the production authorization path.
-            services.RemoveAll<IManagerProvisioningService>();
-            services.AddScoped<IManagerProvisioningService, FakeManagerProvisioningService>();
-        });
     }
 
     public async ValueTask InitializeAsync()

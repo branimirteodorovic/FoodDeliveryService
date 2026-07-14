@@ -52,10 +52,13 @@ public static class RestaurantsModule
             registration.AddConsumer<IntegrationEventConsumer<UserProfileUpdatedIntegrationEvent>>()
                 .Endpoint(c => c.InstanceId = instanceId);
 
-            // Explicit request client for the permission-resolution RPC (see Authorization/PermissionService.cs)
-            // — without this, MassTransit's implicit IRequestClient<T> resolution silently fails to
+            // Explicit request clients for the RPCs this module sends to Users (see
+            // Authorization/PermissionService.cs and Provisioning/ManagerProvisioningService.cs) —
+            // without these, MassTransit's implicit IRequestClient<T> resolution silently fails to
             // route the request and every call times out.
             registration.AddRequestClient<GetUserPermissionsRequest>();
+            registration.AddRequestClient<ProvisionManagerUserRequest>();
+            registration.AddRequestClient<DeactivateProvisionedUserRequest>();
         };
     }
 
