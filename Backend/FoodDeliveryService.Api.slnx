@@ -53,6 +53,7 @@
     <Project Path="src/Modules/Users/FoodDeliveryService.Modules.Users.Presentation/FoodDeliveryService.Modules.Users.Presentation.csproj" Id="57a3f0ba-daa8-4500-88a9-f20a9fb07323" />
   </Folder>
   <Folder Name="/src/Modules/Users/test/">
+    <Project Path="src/Modules/Users/FoodDeliveryService.Modules.Users.IntegrationTests/FoodDeliveryService.Modules.Users.IntegrationTests.csproj" />
     <Project Path="src/Modules/Users/FoodDeliveryService.Modules.Users.UnitTests/FoodDeliveryService.Modules.Users.UnitTests.csproj" Id="a683790f-9335-437d-a8a8-224745edbf4b" />
   </Folder>
   <Folder Name="/test/" />
