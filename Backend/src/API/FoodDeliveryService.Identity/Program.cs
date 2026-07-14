@@ -88,8 +88,15 @@ builder.Services
     .AddAspNetIdentity<ApplicationUser>();
 
 // Duende "local API" authentication: lets this host protect its own endpoints (api/users)
-// with tokens it issued itself.
-builder.Services.AddLocalApiAuthentication();
+// with tokens it issued itself. ExpectedScope must be "users:register" — the default
+// ("IdentityServerApi") is never granted to any client here, so the default would reject every
+// caller, including the confidential client's otherwise-valid users:register token.
+builder.Services
+    .AddAuthentication(IdentityServerConstants.LocalApi.AuthenticationScheme)
+    .AddLocalApi(IdentityServerConstants.LocalApi.AuthenticationScheme, options =>
+    {
+        options.ExpectedScope = Config.UsersRegisterScope;
+    });
 
 // Only callers holding the users:register scope (the confidential client used by the Users
 // module's DuendeIdentityClient) may provision users.

@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-using FoodDeliveryService.Common.Application.Authorization;
-using FoodDeliveryService.Common.Domain;
+﻿using FoodDeliveryService.Common.Application.Authorization;
 using FoodDeliveryService.Modules.Users.IntegrationEvents;
 using MassTransit;
 
@@ -16,7 +12,7 @@ public sealed class GetUserPermissionsRequestConsumer(IPermissionService permiss
 
         if (result.IsSuccess)
         {
-            await context.RespondAsync(result);
+            await context.RespondAsync(result.Value);
         }
         else
         {

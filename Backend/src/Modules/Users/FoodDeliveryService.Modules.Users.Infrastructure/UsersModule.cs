@@ -50,22 +50,23 @@ public static class UsersModule
     /// MassTransit consumers this module brings to its host, invoked from AddInfrastructure's
     /// AddMassTransit call. The Users module consumes no integration events; it serves two
     /// request/response RPCs: GetUserPermissionsRequest (authorization, used by every service) and
-    /// ProvisionManagerUserRequest (Restaurants provisioning a manager account). The instanceId
-    /// suffix gives the host its own queue name.
+    /// ProvisionManagerUserRequest (Restaurants provisioning a manager account). These are NOT
+    /// suffixed with an instanceId — unlike fan-out integration event consumers (which each need
+    /// their own per-service queue so every subscriber gets a copy), a request/response RPC has
+    /// exactly one canonical queue that every caller's default (convention-derived) IRequestClient
+    /// &lt;T&gt; targets by the plain kebab-case consumer name. Suffixing it would make that queue
+    /// unaddressable, leaving every RPC caller to time out.
     /// </summary>
     public static Action<IRegistrationConfigurator, string, string> ConfigureConsumers()
     {
         return (registration, instanceId, redisConnectionString) =>
         {
-            registration.AddConsumer<GetUserPermissionsRequestConsumer>()
-            .Endpoint(c => c.InstanceId = instanceId);
+            registration.AddConsumer<GetUserPermissionsRequestConsumer>();
 
-            registration.AddConsumer<ProvisionManagerUserRequestConsumer>()
-            .Endpoint(c => c.InstanceId = instanceId);
+            registration.AddConsumer<ProvisionManagerUserRequestConsumer>();
 
             // Compensation for a failed onboarding: removes the orphaned invited manager account.
-            registration.AddConsumer<DeactivateProvisionedUserRequestConsumer>()
-            .Endpoint(c => c.InstanceId = instanceId);
+            registration.AddConsumer<DeactivateProvisionedUserRequestConsumer>();
         };
     }
 

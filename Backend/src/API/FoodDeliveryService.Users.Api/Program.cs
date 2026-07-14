@@ -109,4 +109,4 @@ app.MapEndpoints();
 
 await app.RunAsync();
 
-internal partial class Program;
+public partial class Program;

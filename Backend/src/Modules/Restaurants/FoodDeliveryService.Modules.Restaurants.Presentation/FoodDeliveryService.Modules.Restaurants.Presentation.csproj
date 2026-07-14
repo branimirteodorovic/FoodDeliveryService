@@ -8,4 +8,8 @@
     <ProjectReference Include="..\FoodDeliveryService.Modules.Restaurants.Application\FoodDeliveryService.Modules.Restaurants.Application.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="FoodDeliveryService.Modules.Restaurants.IntegrationTests" />
+  </ItemGroup>
+
 </Project>

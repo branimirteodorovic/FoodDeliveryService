@@ -1,0 +1,224 @@
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text.Json.Serialization;
+using FoodDeliveryService.Modules.Restaurants.Application.Abstractions.Provisioning;
+using FoodDeliveryService.Modules.Restaurants.IntegrationTests.Fakes;
+using FoodDeliveryService.Modules.Users.Application.Abstractions.Data;
+using FoodDeliveryService.Modules.Users.Domain.Users;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Testcontainers.PostgreSql;
+using Testcontainers.Redis;
+using Testcontainers.RabbitMq;
+
+namespace FoodDeliveryService.Modules.Restaurants.IntegrationTests.Abstractions;
+
+public class IntegrationTestWebAppFactory : WebApplicationFactory<Program>, IAsyncLifetime
+{
+    private const string IdentityBaseUrl = "http://localhost:18080";
+    private const string ConfidentialClientId = "fooddeliveryservice-confidential-client";
+    private const string ConfidentialClientSecret = "PzotcrvZRF9BHCKcUxdKfHWlIPECG49k";
+
+    private readonly PostgreSqlContainer _dbContainer = new PostgreSqlBuilder("postgres:17")
+        .WithDatabase("fooddeliveryservice_restaurants")
+        .WithUsername("postgres")
+        .WithPassword("postgres")
+        .Build();
+
+    private readonly RedisContainer _redisContainer = new RedisBuilder("redis:latest")
+        .Build();
+
+    private readonly RabbitMqContainer _rabbitMqContainer = new RabbitMqBuilder("rabbitmq:management-alpine")
+        .WithUsername("guest")
+        .WithPassword("guest")
+        .Build();
+
+    private UsersApiTestFactory? _usersApiFactory;
+
+    private OrdersApiTestFactory? _ordersApiFactory;
+
+    /// <summary>
+    /// The in-process Orders.Api test host — lets tests assert cross-service propagation (e.g.
+    /// the Restaurant replica) by resolving Orders' own services from DI instead of exposing a
+    /// test-only read endpoint on the Orders API.
+    /// </summary>
+    internal OrdersApiTestFactory OrdersApi =>
+        _ordersApiFactory ?? throw new InvalidOperationException("The Orders test host has not been initialized.");
+
+    /// <summary>
+    /// Email/password of the single test user seeded once for the whole test run (real Identity
+    /// credential + a real Users-module Administrator row) — reused by every test in the
+    /// collection via <see cref="BaseIntegrationTest"/>.
+    /// </summary>
+    public string TestUserEmail { get; private set; } = string.Empty;
+
+    public string TestUserPassword { get; } = "Restaurants-Tests-P@ssw0rd";
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        // Program.cs reads these via builder.Configuration.GetConnectionStringOrThrow(...) in its
+        // own top-level statements — evaluated eagerly, before WebApplicationFactory's deferred
+        // host builder would apply a ConfigureAppConfiguration override. Environment variables are
+        // visible from before Program.Main even runs, so they're the only override that lands in
+        // time. This also re-asserts Restaurants' own values in case the Users/Orders test hosts
+        // (which build first, using the same env var keys) left theirs behind — safe, because
+        // both of those hosts are already fully built by then.
+        Environment.SetEnvironmentVariable("ConnectionStrings:Database", _dbContainer.GetConnectionString());
+        Environment.SetEnvironmentVariable("ConnectionStrings:Cache", _redisContainer.GetConnectionString());
+        Environment.SetEnvironmentVariable("ConnectionStrings:Queue", _rabbitMqContainer.GetConnectionString());
+
+        // Reduce interval to 1 second to speed up tests.
+        Environment.SetEnvironmentVariable("MessageProcessor:Outbox:IntervalInSeconds", "1");
+        Environment.SetEnvironmentVariable("MessageProcessor:Inbox:IntervalInSeconds", "1");
+
+        // appsettings.Development.json points JWT Bearer's metadata address at the docker-internal
+        // hostname (fooddeliveryservice.identity), which the JWKS/discovery fetch can't resolve
+        // from a plain "dotnet test" process on the host machine — every token would otherwise fail
+        // signature validation with a generic 401. Point it at the same localhost:18080 Identity
+        // is reachable at from here (ValidIssuers already accepts that issuer).
+        Environment.SetEnvironmentVariable(
+            "Authentication:MetadataAddress",
+            $"{IdentityBaseUrl}/.well-known/openid-configuration");
+
+        builder.ConfigureTestServices(services =>
+        {
+            // The manager-onboarding RPC (ProvisionManagerUserRequest) is faked here — see
+            // FakeManagerProvisioningService for why. Permission resolution is NOT faked:
+            // GetUserPermissionsRequest goes over the RabbitMQ testcontainer to the real Users
+            // test host (see UsersApiTestFactory), exercising the production authorization path.
+            services.RemoveAll<IManagerProvisioningService>();
+            services.AddScoped<IManagerProvisioningService, FakeManagerProvisioningService>();
+        });
+    }
+
+    public async ValueTask InitializeAsync()
+    {
+        await _dbContainer.StartAsync();
+        await _redisContainer.StartAsync();
+        await _rabbitMqContainer.StartAsync();
+
+        _usersApiFactory = new UsersApiTestFactory(
+            _redisContainer.GetConnectionString(),
+            _rabbitMqContainer.GetConnectionString());
+
+        await _usersApiFactory.InitializeAsync();
+
+        await SeedTestUserAsync();
+
+        _ordersApiFactory = new OrdersApiTestFactory(
+            _redisContainer.GetConnectionString(),
+            _rabbitMqContainer.GetConnectionString());
+
+        await _ordersApiFactory.InitializeAsync();
+
+        // WebApplicationFactory builds its host lazily — touch Services now so the Orders host
+        // starts (migrations applied, MassTransit receive endpoints bound) before any test
+        // publishes an integration event it is expected to consume. Built strictly AFTER the
+        // Users host (SeedTestUserAsync above) so the shared env var keys never race.
+        _ = _ordersApiFactory.Services;
+    }
+
+    public override async ValueTask DisposeAsync()
+    {
+        await base.DisposeAsync();
+        await _dbContainer.StopAsync();
+        await _redisContainer.StopAsync();
+        await _rabbitMqContainer.StopAsync();
+
+        if (_usersApiFactory is not null)
+        {
+            await _usersApiFactory.DisposeAsync();
+        }
+
+        if (_ordersApiFactory is not null)
+        {
+            await _ordersApiFactory.DisposeAsync();
+        }
+    }
+
+    /// <summary>
+    /// Registers exactly one test user, once per test run: a real ASP.NET Identity credential
+    /// against the locally running Identity service (docker-compose, not a testcontainer — must
+    /// already be up), plus a matching Users-module Administrator row inserted directly into the
+    /// Users test host's own (ephemeral) database. Administrator covers every Restaurants
+    /// permission, so this single seeded user is enough for every test in the collection.
+    /// </summary>
+    private async Task SeedTestUserAsync()
+    {
+        // Identity's ASP.NET Identity store is real and persistent (not a testcontainer), so a
+        // fixed email would collide across repeated local runs — a unique one keeps registration
+        // idempotent-by-construction and always returns a fresh identityId.
+        TestUserEmail = $"restaurants-tests+{Guid.NewGuid():N}@fooddeliveryservice.com";
+
+        string identityId = await RegisterIdentityUserAsync(TestUserEmail, TestUserPassword);
+
+        await using var scope = _usersApiFactory!.Services.CreateAsyncScope();
+
+        var userRepository = scope.ServiceProvider.GetRequiredService<IUserRepository>();
+        var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+
+        var user = User.Create(TestUserEmail, "Restaurants", "IntegrationTests", identityId, Role.Administrator);
+
+        userRepository.Insert(user);
+
+        await unitOfWork.SaveChangesAsync();
+    }
+
+    private static async Task<string> RegisterIdentityUserAsync(string email, string password)
+    {
+        using var client = new HttpClient();
+
+        // client_credentials token for the confidential client (users:register scope) — the same
+        // mechanism DuendeAuthDelegatingHandler uses in production to call Identity's local API.
+        var tokenRequestParameters = new KeyValuePair<string, string>[]
+        {
+            new("client_id", ConfidentialClientId),
+            new("client_secret", ConfidentialClientSecret),
+            new("grant_type", "client_credentials"),
+            new("scope", "users:register")
+        };
+
+        using var tokenRequestContent = new FormUrlEncodedContent(tokenRequestParameters);
+
+        using var tokenRequest = new HttpRequestMessage(HttpMethod.Post, new Uri($"{IdentityBaseUrl}/connect/token"))
+        {
+            Content = tokenRequestContent
+        };
+
+        using HttpResponseMessage tokenResponse = await client.SendAsync(tokenRequest);
+
+        tokenResponse.EnsureSuccessStatusCode();
+
+        ClientCredentialsToken clientCredentialsToken =
+            (await tokenResponse.Content.ReadFromJsonAsync<ClientCredentialsToken>())!;
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", clientCredentialsToken.AccessToken);
+
+        using HttpResponseMessage registerResponse = await client.PostAsJsonAsync(
+            $"{IdentityBaseUrl}/api/users",
+            new { Email = email, FirstName = "Restaurants", LastName = "IntegrationTests", Password = password });
+
+        registerResponse.EnsureSuccessStatusCode();
+
+        RegisteredIdentityUser registeredUser =
+            (await registerResponse.Content.ReadFromJsonAsync<RegisteredIdentityUser>())!;
+
+        return registeredUser.Id;
+    }
+
+    private sealed class ClientCredentialsToken
+    {
+        [JsonPropertyName("access_token")]
+        public string AccessToken { get; init; } = string.Empty;
+    }
+
+    private sealed class RegisteredIdentityUser
+    {
+        [JsonPropertyName("id")]
+        public string Id { get; init; } = string.Empty;
+    }
+}

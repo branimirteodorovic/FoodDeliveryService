@@ -13,7 +13,7 @@ internal static class Config
     private const string ApiScope = "fooddeliveryservice.api";
 
     // Scope used by the confidential client to call the user-registration endpoint.
-    private const string UsersRegisterScope = "users:register";
+    public const string UsersRegisterScope = "users:register";
 
     public const string UsersRegisterPolicy = "UsersRegister";
 
