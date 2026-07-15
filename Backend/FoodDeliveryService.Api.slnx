@@ -28,6 +28,7 @@
     <Project Path="src/Modules/Notifications/FoodDeliveryService.Modules.Notifications.Presentation/FoodDeliveryService.Modules.Notifications.Presentation.csproj" Id="c3437f63-9205-4515-b9ec-5aed4930dc1d" />
   </Folder>
   <Folder Name="/src/Modules/Notifications/test/">
+    <Project Path="src/Modules/Notifications/FoodDeliveryService.Modules.Notifications.IntegrationTests/FoodDeliveryService.Modules.Notifications.IntegrationTests.csproj" />
     <Project Path="src/Modules/Notifications/FoodDeliveryService.Modules.Notifications.UnitTests/FoodDeliveryService.Modules.Notifications.UnitTests.csproj" />
   </Folder>
   <Folder Name="/src/Modules/Orders/">

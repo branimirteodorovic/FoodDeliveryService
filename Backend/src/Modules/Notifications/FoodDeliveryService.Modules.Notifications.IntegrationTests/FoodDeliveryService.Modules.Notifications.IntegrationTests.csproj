@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AwesomeAssertions" />
+    <PackageReference Include="Bogus" />
+    <PackageReference Include="coverlet.collector">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="Testcontainers.RabbitMq" />
+    <PackageReference Include="Testcontainers.Redis" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The system-under-test host: the Notifications module lives here (its Program is the default).
+         Notifications is a pure event consumer (no HTTP endpoints, no auth), so unlike the other
+         modules' integration tests this needs no Identity, no seeded JWT user, and no in-process
+         Users/Orders hosts — tests publish upstream integration events onto the shared broker via the
+         SUT's own IEventBus and assert Notifications' reaction through its own DI. -->
+    <ProjectReference Include="..\..\..\API\FoodDeliveryService.Notifications.Api\FoodDeliveryService.Notifications.Api.csproj" />
+    <!-- Contracts the tests construct and publish to drive the module: Users events feed the
+         RecipientUser replica; the Orders event triggers the order-confirmation email. -->
+    <ProjectReference Include="..\..\..\Modules\Users\FoodDeliveryService.Modules.Users.IntegrationEvents\FoodDeliveryService.Modules.Users.IntegrationEvents.csproj" />
+    <ProjectReference Include="..\..\..\Modules\Orders\FoodDeliveryService.Modules.Orders.IntegrationEvents\FoodDeliveryService.Modules.Orders.IntegrationEvents.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>
