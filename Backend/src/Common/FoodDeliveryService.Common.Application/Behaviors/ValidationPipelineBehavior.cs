@@ -1,16 +1,17 @@
 ﻿using System.Reflection;
 using FluentValidation;
 using FluentValidation.Results;
-using FoodDeliveryService.Common.Application.Messaging;
 using FoodDeliveryService.Common.Domain;
 using MediatR;
 
 namespace FoodDeliveryService.Common.Application.Behaviors;
 
+// Applies to commands AND queries. The behavior no-ops when a request has no validator,
+// so widening the constraint only activates validators that already exist.
 internal sealed class ValidationPipelineBehavior<TRequest, TResponse>(
     IEnumerable<IValidator<TRequest>> validators)
     : IPipelineBehavior<TRequest, TResponse>
-    where TRequest : IBaseCommand
+    where TRequest : notnull
 {
     public async Task<TResponse> Handle(
         TRequest request,

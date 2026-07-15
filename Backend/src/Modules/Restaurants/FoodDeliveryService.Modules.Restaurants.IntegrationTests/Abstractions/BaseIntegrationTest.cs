@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 using Bogus;
+using FoodDeliveryService.Modules.Restaurants.Presentation.Restaurants;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace FoodDeliveryService.Modules.Restaurants.IntegrationTests.Abstractions;
@@ -47,6 +48,42 @@ public class BaseIntegrationTest : IDisposable
         HttpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 
         return HttpClient;
+    }
+
+    /// <summary>
+    /// Onboards a restaurant through the real endpoint and returns its id — the starting point for
+    /// every test that needs an existing restaurant to act on. Each call provisions a fresh manager
+    /// (unique email), so restaurants never collide across tests sharing the collection's database.
+    /// </summary>
+    protected static async Task<Guid> OnboardRestaurantAsync(HttpClient client, decimal commissionRate = 0.30m)
+    {
+        var request = new OnboardRestaurant.Request
+        {
+            Name = Faker.Company.CompanyName(),
+            TaxIdentification = Faker.Random.Replace("##########"),
+            CuisineType = "Italian",
+            Email = Faker.Internet.Email(),
+            PhoneNumber = Faker.Phone.PhoneNumber(),
+            Street = Faker.Address.StreetAddress(),
+            City = Faker.Address.City(),
+            PostalCode = Faker.Address.ZipCode(),
+            Country = Faker.Address.Country(),
+            Latitude = Faker.Address.Latitude(),
+            Longitude = Faker.Address.Longitude(),
+            CommissionRate = commissionRate,
+            ManagerEmail = Faker.Internet.Email(),
+            ManagerFirstName = Faker.Name.FirstName(),
+            ManagerLastName = Faker.Name.LastName(),
+        };
+
+        HttpResponseMessage response = await client.PostAsJsonAsync(
+            "restaurants",
+            request,
+            TestContext.Current.CancellationToken);
+
+        response.EnsureSuccessStatusCode();
+
+        return await response.Content.ReadFromJsonAsync<Guid>(TestContext.Current.CancellationToken);
     }
 
     private async Task<string> GetOrCreateAccessTokenAsync()

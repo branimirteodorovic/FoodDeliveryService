@@ -12,6 +12,10 @@ internal sealed class MenuItemConfiguration : IEntityTypeConfiguration<MenuItem>
 
         builder.HasKey(i => i.Id);
 
+        // Assigned by the domain in MenuItem.Create — see MenuCategoryConfiguration for why
+        // leaving this store-generated makes EF update-instead-of-insert new items.
+        builder.Property(i => i.Id).ValueGeneratedNever();
+
         builder.Property(i => i.Name).HasMaxLength(200);
 
         builder.Property(i => i.Description).HasMaxLength(1000);

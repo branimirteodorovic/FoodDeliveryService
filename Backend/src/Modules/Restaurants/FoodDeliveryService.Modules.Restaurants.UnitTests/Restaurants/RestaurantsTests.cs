@@ -10,6 +10,8 @@ public class RestaurantsTests : BaseTest
     [Theory]
     [InlineData(-0.1)]
     [InlineData(1.1)]
+    // 1.0 is the inclusive upper bound: a 100% commission would leave the restaurant nothing.
+    [InlineData(1.0)]
     public void Create_ShouldReturnFailure_WhenCommissionRateIsOutOfBounds(decimal commissionRate)
     {
         // Arrange
@@ -26,7 +28,32 @@ public class RestaurantsTests : BaseTest
         var result = Restaurant.Create(managerUserId, name, taxIdentification, cuisineType, email, phoneNumber, address, commissionRate, createdOnUtc);
 
         // Assert
+        result.IsFailure.Should().BeTrue();
         result.Error.Should().Be(RestaurantErrors.InvalidCommissionRate);
+    }
+
+    [Theory]
+    // 0 (no commission) and anything just under 1 are both legitimate commercial terms.
+    [InlineData(0)]
+    [InlineData(0.9999)]
+    public void Create_ShouldSucceed_WhenCommissionRateIsOnTheAcceptedBoundary(decimal commissionRate)
+    {
+        // Arrange
+        var managerUserId = Guid.NewGuid();
+        var name = "Marios Pizerria";
+        var taxIdentification = Faker.Finance.Random.AlphaNumeric(10);
+        var cuisineType = "Italian";
+        var email = Faker.Person.Email;
+        var phoneNumber = Faker.Person.Phone;
+        var address = new Address(Faker.Address.StreetAddress(), Faker.Address.City(), Faker.Address.ZipCode(), Faker.Address.Country(), Faker.Address.Latitude(), Faker.Address.Longitude());
+        var createdOnUtc = DateTime.Now;
+
+        // Act
+        Result<Restaurant> result = Restaurant.Create(managerUserId, name, taxIdentification, cuisineType, email, phoneNumber, address, commissionRate, createdOnUtc);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        result.Value.CommissionRate.Should().Be(commissionRate);
     }
 
     [Fact]

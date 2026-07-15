@@ -3,6 +3,7 @@ using System;
 using FoodDeliveryService.Modules.Restaurants.Infrastructure.Database;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace FoodDeliveryService.Modules.Restaurants.Infrastructure.Database.Migrations
 {
     [DbContext(typeof(RestaurantsDbContext))]
-    partial class RestaurantsDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260715125200_Menu_Keys_Value_Generated_Never")]
+    partial class Menu_Keys_Value_Generated_Never
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
