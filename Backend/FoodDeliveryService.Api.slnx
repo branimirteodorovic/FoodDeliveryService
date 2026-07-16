@@ -36,7 +36,9 @@
     <Project Path="src/Modules/Orders/FoodDeliveryService.Modules.Orders.Domain/FoodDeliveryService.Modules.Orders.Domain.csproj" Id="7af02f3b-2f58-4d35-b172-2df9640b5784" />
     <Project Path="src/Modules/Orders/FoodDeliveryService.Modules.Orders.Infrastructure/FoodDeliveryService.Modules.Orders.Infrastructure.csproj" Id="68d353da-ba76-4618-bbc8-fcb79d69de4f" />
     <Project Path="src/Modules/Orders/FoodDeliveryService.Modules.Orders.IntegrationEvents/FoodDeliveryService.Modules.Orders.IntegrationEvents.csproj" Id="e15e1443-7694-4795-aa1c-d22f3c930440" />
+    <Project Path="src/Modules/Orders/FoodDeliveryService.Modules.Orders.IntegrationTests/FoodDeliveryService.Modules.Orders.IntegrationTests.csproj" />
     <Project Path="src/Modules/Orders/FoodDeliveryService.Modules.Orders.Presentation/FoodDeliveryService.Modules.Orders.Presentation.csproj" Id="0b756436-dba6-4d70-8168-35ea4c032955" />
+    <Project Path="src/Modules/Orders/FoodDeliveryService.Modules.Orders.UnitTests/FoodDeliveryService.Modules.Orders.UnitTests.csproj" />
   </Folder>
   <Folder Name="/src/Modules/Restaurants/">
     <Project Path="src/Modules/Restaurants/FoodDeliveryService.Modules.Restaurants.Application/FoodDeliveryService.Modules.Restaurants.Application.csproj" Id="aa61ebf6-da6a-4995-8820-c8e0dc4f0d1c" />
