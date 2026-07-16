@@ -38,7 +38,12 @@ internal sealed class PermissionConfiguration : IEntityTypeConfiguration<Permiss
             Permission.ModifyRestaurant,
             Permission.ManageMenu,
             Permission.GetMenu,
-            Permission.ProvisionUsers);
+            Permission.ProvisionUsers,
+            Permission.GetDrivers,
+            Permission.ModifyDriver,
+            Permission.GetDeliveries,
+            Permission.ManageDeliveries,
+            Permission.AdministerDeliveries);
 
         builder
             .HasMany<Role>()
@@ -63,6 +68,9 @@ internal sealed class PermissionConfiguration : IEntityTypeConfiguration<Permiss
                     // Read-only restaurant browsing (full browse endpoints arrive with the ordering work).
                     CreateRolePermission(Role.Customer, Permission.GetRestaurants),
                     CreateRolePermission(Role.Customer, Permission.GetMenu),
+                    // Track their own order's delivery. Ownership-scoped in the handler: a customer may
+                    // only read a delivery for an order they placed.
+                    CreateRolePermission(Role.Customer, Permission.GetDeliveries),
                     // Admin permissions
                     CreateRolePermission(Role.Administrator, Permission.GetUser),
                     CreateRolePermission(Role.Administrator, Permission.ModifyUser),
@@ -89,6 +97,14 @@ internal sealed class PermissionConfiguration : IEntityTypeConfiguration<Permiss
                     CreateRolePermission(Role.Administrator, Permission.ModifyRestaurant),
                     CreateRolePermission(Role.Administrator, Permission.GetMenu),
                     CreateRolePermission(Role.Administrator, Permission.ManageMenu),
+                    // Delivery oversight: admin can onboard drivers (ProvisionUsers, above) and view/
+                    // reassign any delivery. AdministerDeliveries is the ownership bypass, mirroring how
+                    // the Orders handlers let an admin act on any restaurant's order.
+                    CreateRolePermission(Role.Administrator, Permission.GetDrivers),
+                    CreateRolePermission(Role.Administrator, Permission.ModifyDriver),
+                    CreateRolePermission(Role.Administrator, Permission.GetDeliveries),
+                    CreateRolePermission(Role.Administrator, Permission.ManageDeliveries),
+                    CreateRolePermission(Role.Administrator, Permission.AdministerDeliveries),
                     // RestaurantManager: manage only their own restaurant/menu (ownership-enforced in handlers)
                     // + their own profile. No CreateRestaurant/ProvisionUsers. Seeded now, exercised in later milestones.
                     CreateRolePermission(Role.RestaurantManager, Permission.GetRestaurants),
@@ -100,7 +116,17 @@ internal sealed class PermissionConfiguration : IEntityTypeConfiguration<Permiss
                     // Read + manage order status for their own restaurants (ownership enforced in the
                     // Orders handlers): orders:read powers the manager's "incoming orders" list.
                     CreateRolePermission(Role.RestaurantManager, Permission.GetOrders),
-                    CreateRolePermission(Role.RestaurantManager, Permission.ManageOrders));
+                    CreateRolePermission(Role.RestaurantManager, Permission.ManageOrders),
+                    // DeliveryDriver: manage their own driver profile/availability/location and act on
+                    // their own deliveries (ownership enforced in the Delivery handlers). No
+                    // AdministerDeliveries — that ownership bypass is admin-only. Seeded now, exercised
+                    // in later Delivery milestones.
+                    CreateRolePermission(Role.DeliveryDriver, Permission.GetDrivers),
+                    CreateRolePermission(Role.DeliveryDriver, Permission.ModifyDriver),
+                    CreateRolePermission(Role.DeliveryDriver, Permission.GetDeliveries),
+                    CreateRolePermission(Role.DeliveryDriver, Permission.ManageDeliveries),
+                    CreateRolePermission(Role.DeliveryDriver, Permission.GetUser),
+                    CreateRolePermission(Role.DeliveryDriver, Permission.ModifyUser));
             });
     }
 

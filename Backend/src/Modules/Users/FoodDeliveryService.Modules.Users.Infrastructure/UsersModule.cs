@@ -48,9 +48,10 @@ public static class UsersModule
 
     /// <summary>
     /// MassTransit consumers this module brings to its host, invoked from AddInfrastructure's
-    /// AddMassTransit call. The Users module consumes no integration events; it serves two
-    /// request/response RPCs: GetUserPermissionsRequest (authorization, used by every service) and
-    /// ProvisionManagerUserRequest (Restaurants provisioning a manager account). These are NOT
+    /// AddMassTransit call. The Users module consumes no integration events; it serves several
+    /// request/response RPCs: GetUserPermissionsRequest (authorization, used by every service),
+    /// ProvisionManagerUserRequest (Restaurants provisioning a manager account) and the generalized
+    /// ProvisionUserRequest (any service provisioning an invited account for a role). These are NOT
     /// suffixed with an instanceId — unlike fan-out integration event consumers (which each need
     /// their own per-service queue so every subscriber gets a copy), a request/response RPC has
     /// exactly one canonical queue that every caller's default (convention-derived) IRequestClient
@@ -64,6 +65,8 @@ public static class UsersModule
             registration.AddConsumer<GetUserPermissionsRequestConsumer>();
 
             registration.AddConsumer<ProvisionManagerUserRequestConsumer>();
+
+            registration.AddConsumer<ProvisionUserRequestConsumer>();
 
             // Compensation for a failed onboarding: removes the orphaned invited manager account.
             registration.AddConsumer<DeactivateProvisionedUserRequestConsumer>();

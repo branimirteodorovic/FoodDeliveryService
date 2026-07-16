@@ -67,6 +67,25 @@ public class UsersTests : BaseTest
     }
 
     [Fact]
+    public void Create_ShouldAssignDeliveryDriverRoleAndRaiseEvent_WhenDeliveryDriverProvided()
+    {
+        // Arrange — drivers are admin-provisioned as DeliveryDriver (Feature 2.1 Milestone A).
+        var email = Faker.Person.Email;
+        var firstName = Faker.Person.FirstName;
+        var lastName = Faker.Person.LastName;
+        var identityId = Guid.NewGuid().ToString();
+
+        // Act
+        var user = User.Create(email, firstName, lastName, identityId, Role.DeliveryDriver);
+
+        // Assert
+        user.Roles.Should().ContainSingle().Which.Should().Be(Role.DeliveryDriver);
+        UserRegisteredDomainEvent domainEvent = AssertDomainEventWasPublished<UserRegisteredDomainEvent>(user);
+        domainEvent.UserId.Should().Be(user.Id);
+        domainEvent.Roles.Should().ContainSingle().Which.Should().Be(Role.DeliveryDriver.Name);
+    }
+
+    [Fact]
     public void CreateInvited_ShouldSetPropertiesAndAssignRole_WhenInvited()
     {
         // Arrange
