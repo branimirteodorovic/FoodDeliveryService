@@ -97,7 +97,9 @@ internal sealed class PermissionConfiguration : IEntityTypeConfiguration<Permiss
                     CreateRolePermission(Role.RestaurantManager, Permission.GetMenu),
                     CreateRolePermission(Role.RestaurantManager, Permission.GetUser),
                     CreateRolePermission(Role.RestaurantManager, Permission.ModifyUser),
-                    // Manage order status for their own restaurants (ownership enforced in the Orders handlers).
+                    // Read + manage order status for their own restaurants (ownership enforced in the
+                    // Orders handlers): orders:read powers the manager's "incoming orders" list.
+                    CreateRolePermission(Role.RestaurantManager, Permission.GetOrders),
                     CreateRolePermission(Role.RestaurantManager, Permission.ManageOrders));
             });
     }

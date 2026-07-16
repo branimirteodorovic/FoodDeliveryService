@@ -7,4 +7,10 @@ public interface IOrdersContext
     /// cancellation, the manager id for ownership checks on status transitions.
     /// </summary>
     Guid UserId { get; }
+
+    /// <summary>
+    /// True when the caller's resolved permission set contains the given code. Used for the
+    /// administrator bypass on the per-restaurant ownership check (see <c>OrderOwnership</c>).
+    /// </summary>
+    bool HasPermission(string permissionCode);
 }
