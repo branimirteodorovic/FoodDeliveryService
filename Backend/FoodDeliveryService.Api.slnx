@@ -6,6 +6,7 @@
   </Folder>
   <Folder Name="/src/" />
   <Folder Name="/src/API/">
+    <Project Path="src/API/FoodDeliveryService.Delivery.Api/FoodDeliveryService.Delivery.Api.csproj" />
     <Project Path="src/API/FoodDeliveryService.Gateway/FoodDeliveryService.Gateway.csproj" Id="7995658a-fc8a-4975-ba84-f5fce0b77f94" />
     <Project Path="src/API/FoodDeliveryService.Identity/FoodDeliveryService.Identity.csproj" Id="2f9a4c7e-5b3d-4e91-9c26-7a1f8d3b6e04" />
     <Project Path="src/API/FoodDeliveryService.Notifications.Api/FoodDeliveryService.Notifications.Api.csproj" Id="6b21f175-a4c3-4555-aecd-84bd154e9d8c" />
@@ -20,6 +21,17 @@
     <Project Path="src/Common/FoodDeliveryService.Common.Presentation/FoodDeliveryService.Common.Presentation.csproj" Id="6b906da1-eeb4-4469-91a6-37c6dd4541a6" />
   </Folder>
   <Folder Name="/src/Modules/" />
+  <Folder Name="/src/Modules/Delivery/">
+    <Project Path="src/Modules/Delivery/FoodDeliveryService.Modules.Delivery.Application/FoodDeliveryService.Modules.Delivery.Application.csproj" />
+    <Project Path="src/Modules/Delivery/FoodDeliveryService.Modules.Delivery.Domain/FoodDeliveryService.Modules.Delivery.Domain.csproj" />
+    <Project Path="src/Modules/Delivery/FoodDeliveryService.Modules.Delivery.Infrastructure/FoodDeliveryService.Modules.Delivery.Infrastructure.csproj" />
+    <Project Path="src/Modules/Delivery/FoodDeliveryService.Modules.Delivery.IntegrationEvents/FoodDeliveryService.Modules.Delivery.IntegrationEvents.csproj" />
+    <Project Path="src/Modules/Delivery/FoodDeliveryService.Modules.Delivery.Presentation/FoodDeliveryService.Modules.Delivery.Presentation.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Delivery/test/">
+    <Project Path="src/Modules/Delivery/FoodDeliveryService.Modules.Delivery.IntegrationTests/FoodDeliveryService.Modules.Delivery.IntegrationTests.csproj" />
+    <Project Path="src/Modules/Delivery/FoodDeliveryService.Modules.Delivery.UnitTests/FoodDeliveryService.Modules.Delivery.UnitTests.csproj" />
+  </Folder>
   <Folder Name="/src/Modules/Notifications/">
     <Project Path="src/Modules/Notifications/FoodDeliveryService.Modules.Notifications.Application/FoodDeliveryService.Modules.Notifications.Application.csproj" Id="e403a499-d77d-4d35-9f6e-81d8d3935bd5" />
     <Project Path="src/Modules/Notifications/FoodDeliveryService.Modules.Notifications.Domain/FoodDeliveryService.Modules.Notifications.Domain.csproj" Id="ee4fb013-ef71-4afc-ba67-8b719f15a859" />

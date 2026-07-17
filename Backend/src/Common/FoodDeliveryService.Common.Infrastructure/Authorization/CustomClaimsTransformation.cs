@@ -1,6 +1,5 @@
 ﻿using System.Security.Claims;
 using FoodDeliveryService.Common.Application.Authorization;
-using FoodDeliveryService.Common.Application.Exceptions;
 using FoodDeliveryService.Common.Domain;
 using FoodDeliveryService.Common.Infrastructure.Authentication;
 using Microsoft.AspNetCore.Authentication;
