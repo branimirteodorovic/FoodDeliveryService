@@ -188,4 +188,176 @@ public class DriverTests : BaseTest
         driver.VehicleType.Should().Be(VehicleType.Motorcycle);
         driver.Status.Should().Be(DriverStatus.Offline);
     }
+
+    [Fact]
+    public void GoAvailable_ShouldMoveOfflineDriverToAvailable_AndRaiseEvent()
+    {
+        // Arrange
+        Driver driver = OnboardDriver();
+        driver.ClearDomainEvents();
+
+        // Act
+        Result result = driver.GoAvailable();
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        driver.Status.Should().Be(DriverStatus.Available);
+
+        DriverBecameAvailableDomainEvent domainEvent =
+            AssertDomainEventWasPublished<DriverBecameAvailableDomainEvent>(driver);
+        domainEvent.DriverId.Should().Be(driver.Id);
+    }
+
+    [Fact]
+    public void GoAvailable_ShouldFail_WhenAlreadyAvailable()
+    {
+        // Arrange
+        Driver driver = Available();
+        driver.ClearDomainEvents();
+
+        // Act
+        Result result = driver.GoAvailable();
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be(DriverErrors.InvalidStatusTransition(DriverStatus.Available, DriverStatus.Available));
+        driver.DomainEvents.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void GoOffline_ShouldMoveAvailableDriverToOffline_AndRaiseEvent()
+    {
+        // Arrange
+        Driver driver = Available();
+        driver.ClearDomainEvents();
+
+        // Act
+        Result result = driver.GoOffline();
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        driver.Status.Should().Be(DriverStatus.Offline);
+
+        DriverWentOfflineDomainEvent domainEvent =
+            AssertDomainEventWasPublished<DriverWentOfflineDomainEvent>(driver);
+        domainEvent.DriverId.Should().Be(driver.Id);
+    }
+
+    [Fact]
+    public void GoOffline_ShouldFail_WhenDriverIsBusy()
+    {
+        // Arrange — a Busy driver is mid-delivery and must not be able to clock off.
+        Driver driver = Busy();
+        driver.ClearDomainEvents();
+
+        // Act
+        Result result = driver.GoOffline();
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be(DriverErrors.OnDelivery);
+        driver.Status.Should().Be(DriverStatus.Busy);
+        driver.DomainEvents.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void GoOffline_ShouldFail_WhenAlreadyOffline()
+    {
+        // Arrange
+        Driver driver = OnboardDriver();
+        driver.ClearDomainEvents();
+
+        // Act
+        Result result = driver.GoOffline();
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be(DriverErrors.InvalidStatusTransition(DriverStatus.Offline, DriverStatus.Offline));
+        driver.DomainEvents.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Reserve_ShouldMoveAvailableDriverToBusy_AndRaiseEvent()
+    {
+        // Arrange
+        Driver driver = Available();
+        driver.ClearDomainEvents();
+
+        // Act
+        Result result = driver.Reserve();
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        driver.Status.Should().Be(DriverStatus.Busy);
+
+        DriverReservedDomainEvent domainEvent =
+            AssertDomainEventWasPublished<DriverReservedDomainEvent>(driver);
+        domainEvent.DriverId.Should().Be(driver.Id);
+    }
+
+    [Fact]
+    public void Reserve_ShouldFail_WhenDriverIsNotAvailable()
+    {
+        // Arrange — the second delivery to grab an already-reserved (Busy) driver must fail; this is
+        // the aggregate-level guard against two orders taking the same driver.
+        Driver driver = Busy();
+        driver.ClearDomainEvents();
+
+        // Act
+        Result result = driver.Reserve();
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be(DriverErrors.InvalidStatusTransition(DriverStatus.Busy, DriverStatus.Busy));
+        driver.DomainEvents.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Release_ShouldMoveBusyDriverToAvailable_AndRaiseEvent()
+    {
+        // Arrange
+        Driver driver = Busy();
+        driver.ClearDomainEvents();
+
+        // Act
+        Result result = driver.Release();
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        driver.Status.Should().Be(DriverStatus.Available);
+
+        DriverReleasedDomainEvent domainEvent =
+            AssertDomainEventWasPublished<DriverReleasedDomainEvent>(driver);
+        domainEvent.DriverId.Should().Be(driver.Id);
+    }
+
+    [Fact]
+    public void Release_ShouldFail_WhenDriverIsNotBusy()
+    {
+        // Arrange
+        Driver driver = Available();
+        driver.ClearDomainEvents();
+
+        // Act
+        Result result = driver.Release();
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be(DriverErrors.InvalidStatusTransition(DriverStatus.Available, DriverStatus.Available));
+        driver.DomainEvents.Should().BeEmpty();
+    }
+
+    private static Driver Available()
+    {
+        Driver driver = OnboardDriver();
+        driver.GoAvailable();
+        return driver;
+    }
+
+    private static Driver Busy()
+    {
+        Driver driver = Available();
+        driver.Reserve();
+        return driver;
+    }
 }

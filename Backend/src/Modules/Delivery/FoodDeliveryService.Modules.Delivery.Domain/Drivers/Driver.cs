@@ -101,4 +101,80 @@ public sealed class Driver : Entity
 
         Raise(new DriverProfileUpdatedDomainEvent(Id));
     }
+
+    /// <summary>The driver clocks on. They only become an assignment candidate once they also
+    /// report a position — availability alone puts nothing in the geo pool.</summary>
+    public Result GoAvailable()
+    {
+        Result result = Transition(DriverStatus.Available, DriverStatus.Offline);
+
+        if (result.IsSuccess)
+        {
+            Raise(new DriverBecameAvailableDomainEvent(Id));
+        }
+
+        return result;
+    }
+
+    /// <summary>The driver clocks off. Refused mid-delivery — see DriverErrors.OnDelivery.</summary>
+    public Result GoOffline()
+    {
+        if (Status == DriverStatus.Busy)
+        {
+            return Result.Failure(DriverErrors.OnDelivery);
+        }
+
+        Result result = Transition(DriverStatus.Offline, DriverStatus.Available);
+
+        if (result.IsSuccess)
+        {
+            Raise(new DriverWentOfflineDomainEvent(Id));
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Takes the driver out of the available pool for a delivery they just accepted. This
+    /// Available → Busy transition, applied inside the accepting transaction, is what stops two
+    /// deliveries grabbing the same driver: the second accept finds them already Busy and fails.
+    /// Called from the offer-accept path (Milestone E).
+    /// </summary>
+    public Result Reserve()
+    {
+        Result result = Transition(DriverStatus.Busy, DriverStatus.Available);
+
+        if (result.IsSuccess)
+        {
+            Raise(new DriverReservedDomainEvent(Id));
+        }
+
+        return result;
+    }
+
+    /// <summary>Returns the driver to the pool once their delivery ends — completed or cancelled
+    /// (Milestone F).</summary>
+    public Result Release()
+    {
+        Result result = Transition(DriverStatus.Available, DriverStatus.Busy);
+
+        if (result.IsSuccess)
+        {
+            Raise(new DriverReleasedDomainEvent(Id));
+        }
+
+        return result;
+    }
+
+    private Result Transition(DriverStatus to, params DriverStatus[] from)
+    {
+        if (!from.Contains(Status))
+        {
+            return Result.Failure(DriverErrors.InvalidStatusTransition(Status, to));
+        }
+
+        Status = to;
+
+        return Result.Success();
+    }
 }

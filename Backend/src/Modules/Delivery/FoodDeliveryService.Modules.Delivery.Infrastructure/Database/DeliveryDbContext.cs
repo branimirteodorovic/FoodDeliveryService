@@ -11,6 +11,8 @@ public sealed class DeliveryDbContext(DbContextOptions<DeliveryDbContext> option
 {
     internal DbSet<Driver> Drivers { get; set; }
 
+    internal DbSet<DriverLocationHistoryEntry> DriverLocationHistory { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         // Outbox/inbox tables live in Common.Infrastructure, so the assembly scan below does not

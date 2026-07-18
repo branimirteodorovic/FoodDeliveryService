@@ -11,7 +11,9 @@ using FoodDeliveryService.Modules.Delivery.Infrastructure.Authentication;
 using FoodDeliveryService.Modules.Delivery.Infrastructure.Authorization;
 using FoodDeliveryService.Modules.Delivery.Infrastructure.Database;
 using FoodDeliveryService.Modules.Delivery.Infrastructure.Drivers;
+using FoodDeliveryService.Modules.Delivery.Application.Abstractions.Locations;
 using FoodDeliveryService.Modules.Delivery.Infrastructure.Inbox;
+using FoodDeliveryService.Modules.Delivery.Infrastructure.Locations;
 using FoodDeliveryService.Modules.Delivery.Infrastructure.Outbox;
 using FoodDeliveryService.Modules.Delivery.Infrastructure.Provisioning;
 using FoodDeliveryService.Modules.Users.IntegrationEvents;
@@ -77,6 +79,13 @@ public static class DeliveryModule
         services.AddScoped<IDriversRepository, DriversRepository>();
 
         services.AddScoped<IDeliveryContext, DeliveryContext>();
+
+        // Live driver positions: Redis GEO for the "nearest available" search + a TTL'd position
+        // hash for freshness, with history appended to Postgres. Swappable for Cosmos (Milestone G)
+        // behind the same interface. Scoped — it writes history through the request's DbContext.
+        services.Configure<DriverLocationStoreOptions>(configuration.GetSection("Delivery:LocationStore"));
+
+        services.AddScoped<IDriverLocationStore, RedisDriverLocationStore>();
 
         // Synchronous onboarding calls to Users (MassTransit request/response).
         services.AddScoped<IDriverProvisioningService, DriverProvisioningService>();

@@ -10,6 +10,7 @@ using FoodDeliveryService.Delivery.Api.OpenTelemetry;
 using FoodDeliveryService.Modules.Delivery.Infrastructure;
 using HealthChecks.UI.Client;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using OpenTelemetry.Trace;
 using RabbitMQ.Client;
 using Serilog;
 
@@ -54,6 +55,11 @@ builder.Services.AddInfrastructure(
     rabbitMqSettings,
     databaseConnectionString,
     redisConnectionString);
+
+// Register the Delivery-specific tracing source (the "find nearest available driver" geo span)
+// alongside the instrumentation AddInfrastructure already wired up.
+builder.Services.ConfigureOpenTelemetryTracerProvider(tracing =>
+    tracing.AddSource(FoodDeliveryService.Modules.Delivery.Infrastructure.Locations.DeliveryDiagnostics.SourceName));
 
 Uri duendeHealthUrl = builder.Configuration.GetDuendeHealthUrl();
 
