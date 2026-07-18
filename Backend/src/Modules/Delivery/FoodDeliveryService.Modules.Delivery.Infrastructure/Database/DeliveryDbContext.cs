@@ -5,6 +5,7 @@ using FoodDeliveryService.Modules.Delivery.Domain.Drivers;
 using FoodDeliveryService.Modules.Delivery.Domain.Orders;
 using FoodDeliveryService.Modules.Delivery.Domain.Restaurants;
 using Microsoft.EntityFrameworkCore;
+using DeliveryAggregate = FoodDeliveryService.Modules.Delivery.Domain.Deliveries.Delivery;
 
 namespace FoodDeliveryService.Modules.Delivery.Infrastructure.Database;
 
@@ -12,6 +13,8 @@ public sealed class DeliveryDbContext(DbContextOptions<DeliveryDbContext> option
     : DbContext(options), IUnitOfWork
 {
     internal DbSet<Driver> Drivers { get; set; }
+
+    internal DbSet<DeliveryAggregate> Deliveries { get; set; }
 
     internal DbSet<DriverLocationHistoryEntry> DriverLocationHistory { get; set; }
 

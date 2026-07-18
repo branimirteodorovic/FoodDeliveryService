@@ -11,8 +11,12 @@ using FoodDeliveryService.Modules.Delivery.Infrastructure.Authentication;
 using FoodDeliveryService.Modules.Delivery.Infrastructure.Authorization;
 using FoodDeliveryService.Modules.Delivery.Infrastructure.Database;
 using FoodDeliveryService.Modules.Delivery.Infrastructure.Drivers;
+using FoodDeliveryService.Modules.Delivery.Application.Abstractions.Assignment;
 using FoodDeliveryService.Modules.Delivery.Application.Abstractions.Locations;
+using FoodDeliveryService.Modules.Delivery.Domain.Deliveries;
 using FoodDeliveryService.Modules.Delivery.Domain.Orders;
+using FoodDeliveryService.Modules.Delivery.Infrastructure.Assignment;
+using FoodDeliveryService.Modules.Delivery.Infrastructure.Deliveries;
 using FoodDeliveryService.Modules.Delivery.Domain.Restaurants;
 using FoodDeliveryService.Modules.Delivery.Infrastructure.Inbox;
 using FoodDeliveryService.Modules.Delivery.Infrastructure.Locations;
@@ -70,6 +74,10 @@ public static class DeliveryModule
             registration.AddConsumer<IntegrationEventConsumer<OrderReadyForPickupIntegrationEvent>>()
                 .Endpoint(c => c.InstanceId = instanceId);
 
+            // Compensation: a cancelled order cancels its delivery leg and releases the driver.
+            registration.AddConsumer<IntegrationEventConsumer<OrderCancelledIntegrationEvent>>()
+                .Endpoint(c => c.InstanceId = instanceId);
+
             // Explicit request clients for the RPCs this module sends to Users (see
             // Authorization/PermissionService.cs and Provisioning/DriverProvisioningService.cs) —
             // without these, MassTransit's implicit IRequestClient<T> resolution silently fails to
@@ -100,7 +108,17 @@ public static class DeliveryModule
 
         services.AddScoped<IOrdersRepository, OrdersRepository>();
 
+        services.AddScoped<IDeliveriesRepository, DeliveriesRepository>();
+
         services.AddScoped<IDeliveryContext, DeliveryContext>();
+
+        // The offer routine (nearest untried driver, or park as Unassigned) + the Quartz job that
+        // re-derives lapsed offers from Postgres — no message-scheduler infrastructure.
+        services.Configure<DeliveryAssignmentOptions>(configuration.GetSection("Delivery:Assignment"));
+
+        services.AddScoped<IDeliveryAssignmentService, DeliveryAssignmentService>();
+
+        services.ConfigureOptions<ConfigureProcessExpiredOffersJob>();
 
         // Live driver positions: Redis GEO for the "nearest available" search + a TTL'd position
         // hash for freshness, with history appended to Postgres. Swappable for Cosmos (Milestone G)

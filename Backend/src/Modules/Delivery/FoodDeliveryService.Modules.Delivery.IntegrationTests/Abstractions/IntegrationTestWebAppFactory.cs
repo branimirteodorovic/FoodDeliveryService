@@ -75,6 +75,12 @@ public class IntegrationTestWebAppFactory : WebApplicationFactory<Program>, IAsy
         Environment.SetEnvironmentVariable("MessageProcessor:Outbox:IntervalInSeconds", "1");
         Environment.SetEnvironmentVariable("MessageProcessor:Inbox:IntervalInSeconds", "1");
 
+        // Shrink the assignment offer window so the timeout → re-offer path is testable in seconds
+        // (production default is 30s), and tick the expiry job every second. Still long enough for
+        // the accept-path tests to respond to a detected offer before it lapses.
+        Environment.SetEnvironmentVariable("Delivery:Assignment:OfferWindowInSeconds", "10");
+        Environment.SetEnvironmentVariable("Delivery:Assignment:ExpiredOffersJobIntervalInSeconds", "1");
+
         // appsettings.Development.json points JWT Bearer's metadata address at the docker-internal
         // hostname (fooddeliveryservice.identity), which the JWKS/discovery fetch can't resolve
         // from a plain "dotnet test" process on the host machine — every token would otherwise fail
