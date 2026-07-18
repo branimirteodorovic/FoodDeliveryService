@@ -38,6 +38,8 @@ internal sealed class RestaurantRegisteredDomainEventHandler(ISender sender, IEv
                 result.Value.City,
                 result.Value.PostalCode,
                 result.Value.Country,
+                result.Value.Latitude.GetValueOrDefault(),
+                result.Value.Longitude.GetValueOrDefault(),
                 result.Value.CommissionRate),
             cancellationToken);
     }

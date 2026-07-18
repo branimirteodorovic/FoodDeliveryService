@@ -77,5 +77,45 @@ public class OnboardRestaurantTests : BaseIntegrationTest
         replica.Id.Should().Be(restaurantId);
         replica.Name.Should().Be(request.Name);
         replica.CommissionRate.Should().Be(request.CommissionRate);
+
+        // Coordinates ride the RestaurantRegistered snapshot through to the Orders replica so the
+        // OrderReadyForPickup event can later carry the pickup point (Feature 2.1 Milestone D).
+        replica.Latitude.Should().Be(request.Latitude!.Value);
+        replica.Longitude.Should().Be(request.Longitude!.Value);
+    }
+
+    [Fact]
+    public async Task OnboardRestaurant_Should_ReturnBadRequest_WhenCoordinatesAreMissing()
+    {
+        // Arrange — coordinates are required so a restaurant can be assigned a driver.
+        HttpClient client = await GetAuthenticatedHttpClientAsync();
+
+        var request = new OnboardRestaurant.Request
+        {
+            Name = Faker.Company.CompanyName(),
+            TaxIdentification = Faker.Random.Replace("##########"),
+            CuisineType = "Italian",
+            Email = Faker.Internet.Email(),
+            PhoneNumber = Faker.Phone.PhoneNumber(),
+            Street = Faker.Address.StreetAddress(),
+            City = Faker.Address.City(),
+            PostalCode = Faker.Address.ZipCode(),
+            Country = Faker.Address.Country(),
+            Latitude = null,
+            Longitude = null,
+            CommissionRate = 0.30m,
+            ManagerEmail = Faker.Internet.Email(),
+            ManagerFirstName = Faker.Name.FirstName(),
+            ManagerLastName = Faker.Name.LastName(),
+        };
+
+        // Act
+        HttpResponseMessage response = await client.PostAsJsonAsync(
+            "restaurants",
+            request,
+            TestContext.Current.CancellationToken);
+
+        // Assert
+        response.StatusCode.Should().Be(System.Net.HttpStatusCode.BadRequest);
     }
 }

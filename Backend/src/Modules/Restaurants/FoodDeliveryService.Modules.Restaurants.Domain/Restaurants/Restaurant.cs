@@ -59,6 +59,13 @@ public sealed class Restaurant : Entity
             return Result.Failure<Restaurant>(RestaurantErrors.InvalidCommissionRate);
         }
 
+        // Coordinates back the delivery-assignment geo search — a restaurant without them can never
+        // be assigned a driver, so they are mandatory even when Address is built directly.
+        if (address.Latitude is null || address.Longitude is null)
+        {
+            return Result.Failure<Restaurant>(RestaurantErrors.MissingCoordinates);
+        }
+
         var restaurant = new Restaurant
         {
             Id = Guid.NewGuid(),

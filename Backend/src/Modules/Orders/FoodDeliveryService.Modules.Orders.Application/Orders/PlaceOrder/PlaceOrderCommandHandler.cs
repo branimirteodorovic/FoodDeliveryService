@@ -47,6 +47,20 @@ internal sealed class PlaceOrderCommandHandler(
             return Result.Failure<Guid>(OrderErrors.RestaurantNotFound(request.RestaurantId));
         }
 
+        Result<DeliveryAddress> deliveryAddressResult = DeliveryAddress.Create(
+            request.Street,
+            request.City,
+            request.PostalCode,
+            request.Country,
+            request.Notes,
+            request.Latitude,
+            request.Longitude);
+
+        if (deliveryAddressResult.IsFailure)
+        {
+            return Result.Failure<Guid>(deliveryAddressResult.Error);
+        }
+
         Result<List<OrderLine>> linesResult = await PriceLinesFromReplicaAsync(request, cancellationToken);
 
         if (linesResult.IsFailure)
@@ -57,7 +71,7 @@ internal sealed class PlaceOrderCommandHandler(
         Result<Order> orderResult = Order.Place(
             customerId,
             request.RestaurantId,
-            new DeliveryAddress(request.Street, request.City, request.PostalCode, request.Country, request.Notes),
+            deliveryAddressResult.Value,
             Enum.Parse<PaymentMethod>(request.PaymentMethod, ignoreCase: true),
             linesResult.Value,
             restaurant.CommissionRate,

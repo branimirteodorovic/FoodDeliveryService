@@ -8,4 +8,6 @@ public sealed record UpsertRestaurantCommand(
     Guid RestaurantId,
     Guid ManagerUserId,
     string Name,
-    decimal CommissionRate) : ICommand;
+    decimal CommissionRate,
+    double Latitude,
+    double Longitude) : ICommand;

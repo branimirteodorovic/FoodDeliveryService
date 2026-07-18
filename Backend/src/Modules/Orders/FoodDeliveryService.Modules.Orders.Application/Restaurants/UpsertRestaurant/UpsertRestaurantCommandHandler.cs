@@ -17,11 +17,22 @@ internal sealed class UpsertRestaurantCommandHandler(
         if (restaurant is null)
         {
             restaurantRepository.Insert(
-                Restaurant.Create(request.RestaurantId, request.ManagerUserId, request.Name, request.CommissionRate));
+                Restaurant.Create(
+                    request.RestaurantId,
+                    request.ManagerUserId,
+                    request.Name,
+                    request.CommissionRate,
+                    request.Latitude,
+                    request.Longitude));
         }
         else
         {
-            restaurant.Update(request.ManagerUserId, request.Name, request.CommissionRate);
+            restaurant.Update(
+                request.ManagerUserId,
+                request.Name,
+                request.CommissionRate,
+                request.Latitude,
+                request.Longitude);
         }
 
         await unitOfWork.SaveChangesAsync(cancellationToken);

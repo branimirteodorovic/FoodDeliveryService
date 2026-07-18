@@ -23,21 +23,37 @@ public sealed class Restaurant : Entity
 
     public decimal CommissionRate { get; private set; }
 
-    public static Restaurant Create(Guid restaurantId, Guid managerUserId, string name, decimal commissionRate)
+    // Snapshotted so the OrderReadyForPickup event can carry the pickup coordinates the Delivery
+    // service needs, without Orders querying the Restaurants database (hard rule #5).
+    public double Latitude { get; private set; }
+
+    public double Longitude { get; private set; }
+
+    public static Restaurant Create(
+        Guid restaurantId,
+        Guid managerUserId,
+        string name,
+        decimal commissionRate,
+        double latitude,
+        double longitude)
     {
         return new Restaurant
         {
             Id = restaurantId,
             ManagerUserId = managerUserId,
             Name = name,
-            CommissionRate = commissionRate
+            CommissionRate = commissionRate,
+            Latitude = latitude,
+            Longitude = longitude
         };
     }
 
-    public void Update(Guid managerUserId, string name, decimal commissionRate)
+    public void Update(Guid managerUserId, string name, decimal commissionRate, double latitude, double longitude)
     {
         ManagerUserId = managerUserId;
         Name = name;
         CommissionRate = commissionRate;
+        Latitude = latitude;
+        Longitude = longitude;
     }
 }

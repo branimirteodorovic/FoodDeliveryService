@@ -16,8 +16,9 @@ internal sealed class OnboardRestaurantCommandValidator : AbstractValidator<Onbo
         RuleFor(c => c.City).NotEmpty().MaximumLength(200);
         RuleFor(c => c.PostalCode).NotEmpty().MaximumLength(20);
         RuleFor(c => c.Country).NotEmpty().MaximumLength(100);
-        RuleFor(c => c.Latitude).InclusiveBetween(-90, 90).When(c => c.Latitude.HasValue);
-        RuleFor(c => c.Longitude).InclusiveBetween(-180, 180).When(c => c.Longitude.HasValue);
+        // Required — a restaurant without coordinates can never be assigned a driver (Feature 2.1).
+        RuleFor(c => c.Latitude).NotNull().InclusiveBetween(-90, 90);
+        RuleFor(c => c.Longitude).NotNull().InclusiveBetween(-180, 180);
 
         // Fraction, not a percentage: 0.20 = 20%. Range mirrors the domain guard
         // (RestaurantErrors.InvalidCommissionRate).

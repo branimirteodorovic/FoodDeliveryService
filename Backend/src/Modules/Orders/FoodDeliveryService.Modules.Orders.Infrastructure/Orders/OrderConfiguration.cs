@@ -32,6 +32,8 @@ internal sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
             addressBuilder.Property(a => a.PostalCode).HasMaxLength(20).HasColumnName("delivery_postal_code");
             addressBuilder.Property(a => a.Country).HasMaxLength(100).HasColumnName("delivery_country");
             addressBuilder.Property(a => a.Notes).HasMaxLength(500).HasColumnName("delivery_notes");
+            addressBuilder.Property(a => a.Latitude).HasColumnName("delivery_latitude");
+            addressBuilder.Property(a => a.Longitude).HasColumnName("delivery_longitude");
         });
 
         builder.HasMany(o => o.Items)

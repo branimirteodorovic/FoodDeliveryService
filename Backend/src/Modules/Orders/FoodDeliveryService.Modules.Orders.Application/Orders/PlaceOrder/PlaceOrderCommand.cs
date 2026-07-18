@@ -13,6 +13,8 @@ public sealed record PlaceOrderCommand(
     string PostalCode,
     string Country,
     string? Notes,
+    double? Latitude,
+    double? Longitude,
     string PaymentMethod,
     string IdempotencyKey) : ICommand<Guid>;
 

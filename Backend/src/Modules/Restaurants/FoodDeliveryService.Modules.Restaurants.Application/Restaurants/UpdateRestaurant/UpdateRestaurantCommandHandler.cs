@@ -40,17 +40,24 @@ internal sealed class UpdateRestaurantCommandHandler(
             return detailsResult;
         }
 
-        Result addressResult = restaurant.UpdateAddress(new Address(
+        Result<Address> addressResult = Address.Create(
             request.Street,
             request.City,
             request.PostalCode,
             request.Country,
             request.Latitude,
-            request.Longitude));
+            request.Longitude);
 
         if (addressResult.IsFailure)
         {
             return addressResult;
+        }
+
+        Result updateAddressResult = restaurant.UpdateAddress(addressResult.Value);
+
+        if (updateAddressResult.IsFailure)
+        {
+            return updateAddressResult;
         }
 
         await unitOfWork.SaveChangesAsync(cancellationToken);

@@ -309,6 +309,14 @@ namespace FoodDeliveryService.Modules.Orders.Infrastructure.Database.Migrations
                         .HasColumnType("numeric(5,4)")
                         .HasColumnName("commission_rate");
 
+                    b.Property<double>("Latitude")
+                        .HasColumnType("double precision")
+                        .HasColumnName("latitude");
+
+                    b.Property<double>("Longitude")
+                        .HasColumnType("double precision")
+                        .HasColumnName("longitude");
+
                     b.Property<Guid>("ManagerUserId")
                         .HasColumnType("uuid")
                         .HasColumnName("manager_user_id");
@@ -344,6 +352,14 @@ namespace FoodDeliveryService.Modules.Orders.Infrastructure.Database.Migrations
                                 .HasMaxLength(100)
                                 .HasColumnType("character varying(100)")
                                 .HasColumnName("delivery_country");
+
+                            b1.Property<double?>("Latitude")
+                                .HasColumnType("double precision")
+                                .HasColumnName("delivery_latitude");
+
+                            b1.Property<double?>("Longitude")
+                                .HasColumnType("double precision")
+                                .HasColumnName("delivery_longitude");
 
                             b1.Property<string>("Notes")
                                 .HasMaxLength(500)

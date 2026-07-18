@@ -29,6 +29,8 @@ internal sealed class PlaceOrder : IEndpoint
                 request.DeliveryAddress.PostalCode,
                 request.DeliveryAddress.Country,
                 request.DeliveryAddress.Notes,
+                request.DeliveryAddress.Latitude,
+                request.DeliveryAddress.Longitude,
                 request.PaymentMethod,
                 idempotencyKey ?? string.Empty);
 
@@ -70,5 +72,9 @@ internal sealed class PlaceOrder : IEndpoint
         public string Country { get; init; } = string.Empty;
 
         public string? Notes { get; init; }
+
+        public double? Latitude { get; init; }
+
+        public double? Longitude { get; init; }
     }
 }

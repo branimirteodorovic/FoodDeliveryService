@@ -33,13 +33,20 @@ internal sealed class OnboardRestaurantCommandHandler(
 
         // Step 2 — persist the Restaurant with the returned manager id, in this module's own
         // unit of work. If this step fails the manager account is compensated away (below).
-        var address = new Address(
+        Result<Address> addressResult = Address.Create(
             request.Street,
             request.City,
             request.PostalCode,
             request.Country,
             request.Latitude,
             request.Longitude);
+
+        if (addressResult.IsFailure)
+        {
+            await CompensateProvisionedManagerAsync(provisionResult.Value, cancellationToken);
+
+            return Result.Failure<Guid>(addressResult.Error);
+        }
 
         Result<Restaurant> restaurantResult = Restaurant.Create(
             provisionResult.Value,
@@ -48,7 +55,7 @@ internal sealed class OnboardRestaurantCommandHandler(
             request.CuisineType,
             request.Email,
             request.PhoneNumber,
-            address,
+            addressResult.Value,
             request.CommissionRate,
             DateTime.UtcNow);
 

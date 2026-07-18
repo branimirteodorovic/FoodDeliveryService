@@ -47,4 +47,13 @@ public static class OrderErrors
     public static readonly Error DuplicateIdempotencyKey = Error.Conflict(
         "Orders.DuplicateIdempotencyKey",
         "An order with the same idempotency key already exists");
+
+    // The delivery address must carry coordinates so the Delivery service can route to the dropoff.
+    public static readonly Error MissingCoordinates = Error.Problem(
+        "Orders.MissingCoordinates",
+        "The delivery address must include a latitude and a longitude");
+
+    public static readonly Error InvalidCoordinates = Error.Problem(
+        "Orders.InvalidCoordinates",
+        "The latitude must be between -90 and 90 and the longitude between -180 and 180");
 }

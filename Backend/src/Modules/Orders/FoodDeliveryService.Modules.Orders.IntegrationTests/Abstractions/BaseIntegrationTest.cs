@@ -87,7 +87,9 @@ public class BaseIntegrationTest : IDisposable
                 City = Faker.Address.City(),
                 PostalCode = Faker.Address.ZipCode(),
                 Country = Faker.Address.Country(),
-                Notes = (string?)null
+                Notes = (string?)null,
+                Latitude = Faker.Address.Latitude(),
+                Longitude = Faker.Address.Longitude()
             },
             PaymentMethod = "CashOnDelivery"
         };
@@ -181,7 +183,13 @@ public class BaseIntegrationTest : IDisposable
         // random id — the Administrator's transition calls pass through the admin-only ownership
         // bypass, not manager equality.
         restaurantRepository.Insert(
-            Restaurant.Create(restaurantId, Guid.NewGuid(), Faker.Company.CompanyName(), 0.15m));
+            Restaurant.Create(
+                restaurantId,
+                Guid.NewGuid(),
+                Faker.Company.CompanyName(),
+                0.15m,
+                Faker.Address.Latitude(),
+                Faker.Address.Longitude()));
 
         menuItemRepository.Insert(
             MenuItem.Create(menuItemId, restaurantId, Faker.Commerce.ProductName(), unitPrice, isAvailable: true));

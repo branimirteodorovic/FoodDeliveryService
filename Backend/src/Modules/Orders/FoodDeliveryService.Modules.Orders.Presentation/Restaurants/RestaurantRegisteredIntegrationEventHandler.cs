@@ -23,7 +23,9 @@ internal sealed class RestaurantRegisteredIntegrationEventHandler(ISender sender
                 integrationEvent.RestaurantId,
                 integrationEvent.ManagerUserId,
                 integrationEvent.Name,
-                integrationEvent.CommissionRate),
+                integrationEvent.CommissionRate,
+                integrationEvent.Latitude,
+                integrationEvent.Longitude),
             cancellationToken);
 
         if (result.IsFailure)

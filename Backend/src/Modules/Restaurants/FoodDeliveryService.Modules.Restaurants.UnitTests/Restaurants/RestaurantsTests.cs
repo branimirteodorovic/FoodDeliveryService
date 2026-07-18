@@ -57,6 +57,93 @@ public class RestaurantsTests : BaseTest
     }
 
     [Fact]
+    public void Create_ShouldReturnMissingCoordinates_WhenAddressHasNoCoordinates()
+    {
+        // Arrange — an Address constructed directly without coordinates (e.g. legacy data).
+        var address = new Address(
+            Faker.Address.StreetAddress(),
+            Faker.Address.City(),
+            Faker.Address.ZipCode(),
+            Faker.Address.Country(),
+            Latitude: null,
+            Longitude: null);
+
+        // Act
+        Result<Restaurant> result = Restaurant.Create(
+            Guid.NewGuid(),
+            "Marios Pizerria",
+            Faker.Finance.Random.AlphaNumeric(10),
+            "Italian",
+            Faker.Person.Email,
+            Faker.Person.Phone,
+            address,
+            0.2m,
+            DateTime.UtcNow);
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be(RestaurantErrors.MissingCoordinates);
+    }
+
+    [Fact]
+    public void AddressCreate_ShouldReturnMissingCoordinates_WhenCoordinatesAreNull()
+    {
+        // Act
+        Result<Address> result = Address.Create(
+            Faker.Address.StreetAddress(),
+            Faker.Address.City(),
+            Faker.Address.ZipCode(),
+            Faker.Address.Country(),
+            latitude: null,
+            longitude: null);
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be(RestaurantErrors.MissingCoordinates);
+    }
+
+    [Theory]
+    [InlineData(-90.1, 10)]
+    [InlineData(90.1, 10)]
+    [InlineData(10, -180.1)]
+    [InlineData(10, 180.1)]
+    public void AddressCreate_ShouldReturnInvalidCoordinates_WhenCoordinatesAreOutOfRange(
+        double latitude,
+        double longitude)
+    {
+        // Act
+        Result<Address> result = Address.Create(
+            Faker.Address.StreetAddress(),
+            Faker.Address.City(),
+            Faker.Address.ZipCode(),
+            Faker.Address.Country(),
+            latitude,
+            longitude);
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be(RestaurantErrors.InvalidCoordinates);
+    }
+
+    [Fact]
+    public void AddressCreate_ShouldSucceed_WhenCoordinatesAreValid()
+    {
+        // Act
+        Result<Address> result = Address.Create(
+            Faker.Address.StreetAddress(),
+            Faker.Address.City(),
+            Faker.Address.ZipCode(),
+            Faker.Address.Country(),
+            latitude: 45.42,
+            longitude: -75.69);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Latitude.Should().Be(45.42);
+        result.Value.Longitude.Should().Be(-75.69);
+    }
+
+    [Fact]
     public void Create_ShouldRaiseDomainEvent_WhenRestaurantIsCreated()
     {
         // Arrange

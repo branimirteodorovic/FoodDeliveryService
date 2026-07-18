@@ -12,10 +12,16 @@ using FoodDeliveryService.Modules.Delivery.Infrastructure.Authorization;
 using FoodDeliveryService.Modules.Delivery.Infrastructure.Database;
 using FoodDeliveryService.Modules.Delivery.Infrastructure.Drivers;
 using FoodDeliveryService.Modules.Delivery.Application.Abstractions.Locations;
+using FoodDeliveryService.Modules.Delivery.Domain.Orders;
+using FoodDeliveryService.Modules.Delivery.Domain.Restaurants;
 using FoodDeliveryService.Modules.Delivery.Infrastructure.Inbox;
 using FoodDeliveryService.Modules.Delivery.Infrastructure.Locations;
+using FoodDeliveryService.Modules.Delivery.Infrastructure.Orders;
+using FoodDeliveryService.Modules.Delivery.Infrastructure.Restaurants;
 using FoodDeliveryService.Modules.Delivery.Infrastructure.Outbox;
 using FoodDeliveryService.Modules.Delivery.Infrastructure.Provisioning;
+using FoodDeliveryService.Modules.Orders.IntegrationEvents;
+using FoodDeliveryService.Modules.Restaurants.IntegrationEvents;
 using FoodDeliveryService.Modules.Users.IntegrationEvents;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
@@ -53,6 +59,17 @@ public static class DeliveryModule
             registration.AddConsumer<IntegrationEventConsumer<UserProfileUpdatedIntegrationEvent>>()
                 .Endpoint(c => c.InstanceId = instanceId);
 
+            // Restaurant replica — pickup coordinates for re-offers and a name for support screens.
+            registration.AddConsumer<IntegrationEventConsumer<RestaurantRegisteredIntegrationEvent>>()
+                .Endpoint(c => c.InstanceId = instanceId);
+
+            registration.AddConsumer<IntegrationEventConsumer<RestaurantAddressUpdatedIntegrationEvent>>()
+                .Endpoint(c => c.InstanceId = instanceId);
+
+            // Order replica — created when an order is ready for pickup; starts driver assignment.
+            registration.AddConsumer<IntegrationEventConsumer<OrderReadyForPickupIntegrationEvent>>()
+                .Endpoint(c => c.InstanceId = instanceId);
+
             // Explicit request clients for the RPCs this module sends to Users (see
             // Authorization/PermissionService.cs and Provisioning/DriverProvisioningService.cs) —
             // without these, MassTransit's implicit IRequestClient<T> resolution silently fails to
@@ -77,6 +94,11 @@ public static class DeliveryModule
         services.AddScoped<IUnitOfWork>(sp => sp.GetRequiredService<DeliveryDbContext>());
 
         services.AddScoped<IDriversRepository, DriversRepository>();
+
+        // Read-only replicas kept current from other services' integration events.
+        services.AddScoped<IRestaurantsRepository, RestaurantsRepository>();
+
+        services.AddScoped<IOrdersRepository, OrdersRepository>();
 
         services.AddScoped<IDeliveryContext, DeliveryContext>();
 

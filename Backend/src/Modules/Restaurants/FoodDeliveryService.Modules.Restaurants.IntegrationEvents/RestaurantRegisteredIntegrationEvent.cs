@@ -19,6 +19,8 @@ public sealed class RestaurantRegisteredIntegrationEvent : IntegrationEvent
         string city,
         string postalCode,
         string country,
+        double latitude,
+        double longitude,
         decimal commissionRate)
         : base(id, occurredOnUtc)
     {
@@ -30,6 +32,8 @@ public sealed class RestaurantRegisteredIntegrationEvent : IntegrationEvent
         City = city;
         PostalCode = postalCode;
         Country = country;
+        Latitude = latitude;
+        Longitude = longitude;
         CommissionRate = commissionRate;
     }
 
@@ -48,6 +52,10 @@ public sealed class RestaurantRegisteredIntegrationEvent : IntegrationEvent
     public string PostalCode { get; init; }
 
     public string Country { get; init; }
+
+    public double Latitude { get; init; }
+
+    public double Longitude { get; init; }
 
     public decimal CommissionRate { get; init; }
 }

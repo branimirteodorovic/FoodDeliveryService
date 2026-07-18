@@ -17,5 +17,9 @@ internal sealed class RestaurantConfiguration : IEntityTypeConfiguration<Restaur
         builder.Property(r => r.Name).HasMaxLength(300);
 
         builder.Property(r => r.CommissionRate).HasPrecision(5, 4);
+
+        builder.Property(r => r.Latitude);
+
+        builder.Property(r => r.Longitude);
     }
 }

@@ -23,6 +23,10 @@ internal sealed class PlaceOrderCommandValidator : AbstractValidator<PlaceOrderC
         RuleFor(c => c.Country).NotEmpty().MaximumLength(100);
         RuleFor(c => c.Notes).MaximumLength(500);
 
+        // Required — the client app supplies the map pin; the Delivery service routes to it.
+        RuleFor(c => c.Latitude).NotNull().InclusiveBetween(-90, 90);
+        RuleFor(c => c.Longitude).NotNull().InclusiveBetween(-180, 180);
+
         RuleFor(c => c.PaymentMethod)
             .Must(method => Enum.TryParse<PaymentMethod>(method, ignoreCase: true, out _))
             .WithMessage("The specified payment method is not supported.");

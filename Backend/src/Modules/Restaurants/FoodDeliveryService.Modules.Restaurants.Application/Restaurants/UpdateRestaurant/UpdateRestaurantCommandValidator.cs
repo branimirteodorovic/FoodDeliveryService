@@ -16,7 +16,8 @@ internal sealed class UpdateRestaurantCommandValidator : AbstractValidator<Updat
         RuleFor(c => c.City).NotEmpty().MaximumLength(200);
         RuleFor(c => c.PostalCode).NotEmpty().MaximumLength(20);
         RuleFor(c => c.Country).NotEmpty().MaximumLength(100);
-        RuleFor(c => c.Latitude).InclusiveBetween(-90, 90).When(c => c.Latitude.HasValue);
-        RuleFor(c => c.Longitude).InclusiveBetween(-180, 180).When(c => c.Longitude.HasValue);
+        // Required — coordinates back the delivery-assignment geo search (Feature 2.1).
+        RuleFor(c => c.Latitude).NotNull().InclusiveBetween(-90, 90);
+        RuleFor(c => c.Longitude).NotNull().InclusiveBetween(-180, 180);
     }
 }

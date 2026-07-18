@@ -7,6 +7,69 @@ namespace FoodDeliveryService.Modules.Orders.UnitTests.Orders;
 
 public class OrdersTests : BaseTest
 {
+    // ---- DeliveryAddress ---------------------------------------------------
+
+    [Fact]
+    public void DeliveryAddressCreate_ShouldReturnMissingCoordinates_WhenCoordinatesAreNull()
+    {
+        // Act
+        Result<DeliveryAddress> result = DeliveryAddress.Create(
+            Faker.Address.StreetAddress(),
+            Faker.Address.City(),
+            Faker.Address.ZipCode(),
+            Faker.Address.Country(),
+            notes: null,
+            latitude: null,
+            longitude: null);
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be(OrderErrors.MissingCoordinates);
+    }
+
+    [Theory]
+    [InlineData(-90.1, 10)]
+    [InlineData(90.1, 10)]
+    [InlineData(10, -180.1)]
+    [InlineData(10, 180.1)]
+    public void DeliveryAddressCreate_ShouldReturnInvalidCoordinates_WhenCoordinatesAreOutOfRange(
+        double latitude,
+        double longitude)
+    {
+        // Act
+        Result<DeliveryAddress> result = DeliveryAddress.Create(
+            Faker.Address.StreetAddress(),
+            Faker.Address.City(),
+            Faker.Address.ZipCode(),
+            Faker.Address.Country(),
+            notes: null,
+            latitude,
+            longitude);
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be(OrderErrors.InvalidCoordinates);
+    }
+
+    [Fact]
+    public void DeliveryAddressCreate_ShouldSucceed_WhenCoordinatesAreValid()
+    {
+        // Act
+        Result<DeliveryAddress> result = DeliveryAddress.Create(
+            Faker.Address.StreetAddress(),
+            Faker.Address.City(),
+            Faker.Address.ZipCode(),
+            Faker.Address.Country(),
+            notes: null,
+            latitude: 45.42,
+            longitude: -75.69);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Latitude.Should().Be(45.42);
+        result.Value.Longitude.Should().Be(-75.69);
+    }
+
     // ---- Place -------------------------------------------------------------
 
     [Fact]
@@ -391,5 +454,7 @@ public class OrdersTests : BaseTest
             Faker.Address.City(),
             Faker.Address.ZipCode(),
             Faker.Address.Country(),
-            Notes: null);
+            Notes: null,
+            Faker.Address.Latitude(),
+            Faker.Address.Longitude());
 }
