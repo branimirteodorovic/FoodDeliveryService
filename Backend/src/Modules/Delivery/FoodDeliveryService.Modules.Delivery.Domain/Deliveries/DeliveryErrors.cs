@@ -24,9 +24,19 @@ public static class DeliveryErrors
         "Deliveries.NoDriversAvailable",
         "No available drivers were found within the search radius");
 
+    // Read-guard for a single delivery: only the order's customer, the assigned driver, or an admin
+    // may view it.
+    public static readonly Error NotAuthorizedToView = Error.Problem(
+        "Deliveries.NotAuthorizedToView",
+        "You are not authorized to view this delivery");
+
     public static Error NotFound(Guid deliveryId) => Error.NotFound(
         "Deliveries.NotFound",
         $"The delivery with the identifier {deliveryId} was not found");
+
+    public static Error NotFoundForOrder(Guid orderId) => Error.NotFound(
+        "Deliveries.NotFoundForOrder",
+        $"No delivery was found for the order with the identifier {orderId}");
 
     public static Error AlreadyExists(Guid orderId) => Error.Conflict(
         "Deliveries.AlreadyExists",

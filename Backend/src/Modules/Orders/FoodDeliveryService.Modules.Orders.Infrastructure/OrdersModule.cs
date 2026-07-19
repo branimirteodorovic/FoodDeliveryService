@@ -16,6 +16,7 @@ using FoodDeliveryService.Modules.Orders.Infrastructure.Inbox;
 using FoodDeliveryService.Modules.Orders.Infrastructure.Orders;
 using FoodDeliveryService.Modules.Orders.Infrastructure.Outbox;
 using FoodDeliveryService.Modules.Orders.Infrastructure.Restaurants;
+using FoodDeliveryService.Modules.Delivery.IntegrationEvents;
 using FoodDeliveryService.Modules.Restaurants.IntegrationEvents;
 using FoodDeliveryService.Modules.Users.IntegrationEvents;
 using MassTransit;
@@ -61,6 +62,13 @@ public static class OrdersModule
         registrationConfigurator.AddConsumer<IntegrationEventConsumer<MenuItemUpdatedIntegrationEvent>>()
             .Endpoint(c => c.InstanceId = instanceId);
         registrationConfigurator.AddConsumer<IntegrationEventConsumer<MenuItemAvailabilityChangedIntegrationEvent>>()
+            .Endpoint(c => c.InstanceId = instanceId);
+
+        // Delivery closes the last two transitions over the bus: picked-up → OutForDelivery,
+        // delivered → Delivered. These call the Order methods that had no caller until Phase 2.
+        registrationConfigurator.AddConsumer<IntegrationEventConsumer<OrderPickedUpIntegrationEvent>>()
+            .Endpoint(c => c.InstanceId = instanceId);
+        registrationConfigurator.AddConsumer<IntegrationEventConsumer<OrderDeliveredIntegrationEvent>>()
             .Endpoint(c => c.InstanceId = instanceId);
 
         //registrationConfigurator
