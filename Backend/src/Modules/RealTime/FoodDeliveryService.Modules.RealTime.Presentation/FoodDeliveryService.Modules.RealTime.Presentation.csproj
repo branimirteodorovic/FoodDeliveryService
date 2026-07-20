@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <!-- SignalR's Hub / IHubContext live in the ASP.NET Core shared framework, not a NuGet package. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Common\FoodDeliveryService.Common.Presentation\FoodDeliveryService.Common.Presentation.csproj" />
+    <ProjectReference Include="..\FoodDeliveryService.Modules.RealTime.Application\FoodDeliveryService.Modules.RealTime.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="FoodDeliveryService.Modules.RealTime.UnitTests" />
+    <InternalsVisibleTo Include="FoodDeliveryService.Modules.RealTime.IntegrationTests" />
+  </ItemGroup>
+
+</Project>

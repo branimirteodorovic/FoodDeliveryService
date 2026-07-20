@@ -11,6 +11,7 @@
     <Project Path="src/API/FoodDeliveryService.Identity/FoodDeliveryService.Identity.csproj" Id="2f9a4c7e-5b3d-4e91-9c26-7a1f8d3b6e04" />
     <Project Path="src/API/FoodDeliveryService.Notifications.Api/FoodDeliveryService.Notifications.Api.csproj" Id="6b21f175-a4c3-4555-aecd-84bd154e9d8c" />
     <Project Path="src/API/FoodDeliveryService.Orders.Api/FoodDeliveryService.Orders.Api.csproj" Id="ff85b2e4-c9f8-4a42-8134-09dcbfc83180" />
+    <Project Path="src/API/FoodDeliveryService.RealTime.Api/FoodDeliveryService.RealTime.Api.csproj" />
     <Project Path="src/API/FoodDeliveryService.Restaurants.Api/FoodDeliveryService.Restaurants.Api.csproj" Id="4b2d32b4-9350-435b-aff2-66abef175bc9" />
     <Project Path="src/API/FoodDeliveryService.Users.Api/FoodDeliveryService.Users.Api.csproj" Id="4e5ee342-c65d-465c-bca0-925aba19973c" />
   </Folder>
@@ -51,6 +52,15 @@
     <Project Path="src/Modules/Orders/FoodDeliveryService.Modules.Orders.IntegrationTests/FoodDeliveryService.Modules.Orders.IntegrationTests.csproj" />
     <Project Path="src/Modules/Orders/FoodDeliveryService.Modules.Orders.Presentation/FoodDeliveryService.Modules.Orders.Presentation.csproj" Id="0b756436-dba6-4d70-8168-35ea4c032955" />
     <Project Path="src/Modules/Orders/FoodDeliveryService.Modules.Orders.UnitTests/FoodDeliveryService.Modules.Orders.UnitTests.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/RealTime/">
+    <Project Path="src/Modules/RealTime/FoodDeliveryService.Modules.RealTime.Application/FoodDeliveryService.Modules.RealTime.Application.csproj" />
+    <Project Path="src/Modules/RealTime/FoodDeliveryService.Modules.RealTime.Infrastructure/FoodDeliveryService.Modules.RealTime.Infrastructure.csproj" />
+    <Project Path="src/Modules/RealTime/FoodDeliveryService.Modules.RealTime.Presentation/FoodDeliveryService.Modules.RealTime.Presentation.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/RealTime/test/">
+    <Project Path="src/Modules/RealTime/FoodDeliveryService.Modules.RealTime.IntegrationTests/FoodDeliveryService.Modules.RealTime.IntegrationTests.csproj" />
+    <Project Path="src/Modules/RealTime/FoodDeliveryService.Modules.RealTime.UnitTests/FoodDeliveryService.Modules.RealTime.UnitTests.csproj" />
   </Folder>
   <Folder Name="/src/Modules/Restaurants/">
     <Project Path="src/Modules/Restaurants/FoodDeliveryService.Modules.Restaurants.Application/FoodDeliveryService.Modules.Restaurants.Application.csproj" Id="aa61ebf6-da6a-4995-8820-c8e0dc4f0d1c" />
