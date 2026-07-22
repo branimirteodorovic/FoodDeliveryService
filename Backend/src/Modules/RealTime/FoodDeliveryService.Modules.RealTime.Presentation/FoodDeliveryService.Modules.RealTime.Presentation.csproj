@@ -11,6 +11,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The Infrastructure notifier resolves IHubContext<TrackingHub>, so it must see the internal
+         hub type. -->
+    <InternalsVisibleTo Include="FoodDeliveryService.Modules.RealTime.Infrastructure" />
     <InternalsVisibleTo Include="FoodDeliveryService.Modules.RealTime.UnitTests" />
     <InternalsVisibleTo Include="FoodDeliveryService.Modules.RealTime.IntegrationTests" />
   </ItemGroup>

@@ -2,6 +2,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\Common\FoodDeliveryService.Common.Application\FoodDeliveryService.Common.Application.csproj" />
+    <!-- Consumed contracts only: the status frame maps Orders' lifecycle integration events. This
+         module references other modules' IntegrationEvents projects and nothing else of theirs. -->
+    <ProjectReference Include="..\..\Orders\FoodDeliveryService.Modules.Orders.IntegrationEvents\FoodDeliveryService.Modules.Orders.IntegrationEvents.csproj" />
   </ItemGroup>
 
 </Project>

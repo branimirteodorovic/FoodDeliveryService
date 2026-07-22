@@ -25,6 +25,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The Milestone-B tests publish Orders' lifecycle events onto the bus to drive the fan-out. -->
+    <ProjectReference Include="..\..\Orders\FoodDeliveryService.Modules.Orders.IntegrationEvents\FoodDeliveryService.Modules.Orders.IntegrationEvents.csproj" />
     <ProjectReference Include="..\..\..\API\FoodDeliveryService.RealTime.Api\FoodDeliveryService.RealTime.Api.csproj" />
     <ProjectReference Include="..\..\..\API\FoodDeliveryService.Users.Api\FoodDeliveryService.Users.Api.csproj">
       <Aliases>UsersApi</Aliases>

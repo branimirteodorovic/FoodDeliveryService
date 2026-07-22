@@ -27,6 +27,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\FoodDeliveryService.Modules.RealTime.Presentation\FoodDeliveryService.Modules.RealTime.Presentation.csproj" />
+    <!-- Milestone B: the notifier fan-out (over IHubContext) lives in Infrastructure and is unit-tested
+         with hand-rolled hub fakes. -->
+    <ProjectReference Include="..\FoodDeliveryService.Modules.RealTime.Infrastructure\FoodDeliveryService.Modules.RealTime.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>

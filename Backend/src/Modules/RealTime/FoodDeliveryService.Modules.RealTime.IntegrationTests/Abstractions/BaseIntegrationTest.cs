@@ -1,7 +1,11 @@
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
+using FoodDeliveryService.Common.Application.Caching;
+using FoodDeliveryService.Common.Application.EventBus;
+using FoodDeliveryService.Modules.RealTime.Application.RealTime;
 using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR.Client;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace FoodDeliveryService.Modules.RealTime.IntegrationTests.Abstractions;
 
@@ -61,6 +65,23 @@ public class BaseIntegrationTest
     }
 
     protected async Task<string> GetAccessTokenAsync() => await GetOrCreateAccessTokenAsync();
+
+    /// <summary>
+    /// Publishes an integration event onto the real RabbitMQ broker through the host's own
+    /// <see cref="IEventBus"/> — exactly as Orders would in production — so the RealTime direct
+    /// consumers pick it up on their own queues and fan it out to the hub.
+    /// </summary>
+    protected Task PublishAsync<T>(T integrationEvent, CancellationToken cancellationToken = default)
+        where T : IIntegrationEvent =>
+        Factory.Services.GetRequiredService<IEventBus>().PublishAsync(integrationEvent, cancellationToken);
+
+    /// <summary>
+    /// Reads the ephemeral routing row a status consumer writes at <c>rt:order:{orderId}</c>. The key
+    /// format mirrors <c>OrderRoutingMap</c>; reading it back proves the map was warmed.
+    /// </summary>
+    protected Task<OrderRoutingEntry?> GetOrderRoutingAsync(Guid orderId, CancellationToken cancellationToken = default) =>
+        Factory.Services.GetRequiredService<ICacheService>()
+            .GetAsync<OrderRoutingEntry>($"rt:order:{orderId}", cancellationToken);
 
     private async Task<string> GetOrCreateAccessTokenAsync()
     {

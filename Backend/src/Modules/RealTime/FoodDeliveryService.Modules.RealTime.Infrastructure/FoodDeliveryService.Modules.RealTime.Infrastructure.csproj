@@ -1,13 +1,22 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <!-- The fan-out notifier is implemented over IHubContext<TrackingHub>; SignalR lives in the
+         ASP.NET Core shared framework, not a NuGet package (as in Presentation). -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\..\Common\FoodDeliveryService.Common.Infrastructure\FoodDeliveryService.Common.Infrastructure.csproj" />
     <ProjectReference Include="..\FoodDeliveryService.Modules.RealTime.Application\FoodDeliveryService.Modules.RealTime.Application.csproj" />
     <ProjectReference Include="..\FoodDeliveryService.Modules.RealTime.Presentation\FoodDeliveryService.Modules.RealTime.Presentation.csproj" />
     <ProjectReference Include="..\..\Users\FoodDeliveryService.Modules.Users.IntegrationEvents\FoodDeliveryService.Modules.Users.IntegrationEvents.csproj" />
+    <!-- Orders lifecycle events consumed by the status fan-out consumers (Milestone B). -->
+    <ProjectReference Include="..\..\Orders\FoodDeliveryService.Modules.Orders.IntegrationEvents\FoodDeliveryService.Modules.Orders.IntegrationEvents.csproj" />
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="FoodDeliveryService.Modules.RealTime.UnitTests" />
     <InternalsVisibleTo Include="FoodDeliveryService.Modules.RealTime.IntegrationTests" />
   </ItemGroup>
 

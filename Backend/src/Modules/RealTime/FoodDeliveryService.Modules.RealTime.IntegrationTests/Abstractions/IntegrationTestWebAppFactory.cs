@@ -45,6 +45,14 @@ public class IntegrationTestWebAppFactory : WebApplicationFactory<Program>, IAsy
 
     public string TestUserPassword { get; } = "RealTime-Tests-P@ssw0rd";
 
+    /// <summary>
+    /// The seeded user's module-side id — the same id CustomClaimsTransformation resolves into the
+    /// <c>sub</c> claim (so the connected client lands in <c>user:{TestUserId}</c>) and the same id
+    /// space as the <c>CustomerId</c> on Orders' integration events. A Milestone-B test publishes an
+    /// order event with <c>CustomerId = TestUserId</c> to prove the frame reaches this customer.
+    /// </summary>
+    public Guid TestUserId { get; private set; }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // Program.cs reads these via builder.Configuration.GetConnectionStringOrThrow(...) in its own
@@ -122,6 +130,8 @@ public class IntegrationTestWebAppFactory : WebApplicationFactory<Program>, IAsy
         userRepository.Insert(user);
 
         await unitOfWork.SaveChangesAsync();
+
+        TestUserId = user.Id;
     }
 
     private static async Task<string> RegisterIdentityUserAsync(string email, string password)
