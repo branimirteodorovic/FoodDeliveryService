@@ -9,4 +9,7 @@ public static class TrackingHubMethods
 {
     /// <summary>A frame on the customer's live order-status timeline (Milestone B onward).</summary>
     public const string OrderStatusChanged = "OrderStatusChanged";
+
+    /// <summary>A driver-position update for the customer's tracking pin (Milestone C onward).</summary>
+    public const string DriverLocationChanged = "DriverLocationChanged";
 }

@@ -40,4 +40,35 @@ public class RealTimeNotifierTests
 
         hubContext.ProxyFor(GroupNames.User(otherUserId)).Should().BeNull();
     }
+
+    [Fact]
+    public async Task NotifyUserAsync_DriverLocationFrame_SendsToTheCallersUserGroupOnly()
+    {
+        var userId = Guid.NewGuid();
+        var frame = new DriverLocationFrame(Guid.NewGuid(), Guid.NewGuid(), 1.23, 4.56, OccurredOnUtc);
+        var hubContext = new RecordingHubContext();
+        var notifier = new RealTimeNotifier(hubContext, NullLogger<RealTimeNotifier>.Instance);
+
+        await notifier.NotifyUserAsync(userId, frame, TestContext.Current.CancellationToken);
+
+        RecordingClientProxy? proxy = hubContext.ProxyFor(GroupNames.User(userId));
+        proxy.Should().NotBeNull();
+        (string method, object?[] args) = proxy!.Sent.Should().ContainSingle().Subject;
+        method.Should().Be(TrackingHubMethods.DriverLocationChanged);
+        args.Should().ContainSingle().Which.Should().Be(frame);
+    }
+
+    [Fact]
+    public async Task NotifyUserAsync_DriverLocationFrame_DoesNotSendToAnotherUsersGroup()
+    {
+        var userId = Guid.NewGuid();
+        var otherUserId = Guid.NewGuid();
+        var frame = new DriverLocationFrame(Guid.NewGuid(), Guid.NewGuid(), 1.23, 4.56, OccurredOnUtc);
+        var hubContext = new RecordingHubContext();
+        var notifier = new RealTimeNotifier(hubContext, NullLogger<RealTimeNotifier>.Instance);
+
+        await notifier.NotifyUserAsync(userId, frame, TestContext.Current.CancellationToken);
+
+        hubContext.ProxyFor(GroupNames.User(otherUserId)).Should().BeNull();
+    }
 }

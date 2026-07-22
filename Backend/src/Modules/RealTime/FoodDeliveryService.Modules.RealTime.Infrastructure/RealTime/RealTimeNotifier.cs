@@ -45,4 +45,30 @@ internal sealed class RealTimeNotifier(
                 frame.Status, frame.OrderId, GroupNames.User(userId));
         }
     }
+
+    public async Task NotifyUserAsync(Guid userId, DriverLocationFrame frame, CancellationToken cancellationToken = default)
+    {
+        using IDisposable? logScope = logger.BeginScope(new Dictionary<string, object>
+        {
+            ["OrderId"] = frame.OrderId,
+            ["DriverId"] = frame.DriverId
+        });
+
+        try
+        {
+            await hubContext.Clients
+                .Group(GroupNames.User(userId))
+                .SendAsync(TrackingHubMethods.DriverLocationChanged, frame, cancellationToken);
+
+            logger.LogDebug("Pushed driver-location frame for order {OrderId} to {Group}",
+                frame.OrderId, GroupNames.User(userId));
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // Ephemeral frame — a stuck/dropped position is never worth retrying.
+            logger.LogWarning(exception,
+                "Failed to push driver-location frame for order {OrderId} to {Group}",
+                frame.OrderId, GroupNames.User(userId));
+        }
+    }
 }

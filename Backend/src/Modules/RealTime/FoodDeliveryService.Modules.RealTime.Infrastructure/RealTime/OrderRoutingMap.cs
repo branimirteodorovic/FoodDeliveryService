@@ -18,5 +18,8 @@ internal sealed class OrderRoutingMap(ICacheService cacheService) : IOrderRoutin
     public Task SetAsync(Guid orderId, OrderRoutingEntry entry, CancellationToken cancellationToken = default) =>
         cacheService.SetAsync(CreateKey(orderId), entry, Ttl, cancellationToken);
 
+    public Task<OrderRoutingEntry?> GetAsync(Guid orderId, CancellationToken cancellationToken = default) =>
+        cacheService.GetAsync<OrderRoutingEntry>(CreateKey(orderId), cancellationToken);
+
     private static string CreateKey(Guid orderId) => $"rt:order:{orderId}";
 }

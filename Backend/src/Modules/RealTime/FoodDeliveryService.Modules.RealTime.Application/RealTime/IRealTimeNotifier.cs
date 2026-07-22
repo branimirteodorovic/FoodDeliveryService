@@ -14,4 +14,10 @@ public interface IRealTimeNotifier
     /// implementations swallow-and-log rather than throw back onto the bus.
     /// </summary>
     Task NotifyUserAsync(Guid userId, OrderStatusFrame frame, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Broadcasts a driver-location frame to the customer's own group. Same best-effort contract as
+    /// the status overload: a dropped position is never a correctness problem.
+    /// </summary>
+    Task NotifyUserAsync(Guid userId, DriverLocationFrame frame, CancellationToken cancellationToken = default);
 }

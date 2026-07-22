@@ -18,4 +18,14 @@ public static class OrderStatuses
     public const string ReadyForPickup = "ReadyForPickup";
 
     public const string Cancelled = "Cancelled";
+
+    /// <summary>A driver has been assigned to the order (Milestone C, Delivery-owned).</summary>
+    public const string DriverAssigned = "DriverAssigned";
+
+    /// <summary>The assigned driver has collected the order (Milestone C, from Delivery's
+    /// OrderPickedUp — Orders itself never publishes this transition, see plan §0).</summary>
+    public const string OutForDelivery = "OutForDelivery";
+
+    /// <summary>The order has been delivered (Milestone C, from Delivery's OrderDelivered).</summary>
+    public const string Delivered = "Delivered";
 }

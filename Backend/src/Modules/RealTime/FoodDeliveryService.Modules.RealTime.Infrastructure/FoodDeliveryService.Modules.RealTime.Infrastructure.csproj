@@ -13,6 +13,8 @@
     <ProjectReference Include="..\..\Users\FoodDeliveryService.Modules.Users.IntegrationEvents\FoodDeliveryService.Modules.Users.IntegrationEvents.csproj" />
     <!-- Orders lifecycle events consumed by the status fan-out consumers (Milestone B). -->
     <ProjectReference Include="..\..\Orders\FoodDeliveryService.Modules.Orders.IntegrationEvents\FoodDeliveryService.Modules.Orders.IntegrationEvents.csproj" />
+    <!-- Delivery lifecycle events consumed by the Milestone C driver-binding consumers. -->
+    <ProjectReference Include="..\..\Delivery\FoodDeliveryService.Modules.Delivery.IntegrationEvents\FoodDeliveryService.Modules.Delivery.IntegrationEvents.csproj" />
   </ItemGroup>
 
   <ItemGroup>

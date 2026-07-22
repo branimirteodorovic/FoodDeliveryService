@@ -35,9 +35,18 @@ internal sealed class OrderReadyForPickupConsumer(IRealTimeNotifier notifier, IO
         (OrderStatusFrame.From(message), message.CustomerId, message.RestaurantId);
 }
 
-internal sealed class OrderCancelledConsumer(IRealTimeNotifier notifier, IOrderRoutingMap routingMap)
+internal sealed class OrderCancelledConsumer(
+    IRealTimeNotifier notifier,
+    IOrderRoutingMap routingMap,
+    IDriverBindingStore driverBindingStore)
     : OrderStatusConsumer<OrderCancelledIntegrationEvent>(notifier, routingMap)
 {
     protected override (OrderStatusFrame Frame, Guid CustomerId, Guid RestaurantId) Map(OrderCancelledIntegrationEvent message) =>
         (OrderStatusFrame.From(message), message.CustomerId, message.RestaurantId);
+
+    // Milestone C: a cancelled order ends its delivery too (if one was ever assigned), so any
+    // rt:driver:{driverId} binding for it must be cleared — otherwise a straggling location report
+    // for that driver would keep reaching a customer whose order is already done.
+    protected override Task AfterFanOutAsync(OrderCancelledIntegrationEvent message, CancellationToken cancellationToken) =>
+        driverBindingStore.UnbindAsync(message.OrderId, cancellationToken);
 }

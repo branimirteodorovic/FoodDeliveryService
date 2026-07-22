@@ -8,6 +8,7 @@ using FoodDeliveryService.RealTime.Api.Middleware;
 using FoodDeliveryService.RealTime.Api.OpenTelemetry;
 using HealthChecks.UI.Client;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using OpenTelemetry.Trace;
 using RabbitMQ.Client;
 using Serilog;
 
@@ -47,6 +48,11 @@ builder.Services.AddInfrastructure(
     [RealTimeModule.ConfigureConsumers],
     rabbitMqSettings,
     redisConnectionString);
+
+// Register the RealTime-specific tracing source (the Milestone C location-forward span) alongside
+// the instrumentation AddInfrastructure already wired up.
+builder.Services.ConfigureOpenTelemetryTracerProvider(tracing =>
+    tracing.AddSource(FoodDeliveryService.Modules.RealTime.Infrastructure.RealTime.RealTimeDiagnostics.SourceName));
 
 // SignalR with a Redis backplane so scale-out across multiple RealTime instances works: any
 // instance can broadcast to a connection held by any other instance.

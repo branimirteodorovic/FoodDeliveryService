@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using FoodDeliveryService.Common.Application.Caching;
 using FoodDeliveryService.Common.Application.EventBus;
@@ -6,6 +7,7 @@ using FoodDeliveryService.Modules.RealTime.Application.RealTime;
 using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
+using StackExchange.Redis;
 
 namespace FoodDeliveryService.Modules.RealTime.IntegrationTests.Abstractions;
 
@@ -82,6 +84,34 @@ public class BaseIntegrationTest
     protected Task<OrderRoutingEntry?> GetOrderRoutingAsync(Guid orderId, CancellationToken cancellationToken = default) =>
         Factory.Services.GetRequiredService<ICacheService>()
             .GetAsync<OrderRoutingEntry>($"rt:order:{orderId}", cancellationToken);
+
+    /// <summary>
+    /// Reads the Milestone C driver→order/customer binding a Delivery-event consumer writes at
+    /// <c>rt:driver:{driverId}</c> (see <c>DriverBindingStore</c>) — proves a binding was set/cleared.
+    /// </summary>
+    protected Task<DriverBinding?> GetDriverBindingAsync(Guid driverId, CancellationToken cancellationToken = default) =>
+        Factory.Services.GetRequiredService<ICacheService>()
+            .GetAsync<DriverBinding>($"rt:driver:{driverId}", cancellationToken);
+
+    /// <summary>
+    /// Publishes a driver-position message on the same Redis channel Delivery's
+    /// <c>RedisDriverLocationStore</c> publishes to in production — the real path here is a
+    /// PUBLISH, not the bus (plan §4.1), so this bypasses RabbitMQ entirely on purpose.
+    /// </summary>
+    protected Task PublishDriverLocationAsync(Guid driverId, double latitude, double longitude, DateTime recordedOnUtc)
+    {
+        ISubscriber subscriber = Factory.Services.GetRequiredService<IConnectionMultiplexer>().GetSubscriber();
+
+        string payload = JsonSerializer.Serialize(new
+        {
+            DriverId = driverId,
+            Latitude = latitude,
+            Longitude = longitude,
+            RecordedOnUtc = recordedOnUtc
+        });
+
+        return subscriber.PublishAsync(RedisChannel.Literal("delivery:driver-locations"), payload);
+    }
 
     private async Task<string> GetOrCreateAccessTokenAsync()
     {

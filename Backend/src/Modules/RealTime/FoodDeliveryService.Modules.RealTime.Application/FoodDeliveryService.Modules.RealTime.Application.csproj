@@ -5,6 +5,9 @@
     <!-- Consumed contracts only: the status frame maps Orders' lifecycle integration events. This
          module references other modules' IntegrationEvents projects and nothing else of theirs. -->
     <ProjectReference Include="..\..\Orders\FoodDeliveryService.Modules.Orders.IntegrationEvents\FoodDeliveryService.Modules.Orders.IntegrationEvents.csproj" />
+    <!-- Milestone C: the status frame also maps Delivery's DriverAssigned/OrderPickedUp/OrderDelivered
+         lifecycle events (driver-name/vehicle + the out-for-delivery/delivered transitions). -->
+    <ProjectReference Include="..\..\Delivery\FoodDeliveryService.Modules.Delivery.IntegrationEvents\FoodDeliveryService.Modules.Delivery.IntegrationEvents.csproj" />
   </ItemGroup>
 
 </Project>

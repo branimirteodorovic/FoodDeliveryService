@@ -1,3 +1,4 @@
+using FoodDeliveryService.Modules.Delivery.IntegrationEvents;
 using FoodDeliveryService.Modules.Orders.IntegrationEvents;
 
 namespace FoodDeliveryService.Modules.RealTime.Application.RealTime;
@@ -37,4 +38,21 @@ public sealed record OrderStatusFrame(
 
     public static OrderStatusFrame From(OrderCancelledIntegrationEvent integrationEvent) =>
         new(integrationEvent.OrderId, OrderStatuses.Cancelled, integrationEvent.OccurredOnUtc);
+
+    // Milestone C: the two "final" statuses are reconstructed from Delivery's own events rather
+    // than a new Orders integration event (plan §0) — DriverAssigned additionally carries the
+    // driver's name/vehicle so the client can render them without a callback.
+    public static OrderStatusFrame From(DriverAssignedIntegrationEvent integrationEvent) =>
+        new(
+            integrationEvent.OrderId,
+            OrderStatuses.DriverAssigned,
+            integrationEvent.AssignedOnUtc,
+            $"{integrationEvent.DriverFirstName} {integrationEvent.DriverLastName}",
+            integrationEvent.VehicleType);
+
+    public static OrderStatusFrame From(OrderPickedUpIntegrationEvent integrationEvent) =>
+        new(integrationEvent.OrderId, OrderStatuses.OutForDelivery, integrationEvent.PickedUpOnUtc);
+
+    public static OrderStatusFrame From(OrderDeliveredIntegrationEvent integrationEvent) =>
+        new(integrationEvent.OrderId, OrderStatuses.Delivered, integrationEvent.DeliveredOnUtc);
 }

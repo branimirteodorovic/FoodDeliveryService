@@ -1,10 +1,12 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Text.Json;
 using FoodDeliveryService.Common.Domain;
 using FoodDeliveryService.Modules.Delivery.Application.Abstractions.Locations;
 using FoodDeliveryService.Modules.Delivery.Domain.Drivers;
 using FoodDeliveryService.Modules.Delivery.Domain.Shared;
 using FoodDeliveryService.Modules.Delivery.Infrastructure.Database;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using StackExchange.Redis;
 
@@ -24,9 +26,16 @@ namespace FoodDeliveryService.Modules.Delivery.Infrastructure.Locations;
 internal sealed class RedisDriverLocationStore(
     IConnectionMultiplexer connectionMultiplexer,
     DeliveryDbContext dbContext,
-    IOptions<DriverLocationStoreOptions> options) : IDriverLocationStore
+    IOptions<DriverLocationStoreOptions> options,
+    ILogger<RedisDriverLocationStore> logger) : IDriverLocationStore
 {
     private const string AvailablePoolKey = "delivery:drivers:available";
+
+    // Feature 2.2 (Real-Time). Deliberately off the bus (plan §4.1): this is the highest-traffic
+    // write in the system, so it gets a fire-and-forget Redis PUBLISH alongside the existing GEO
+    // write rather than a RabbitMQ message. The RealTime service subscribes and forwards positions
+    // to the tracking customer; a lost frame is immaterial (best-effort, no replay).
+    private const string LocationChannel = "delivery:driver-locations";
 
     private static readonly RedisValue LatitudeField = "lat";
     private static readonly RedisValue LongitudeField = "lon";
@@ -58,6 +67,8 @@ internal sealed class RedisDriverLocationStore(
 
         await Database.HashSetAsync(locationKey, entries);
         await Database.KeyExpireAsync(locationKey, TimeSpan.FromSeconds(_options.LocationTtlInSeconds));
+
+        await PublishLocationAsync(driverId, location, utcNow);
 
         // Durable history. No outbox involvement — nothing reacts to a position report — so this is
         // a plain insert saved on its own; the SaveChanges interceptor finds no domain events.
@@ -159,6 +170,24 @@ internal sealed class RedisDriverLocationStore(
         // ZREM from the geo set. The position hash is left in place so an assigned/offline driver's
         // last location is still readable for tracking; it lapses on its own TTL.
         await Database.SortedSetRemoveAsync(AvailablePoolKey, driverId.ToString());
+    }
+
+    // Fire-and-forget: a dropped position frame is never a correctness problem (the RealTime
+    // service has no durability guarantee here either), so a publish failure is swallowed and
+    // logged rather than surfaced to the caller — this must never fault a location report.
+    private async Task PublishLocationAsync(Guid driverId, GeoCoordinate location, DateTime utcNow)
+    {
+        try
+        {
+            var message = new DriverLocationPublishedMessage(driverId, location.Latitude, location.Longitude, utcNow);
+            await connectionMultiplexer.GetSubscriber().PublishAsync(
+                RedisChannel.Literal(LocationChannel),
+                JsonSerializer.Serialize(message));
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Failed to publish driver-location update for driver {DriverId}", driverId);
+        }
     }
 
     private static RedisKey LocationKey(Guid driverId) => $"delivery:driver:{driverId}:location";

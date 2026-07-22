@@ -10,4 +10,8 @@ public interface IOrderRoutingMap
 {
     /// <summary>Upserts the routing row for an order, refreshing its TTL.</summary>
     Task SetAsync(Guid orderId, OrderRoutingEntry entry, CancellationToken cancellationToken = default);
+
+    /// <summary>The routing row for an order, or <c>null</c> if it was never warmed or has lapsed.
+    /// Milestone C reads this to resolve a Delivery event's target customer.</summary>
+    Task<OrderRoutingEntry?> GetAsync(Guid orderId, CancellationToken cancellationToken = default);
 }

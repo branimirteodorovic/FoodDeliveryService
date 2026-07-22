@@ -1,4 +1,5 @@
 using AwesomeAssertions;
+using FoodDeliveryService.Modules.Delivery.IntegrationEvents;
 using FoodDeliveryService.Modules.Orders.IntegrationEvents;
 using FoodDeliveryService.Modules.RealTime.Application.RealTime;
 
@@ -81,5 +82,39 @@ public class OrderStatusFrameTests
 
         frame.DriverName.Should().BeNull();
         frame.DriverVehicle.Should().BeNull();
+    }
+
+    [Fact]
+    public void From_DriverAssigned_MapsToDriverAssignedFrameWithNameAndVehicle()
+    {
+        var integrationEvent = new DriverAssignedIntegrationEvent(
+            Guid.NewGuid(), OccurredOnUtc, OrderId, deliveryId: Guid.NewGuid(), driverId: Guid.NewGuid(),
+            driverFirstName: "Alex", driverLastName: "Rivera", vehicleType: "Bike", assignedOnUtc: OccurredOnUtc);
+
+        var frame = OrderStatusFrame.From(integrationEvent);
+
+        frame.Should().Be(new OrderStatusFrame(OrderId, OrderStatuses.DriverAssigned, OccurredOnUtc, "Alex Rivera", "Bike"));
+    }
+
+    [Fact]
+    public void From_OrderPickedUp_MapsToOutForDeliveryFrame()
+    {
+        var integrationEvent = new OrderPickedUpIntegrationEvent(
+            Guid.NewGuid(), OccurredOnUtc, OrderId, deliveryId: Guid.NewGuid(), driverId: Guid.NewGuid(), pickedUpOnUtc: OccurredOnUtc);
+
+        var frame = OrderStatusFrame.From(integrationEvent);
+
+        frame.Should().Be(new OrderStatusFrame(OrderId, OrderStatuses.OutForDelivery, OccurredOnUtc));
+    }
+
+    [Fact]
+    public void From_OrderDelivered_MapsToDeliveredFrame()
+    {
+        var integrationEvent = new OrderDeliveredIntegrationEvent(
+            Guid.NewGuid(), OccurredOnUtc, OrderId, deliveryId: Guid.NewGuid(), driverId: Guid.NewGuid(), deliveredOnUtc: OccurredOnUtc);
+
+        var frame = OrderStatusFrame.From(integrationEvent);
+
+        frame.Should().Be(new OrderStatusFrame(OrderId, OrderStatuses.Delivered, OccurredOnUtc));
     }
 }

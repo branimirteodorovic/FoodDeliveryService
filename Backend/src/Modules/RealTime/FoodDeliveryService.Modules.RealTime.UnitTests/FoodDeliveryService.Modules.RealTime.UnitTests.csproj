@@ -30,6 +30,8 @@
     <!-- Milestone B: the notifier fan-out (over IHubContext) lives in Infrastructure and is unit-tested
          with hand-rolled hub fakes. -->
     <ProjectReference Include="..\FoodDeliveryService.Modules.RealTime.Infrastructure\FoodDeliveryService.Modules.RealTime.Infrastructure.csproj" />
+    <!-- Milestone C: OrderStatusFrame.From now also maps Delivery's lifecycle events. -->
+    <ProjectReference Include="..\..\Delivery\FoodDeliveryService.Modules.Delivery.IntegrationEvents\FoodDeliveryService.Modules.Delivery.IntegrationEvents.csproj" />
   </ItemGroup>
 
   <ItemGroup>

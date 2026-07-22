@@ -25,6 +25,12 @@ internal abstract class OrderStatusConsumer<TEvent>(
     /// event carries (there is no shared contract interface, so each subclass pulls them out).</summary>
     protected abstract (OrderStatusFrame Frame, Guid CustomerId, Guid RestaurantId) Map(TEvent message);
 
+    /// <summary>Extension point for a subclass that needs to react to this transition — e.g.
+    /// <c>OrderCancelledConsumer</c> clearing a Milestone C driver binding. Run <b>before</b> the
+    /// frame is sent (despite the name) so a client reacting to the frame, or a location PUBLISH
+    /// racing in immediately after, always sees up-to-date binding state. No-op by default.</summary>
+    protected virtual Task AfterFanOutAsync(TEvent message, CancellationToken cancellationToken) => Task.CompletedTask;
+
     public async Task Consume(ConsumeContext<TEvent> context)
     {
         (OrderStatusFrame frame, Guid customerId, Guid restaurantId) = Map(context.Message);
@@ -35,6 +41,8 @@ internal abstract class OrderStatusConsumer<TEvent>(
             frame.OrderId,
             new OrderRoutingEntry(customerId, restaurantId),
             context.CancellationToken);
+
+        await AfterFanOutAsync(context.Message, context.CancellationToken);
 
         await notifier.NotifyUserAsync(customerId, frame, context.CancellationToken);
     }

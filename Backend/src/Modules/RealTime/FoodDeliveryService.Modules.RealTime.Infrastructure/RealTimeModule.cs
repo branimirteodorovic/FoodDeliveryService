@@ -55,6 +55,15 @@ public static class RealTimeModule
             .Endpoint(c => c.InstanceId = instanceId);
         registrationConfigurator.AddConsumer<OrderCancelledConsumer>()
             .Endpoint(c => c.InstanceId = instanceId);
+
+        // Milestone C: the driver-binding consumers for Delivery's own lifecycle events. Same
+        // direct-consumer, own-queue pattern as the Orders consumers above.
+        registrationConfigurator.AddConsumer<DriverAssignedConsumer>()
+            .Endpoint(c => c.InstanceId = instanceId);
+        registrationConfigurator.AddConsumer<OrderPickedUpConsumer>()
+            .Endpoint(c => c.InstanceId = instanceId);
+        registrationConfigurator.AddConsumer<OrderDeliveredConsumer>()
+            .Endpoint(c => c.InstanceId = instanceId);
     }
 
     private static void AddInfrastructure(this IServiceCollection services)
@@ -68,5 +77,10 @@ public static class RealTimeModule
         // stateless singletons: the notifier wraps IHubContext, the map wraps ICacheService.
         services.AddSingleton<IRealTimeNotifier, RealTimeNotifier>();
         services.AddSingleton<IOrderRoutingMap, OrderRoutingMap>();
+
+        // Milestone C: the ephemeral driver→customer binding, and the hosted subscriber that reads
+        // Delivery's Redis pub/sub location stream and forwards positions through it.
+        services.AddSingleton<IDriverBindingStore, DriverBindingStore>();
+        services.AddHostedService<DriverLocationSubscriber>();
     }
 }
