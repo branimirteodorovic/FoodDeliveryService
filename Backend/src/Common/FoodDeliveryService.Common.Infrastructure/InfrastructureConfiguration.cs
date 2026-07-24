@@ -137,6 +137,8 @@ public static class InfrastructureConfiguration
             services.AddDistributedMemoryCache();
         }
 
+        services.ConfigureOptions<CachingConfigureOptions>();
+
         services.TryAddSingleton<ICacheService, CacheService>();
 
         // Raw RabbitMQ.Client connection — NOT used for messaging, which MassTransit owns.

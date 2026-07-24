@@ -21,6 +21,9 @@
     <Project Path="src/Common/FoodDeliveryService.Common.Infrastructure/FoodDeliveryService.Common.Infrastructure.csproj" Id="85a497ed-4740-4c9d-8eeb-64ec71ac8da3" />
     <Project Path="src/Common/FoodDeliveryService.Common.Presentation/FoodDeliveryService.Common.Presentation.csproj" Id="6b906da1-eeb4-4469-91a6-37c6dd4541a6" />
   </Folder>
+  <Folder Name="/src/Common/test/">
+    <Project Path="src/Common/FoodDeliveryService.Common.UnitTests/FoodDeliveryService.Common.UnitTests.csproj" />
+  </Folder>
   <Folder Name="/src/Modules/" />
   <Folder Name="/src/Modules/Delivery/">
     <Project Path="src/Modules/Delivery/FoodDeliveryService.Modules.Delivery.Application/FoodDeliveryService.Modules.Delivery.Application.csproj" />

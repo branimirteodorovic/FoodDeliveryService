@@ -23,30 +23,41 @@ internal sealed class PermissionService(
 
     public async Task<Result<PermissionsResponse>> GetUserPermissionsAsync(string identityId)
     {
-        PermissionsResponse? permissionsResponse = await cacheService.GetAsync<PermissionsResponse>(CreateCacheKey(identityId));
+        Error? failure = null;
+
+        // The factory returns null (never cached — see GetOrCreateAsync) on an RPC failure, and
+        // records the reason in the closed-over `failure` so it survives past the cache miss.
+        PermissionsResponse? permissionsResponse = await cacheService.GetOrCreateAsync<PermissionsResponse?>(
+            CreateCacheKey(identityId),
+            async ct =>
+            {
+                var request = new GetUserPermissionsRequest(identityId);
+
+                var response = await requestClient.GetResponse<PermissionsResponse, Error>(request, ct);
+
+                if (response.Is(out Response<Error> errorResponse))
+                {
+                    failure = errorResponse.Message;
+                    return null;
+                }
+
+                if (response.Is(out Response<PermissionsResponse> permissionResponse))
+                {
+                    return permissionResponse.Message;
+                }
+
+                failure = NotFound;
+                return null;
+            },
+            CacheExpiration);
 
         if (permissionsResponse is not null)
         {
             return permissionsResponse;
         }
 
-        var request = new GetUserPermissionsRequest(identityId);
-
-        var response = await requestClient.GetResponse<PermissionsResponse, Error>(request);
-
-        if (response.Is(out Response<Error> errorResponse))
-        {
-            return Result.Failure<PermissionsResponse>(errorResponse.Message);
-        }
-
-        if (response.Is(out Response<PermissionsResponse> permissionResponse))
-        {
-            await cacheService.SetAsync(CreateCacheKey(identityId), permissionResponse.Message, CacheExpiration);
-            return permissionResponse.Message;
-        }
-
-        return Result.Failure<PermissionsResponse>(NotFound);
+        return Result.Failure<PermissionsResponse>(failure ?? NotFound);
     }
 
-    private static string CreateCacheKey(string identityId) => $"user_permissions:{identityId}";
+    private static string CreateCacheKey(string identityId) => CacheKeys.Create("user_permissions", identityId);
 }

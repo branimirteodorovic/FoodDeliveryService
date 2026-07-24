@@ -2,11 +2,14 @@
 using System.Text.Json;
 using FoodDeliveryService.Common.Application.Caching;
 using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Options;
 
 namespace FoodDeliveryService.Common.Infrastructure.Caching;
 
-internal sealed class CacheService(IDistributedCache cache) : ICacheService
+internal sealed class CacheService(IDistributedCache cache, IOptions<CachingSettings> cachingSettings) : ICacheService
 {
+    private readonly CachingSettings _settings = cachingSettings.Value;
+
     public async Task<T?> GetAsync<T>(string key, CancellationToken cancellationToken = default)
     {
         byte[]? bytes = await cache.GetAsync(key, cancellationToken);
@@ -22,7 +25,7 @@ internal sealed class CacheService(IDistributedCache cache) : ICacheService
     {
         byte[] bytes = Serialize(value);
 
-        return cache.SetAsync(key, bytes, CacheOptions.Create(expiration), cancellationToken);
+        return cache.SetAsync(key, bytes, CacheOptions.Create(expiration, _settings), cancellationToken);
     }
 
     public Task RemoveAsync(string key, CancellationToken cancellationToken = default) =>
