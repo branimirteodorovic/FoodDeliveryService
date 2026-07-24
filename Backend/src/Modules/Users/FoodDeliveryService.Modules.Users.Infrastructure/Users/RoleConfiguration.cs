@@ -28,6 +28,7 @@ internal sealed class RoleConfiguration : IEntityTypeConfiguration<Role>
             Role.Customer,
             Role.Administrator,
             Role.RestaurantManager,
-            Role.DeliveryDriver);
+            Role.DeliveryDriver,
+            Role.SupportAgent);
     }
 }

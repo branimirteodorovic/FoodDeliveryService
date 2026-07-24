@@ -12,4 +12,10 @@ public static class TrackingHubMethods
 
     /// <summary>A driver-position update for the customer's tracking pin (Milestone C onward).</summary>
     public const string DriverLocationChanged = "DriverLocationChanged";
+
+    /// <summary>An entry on a restaurant manager's live dashboard feed (Milestone D onward).</summary>
+    public const string RestaurantActivity = "RestaurantActivity";
+
+    /// <summary>An entry on the support agents' global live activity feed (Milestone D onward).</summary>
+    public const string SupportActivity = "SupportActivity";
 }

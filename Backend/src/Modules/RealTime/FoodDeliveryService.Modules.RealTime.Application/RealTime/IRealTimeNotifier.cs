@@ -20,4 +20,16 @@ public interface IRealTimeNotifier
     /// the status overload: a dropped position is never a correctness problem.
     /// </summary>
     Task NotifyUserAsync(Guid userId, DriverLocationFrame frame, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Broadcasts a dashboard entry to a restaurant's own <c>restaurant:{restaurantId}</c> group
+    /// (Milestone D). Same best-effort contract as the other overloads.
+    /// </summary>
+    Task NotifyRestaurantAsync(Guid restaurantId, RestaurantActivityFrame frame, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Broadcasts an entry to the single global <c>support</c> group (Milestone D). Same best-effort
+    /// contract as the other overloads.
+    /// </summary>
+    Task NotifySupportAsync(SupportActivityFrame frame, CancellationToken cancellationToken = default);
 }

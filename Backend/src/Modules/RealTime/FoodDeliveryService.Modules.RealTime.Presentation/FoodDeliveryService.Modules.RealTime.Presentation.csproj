@@ -8,6 +8,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\..\Common\FoodDeliveryService.Common.Presentation\FoodDeliveryService.Common.Presentation.csproj" />
     <ProjectReference Include="..\FoodDeliveryService.Modules.RealTime.Application\FoodDeliveryService.Modules.RealTime.Application.csproj" />
+    <!-- Milestone D: the inbox-based RestaurantManager replica handlers. -->
+    <ProjectReference Include="..\..\Restaurants\FoodDeliveryService.Modules.Restaurants.IntegrationEvents\FoodDeliveryService.Modules.Restaurants.IntegrationEvents.csproj" />
   </ItemGroup>
 
   <ItemGroup>

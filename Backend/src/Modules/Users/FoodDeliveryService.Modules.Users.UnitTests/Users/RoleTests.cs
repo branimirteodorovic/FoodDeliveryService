@@ -10,6 +10,7 @@ public class RoleTests : BaseTest
     [InlineData("Customer")]
     [InlineData("RestaurantManager")]
     [InlineData("DeliveryDriver")]
+    [InlineData("SupportAgent")]
     public void FromName_ShouldReturnRole_WhenNameIsAssignable(string name)
     {
         // Act
@@ -46,6 +47,6 @@ public class RoleTests : BaseTest
     public void Assignable_ShouldContainAllAssignableRolesExcludingAdministrator()
     {
         // Assert
-        Role.Assignable.Should().BeEquivalentTo([Role.Customer, Role.RestaurantManager, Role.DeliveryDriver]);
+        Role.Assignable.Should().BeEquivalentTo([Role.Customer, Role.RestaurantManager, Role.DeliveryDriver, Role.SupportAgent]);
     }
 }

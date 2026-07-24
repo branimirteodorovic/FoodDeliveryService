@@ -15,6 +15,9 @@
     <ProjectReference Include="..\..\Orders\FoodDeliveryService.Modules.Orders.IntegrationEvents\FoodDeliveryService.Modules.Orders.IntegrationEvents.csproj" />
     <!-- Delivery lifecycle events consumed by the Milestone C driver-binding consumers. -->
     <ProjectReference Include="..\..\Delivery\FoodDeliveryService.Modules.Delivery.IntegrationEvents\FoodDeliveryService.Modules.Delivery.IntegrationEvents.csproj" />
+    <!-- Milestone D: the durable RestaurantManager replica's inbox consumers register against
+         Restaurants' own events. -->
+    <ProjectReference Include="..\..\Restaurants\FoodDeliveryService.Modules.Restaurants.IntegrationEvents\FoodDeliveryService.Modules.Restaurants.IntegrationEvents.csproj" />
   </ItemGroup>
 
   <ItemGroup>

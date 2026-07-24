@@ -6,11 +6,11 @@ public sealed class Role
     public static readonly Role Customer = new("Customer");                 // was Member — the only self-registering actor
     public static readonly Role RestaurantManager = new("RestaurantManager");
     public static readonly Role DeliveryDriver = new("DeliveryDriver");      // admin-provisioned, never self-registered
-    // Later iterations: SupportAgent
+    public static readonly Role SupportAgent = new("SupportAgent");          // admin-provisioned, never self-registered
 
     // Roles assignable at account creation. Administrator is intentionally excluded — no one can
     // register or be provisioned as an admin (the initial admin is seeded from configuration).
-    public static readonly IReadOnlyCollection<Role> Assignable = [Customer, RestaurantManager, DeliveryDriver];
+    public static readonly IReadOnlyCollection<Role> Assignable = [Customer, RestaurantManager, DeliveryDriver, SupportAgent];
 
     private Role(string name)
     {

@@ -1,6 +1,8 @@
+using FoodDeliveryService.Modules.RealTime.Application;
 using FoodDeliveryService.Modules.RealTime.Application.RealTime;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Logging;
 
 namespace FoodDeliveryService.Modules.RealTime.Presentation.Tracking;
 
@@ -18,12 +20,11 @@ namespace FoodDeliveryService.Modules.RealTime.Presentation.Tracking;
 /// </para>
 /// </summary>
 [Authorize]
-internal sealed class TrackingHub : Hub
+internal sealed class TrackingHub(IRestaurantManagerStore restaurantManagerStore, ILogger<TrackingHub> logger) : Hub
 {
     /// <summary>
-    /// Joins the caller to their own <c>user:{sub}</c> group so a customer receives status and
-    /// location frames for their own orders. Re-runs on every reconnect (the client uses
-    /// <c>withAutomaticReconnect()</c>), so there is nothing to persist server-side.
+    /// Joins the caller to every group its own claims entitle it to. Re-runs on every reconnect (the
+    /// client uses <c>withAutomaticReconnect()</c>), so there is nothing to persist server-side.
     /// </summary>
     public override async Task OnConnectedAsync()
     {
@@ -31,8 +32,41 @@ internal sealed class TrackingHub : Hub
         // connection) if the principal carries no resolved user id.
         Guid userId = Context.User.GetUserId();
 
+        // Every caller lands in their own group so a customer receives status/location frames for
+        // their own orders.
         await Groups.AddToGroupAsync(Context.ConnectionId, GroupNames.User(userId));
 
+        // Milestone D: dashboard groups, derived from permission claims only — never a client-
+        // supplied restaurant/support id (this service issues no role claim; see
+        // RealTime.Application.Permissions for why a permission code doubles as the identity marker).
+        if (Context.User.HasPermission(Permissions.RestaurantDashboard))
+        {
+            await TryJoinRestaurantGroupAsync(userId);
+        }
+
+        if (Context.User.HasPermission(Permissions.SupportDashboard))
+        {
+            await Groups.AddToGroupAsync(Context.ConnectionId, GroupNames.Support);
+        }
+
         await base.OnConnectedAsync();
+    }
+
+    private async Task TryJoinRestaurantGroupAsync(Guid userId)
+    {
+        Guid? restaurantId = await restaurantManagerStore.GetRestaurantIdAsync(userId);
+
+        if (restaurantId is null)
+        {
+            // No replica row yet (e.g. an Administrator, who also holds this permission but manages
+            // no restaurant of their own — or a manager whose registration event hasn't landed here
+            // yet). Self-heals on the next reconnect once/if the row lands.
+            logger.LogWarning(
+                "Caller {UserId} has the restaurant-dashboard permission but no RestaurantManager replica row",
+                userId);
+            return;
+        }
+
+        await Groups.AddToGroupAsync(Context.ConnectionId, GroupNames.Restaurant(restaurantId.Value));
     }
 }

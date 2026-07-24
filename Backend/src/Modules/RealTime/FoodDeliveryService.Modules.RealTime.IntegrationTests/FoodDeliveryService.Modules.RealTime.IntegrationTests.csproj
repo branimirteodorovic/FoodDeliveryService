@@ -29,6 +29,8 @@
     <ProjectReference Include="..\..\Orders\FoodDeliveryService.Modules.Orders.IntegrationEvents\FoodDeliveryService.Modules.Orders.IntegrationEvents.csproj" />
     <!-- The Milestone-C tests publish Delivery's lifecycle events onto the bus. -->
     <ProjectReference Include="..\..\Delivery\FoodDeliveryService.Modules.Delivery.IntegrationEvents\FoodDeliveryService.Modules.Delivery.IntegrationEvents.csproj" />
+    <!-- The Milestone-D tests publish Restaurants' events onto the bus to seed the replica. -->
+    <ProjectReference Include="..\..\Restaurants\FoodDeliveryService.Modules.Restaurants.IntegrationEvents\FoodDeliveryService.Modules.Restaurants.IntegrationEvents.csproj" />
     <ProjectReference Include="..\..\..\API\FoodDeliveryService.RealTime.Api\FoodDeliveryService.RealTime.Api.csproj" />
     <ProjectReference Include="..\..\..\API\FoodDeliveryService.Users.Api\FoodDeliveryService.Users.Api.csproj">
       <Aliases>UsersApi</Aliases>

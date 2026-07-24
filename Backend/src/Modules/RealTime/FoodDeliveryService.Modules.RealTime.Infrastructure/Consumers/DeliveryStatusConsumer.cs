@@ -49,6 +49,19 @@ internal abstract class DeliveryStatusConsumer<TEvent>(
         // that races a location PUBLISH landing immediately after) must see up-to-date binding state.
         await AfterFanOutAsync(context.Message, entry.CustomerId, context.CancellationToken);
 
-        await notifier.NotifyUserAsync(entry.CustomerId, MapFrame(context.Message), context.CancellationToken);
+        OrderStatusFrame frame = MapFrame(context.Message);
+
+        await notifier.NotifyUserAsync(entry.CustomerId, frame, context.CancellationToken);
+
+        // Milestone D: same dashboard/support fan-out as the Orders-owned transitions, resolved via
+        // the routing entry's RestaurantId (Delivery events carry no RestaurantId of their own).
+        await notifier.NotifyRestaurantAsync(
+            entry.RestaurantId,
+            new RestaurantActivityFrame(frame.OrderId, frame.Status, frame.OccurredOnUtc),
+            context.CancellationToken);
+
+        await notifier.NotifySupportAsync(
+            new SupportActivityFrame(frame.OrderId, entry.RestaurantId, frame.Status, frame.OccurredOnUtc),
+            context.CancellationToken);
     }
 }

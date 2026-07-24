@@ -14,10 +14,11 @@ using Serilog;
 
 // API host for the Real-Time service (:5600) — reached through the YARP gateway via hubs/**.
 // Holds authenticated SignalR connections and fans out ephemeral order-status and driver-location
-// frames to the right groups. It owns NO database and NO aggregates: durability lives in the other
-// services' databases and the REST read models the client re-syncs from on (re)connect. Status
-// updates ride direct MassTransit consumers (Milestone B), not the durable inbox — a deliberate,
-// documented departure justified by the socket being best-effort.
+// frames to the right groups. Status updates ride direct MassTransit consumers (Milestone B), not
+// the durable inbox — a deliberate, documented departure justified by the socket being best-effort.
+// From Milestone D it owns its first (and only) database — a minimal RestaurantManager replica,
+// consumed durably via the inbox because that mapping (unlike a transient frame) must survive a
+// cold start.
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -35,18 +36,22 @@ builder.Services.AddOpenApi();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerDocumentation();
 
-// This service has NO database — it only needs the shared Redis cache (also the SignalR backplane)
-// and the RabbitMQ broker (event consumption + the permission RPC).
+// From Milestone D this service has its own database (the RestaurantManager replica) alongside the
+// shared Redis cache (also the SignalR backplane) and the RabbitMQ broker (event consumption + the
+// permission RPC).
+string databaseConnectionString = builder.Configuration.GetConnectionStringOrThrow("Database");
 string redisConnectionString = builder.Configuration.GetConnectionStringOrThrow("Cache");
 var rabbitMqSettings = new RabbitMqSettings(builder.Configuration.GetConnectionStringOrThrow("Queue"));
 
-// Database-less infrastructure stack: JWT auth (Duende), permission authorization, Quartz, Redis
-// caching, MassTransit/RabbitMQ messaging (registering this module's request client), and
-// OpenTelemetry tracing to Jaeger — everything the other hosts get except Npgsql/Dapper/outbox.
+// Full infrastructure stack: JWT auth (Duende), permission authorization, Npgsql + Dapper, Quartz
+// (outbox/inbox jobs — this module only schedules an inbox job, see RealTimeModule), Redis caching,
+// MassTransit/RabbitMQ messaging (registering this module's request client + consumers), and
+// OpenTelemetry tracing to Jaeger.
 builder.Services.AddInfrastructure(
     DiagnosticsConfig.ServiceName,
     [RealTimeModule.ConfigureConsumers],
     rabbitMqSettings,
+    databaseConnectionString,
     redisConnectionString);
 
 // Register the RealTime-specific tracing source (the Milestone C location-forward span) alongside
@@ -64,10 +69,11 @@ builder.Services.AddRealTimeHubAuthentication();
 
 Uri duendeHealthUrl = builder.Configuration.GetDuendeHealthUrl();
 
-// Liveness probes for every external dependency this service actually uses — Redis (cache +
-// backplane), RabbitMQ (reuses the raw IConnection from AddInfrastructure) and the Duende
-// IdentityServer /health endpoint. No PostgreSQL check: this service has no database.
+// Liveness probes for every external dependency this service uses — PostgreSQL (Npgsql, from
+// Milestone D), Redis (cache + backplane), RabbitMQ (reuses the raw IConnection from
+// AddInfrastructure) and the Duende IdentityServer /health endpoint.
 builder.Services.AddHealthChecks()
+    .AddNpgSql(databaseConnectionString)
     .AddRedis(redisConnectionString)
     .AddRabbitMQ(sp => sp.GetRequiredService<IConnection>())
     .AddDuende(duendeHealthUrl);
@@ -78,7 +84,8 @@ builder.Services.AddRealTimeModule(builder.Configuration);
 
 WebApplication app = builder.Build();
 
-// No app.ApplyMigrations() — this service owns no database.
+// EF Core migrations are applied automatically at startup — no manual `dotnet ef database update`.
+app.ApplyMigrations();
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())

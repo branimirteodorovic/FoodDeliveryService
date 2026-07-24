@@ -1,8 +1,10 @@
 using System.Security.Claims;
 using AwesomeAssertions;
+using FoodDeliveryService.Modules.RealTime.Application;
 using FoodDeliveryService.Modules.RealTime.Application.RealTime;
 using FoodDeliveryService.Modules.RealTime.Presentation.Tracking;
 using FoodDeliveryService.Modules.RealTime.UnitTests.RealTime.Fakes;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace FoodDeliveryService.Modules.RealTime.UnitTests.RealTime;
 
@@ -51,8 +53,66 @@ public class TrackingHubTests
         groups.Added.Should().BeEmpty();
     }
 
-    private static TrackingHub CreateHub(ClaimsPrincipal principal, RecordingGroupManager groups) =>
-        new()
+    [Fact]
+    public async Task OnConnectedAsync_ManagerWithAMappedRestaurant_JoinsTheRestaurantGroup()
+    {
+        var userId = Guid.NewGuid();
+        var restaurantId = Guid.NewGuid();
+        var groups = new RecordingGroupManager();
+        var store = new FakeRestaurantManagerStore();
+        store.Seed(userId, restaurantId);
+        using TrackingHub hub = CreateHub(WithSubAndPermission(userId, Permissions.RestaurantDashboard), groups, store);
+
+        await hub.OnConnectedAsync();
+
+        groups.Added.Should().Contain((ConnectionId, GroupNames.User(userId)));
+        groups.Added.Should().Contain((ConnectionId, GroupNames.Restaurant(restaurantId)));
+        groups.Added.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task OnConnectedAsync_ManagerWithoutAMappedRestaurant_JoinsNoRestaurantGroup()
+    {
+        var userId = Guid.NewGuid();
+        var groups = new RecordingGroupManager();
+        // No Seed(...) call — the replica row hasn't landed yet (or never will, e.g. Administrator).
+        var store = new FakeRestaurantManagerStore();
+        using TrackingHub hub = CreateHub(WithSubAndPermission(userId, Permissions.RestaurantDashboard), groups, store);
+
+        await hub.OnConnectedAsync();
+
+        groups.Added.Should().ContainSingle()
+            .Which.Should().Be((ConnectionId, GroupNames.User(userId)));
+    }
+
+    [Fact]
+    public async Task OnConnectedAsync_SupportAgent_JoinsTheSupportGroup()
+    {
+        var userId = Guid.NewGuid();
+        var groups = new RecordingGroupManager();
+        using TrackingHub hub = CreateHub(WithSubAndPermission(userId, Permissions.SupportDashboard), groups);
+
+        await hub.OnConnectedAsync();
+
+        groups.Added.Should().Contain((ConnectionId, GroupNames.User(userId)));
+        groups.Added.Should().Contain((ConnectionId, GroupNames.Support));
+        groups.Added.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task OnConnectedAsync_PlainCustomer_NeverJoinsARestaurantOrSupportGroup()
+    {
+        var userId = Guid.NewGuid();
+        var groups = new RecordingGroupManager();
+        using TrackingHub hub = CreateHub(WithSub(userId), groups);
+
+        await hub.OnConnectedAsync();
+
+        groups.Added.Should().OnlyContain(g => g.GroupName == GroupNames.User(userId));
+    }
+
+    private static TrackingHub CreateHub(ClaimsPrincipal principal, RecordingGroupManager groups, FakeRestaurantManagerStore? store = null) =>
+        new(store ?? new FakeRestaurantManagerStore(), NullLogger<TrackingHub>.Instance)
         {
             Context = new FakeHubCallerContext(ConnectionId, principal),
             Groups = groups
@@ -60,4 +120,9 @@ public class TrackingHubTests
 
     private static ClaimsPrincipal WithSub(Guid userId) =>
         new(new ClaimsIdentity([new Claim("sub", userId.ToString())], authenticationType: "Test"));
+
+    private static ClaimsPrincipal WithSubAndPermission(Guid userId, string permission) =>
+        new(new ClaimsIdentity(
+            [new Claim("sub", userId.ToString()), new Claim("permission", permission)],
+            authenticationType: "Test"));
 }

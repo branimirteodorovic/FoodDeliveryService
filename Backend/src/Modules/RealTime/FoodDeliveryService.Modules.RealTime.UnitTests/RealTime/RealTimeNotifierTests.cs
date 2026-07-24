@@ -71,4 +71,39 @@ public class RealTimeNotifierTests
 
         hubContext.ProxyFor(GroupNames.User(otherUserId)).Should().BeNull();
     }
+
+    [Fact]
+    public async Task NotifyRestaurantAsync_SendsTheFrameToTheRestaurantGroupOnly()
+    {
+        var restaurantId = Guid.NewGuid();
+        var otherRestaurantId = Guid.NewGuid();
+        var frame = new RestaurantActivityFrame(Guid.NewGuid(), OrderStatuses.Placed, OccurredOnUtc);
+        var hubContext = new RecordingHubContext();
+        var notifier = new RealTimeNotifier(hubContext, NullLogger<RealTimeNotifier>.Instance);
+
+        await notifier.NotifyRestaurantAsync(restaurantId, frame, TestContext.Current.CancellationToken);
+
+        RecordingClientProxy? proxy = hubContext.ProxyFor(GroupNames.Restaurant(restaurantId));
+        proxy.Should().NotBeNull();
+        (string method, object?[] args) = proxy!.Sent.Should().ContainSingle().Subject;
+        method.Should().Be(TrackingHubMethods.RestaurantActivity);
+        args.Should().ContainSingle().Which.Should().Be(frame);
+        hubContext.ProxyFor(GroupNames.Restaurant(otherRestaurantId)).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task NotifySupportAsync_SendsTheFrameToTheSupportGroupOnly()
+    {
+        var frame = new SupportActivityFrame(Guid.NewGuid(), Guid.NewGuid(), OrderStatuses.Accepted, OccurredOnUtc);
+        var hubContext = new RecordingHubContext();
+        var notifier = new RealTimeNotifier(hubContext, NullLogger<RealTimeNotifier>.Instance);
+
+        await notifier.NotifySupportAsync(frame, TestContext.Current.CancellationToken);
+
+        RecordingClientProxy? proxy = hubContext.ProxyFor(GroupNames.Support);
+        proxy.Should().NotBeNull();
+        (string method, object?[] args) = proxy!.Sent.Should().ContainSingle().Subject;
+        method.Should().Be(TrackingHubMethods.SupportActivity);
+        args.Should().ContainSingle().Which.Should().Be(frame);
+    }
 }

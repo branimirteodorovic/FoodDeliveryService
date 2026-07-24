@@ -45,5 +45,16 @@ internal abstract class OrderStatusConsumer<TEvent>(
         await AfterFanOutAsync(context.Message, context.CancellationToken);
 
         await notifier.NotifyUserAsync(customerId, frame, context.CancellationToken);
+
+        // Milestone D: the same transition also feeds the restaurant's dashboard and the support
+        // agents' global feed — both derived straight from the frame, no extra routing needed.
+        await notifier.NotifyRestaurantAsync(
+            restaurantId,
+            new RestaurantActivityFrame(frame.OrderId, frame.Status, frame.OccurredOnUtc),
+            context.CancellationToken);
+
+        await notifier.NotifySupportAsync(
+            new SupportActivityFrame(frame.OrderId, restaurantId, frame.Status, frame.OccurredOnUtc),
+            context.CancellationToken);
     }
 }

@@ -36,6 +36,12 @@ public sealed class Permission
     public static readonly Permission ManageDeliveries = new("deliveries:manage");     // accept/reject an offer, picked-up, delivered (own)
     public static readonly Permission AdministerDeliveries = new("deliveries:administer"); // admin-only: view/reassign any delivery — the ownership bypass
 
+    // Real-Time dashboards (Phase 2, Feature 2.2 Milestone D). RestaurantManager's dashboard group
+    // reuses ModifyRestaurant (already unique to RestaurantManager + Administrator) rather than a
+    // dedicated permission — see RealTime.Application.Permissions. SupportAgent has no comparable
+    // existing signal, so it gets its own marker permission.
+    public static readonly Permission ViewSupportDashboard = new("support:dashboard");
+
     public Permission(string code)
     {
         Code = code;

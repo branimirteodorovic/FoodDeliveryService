@@ -43,7 +43,8 @@ internal sealed class PermissionConfiguration : IEntityTypeConfiguration<Permiss
             Permission.ModifyDriver,
             Permission.GetDeliveries,
             Permission.ManageDeliveries,
-            Permission.AdministerDeliveries);
+            Permission.AdministerDeliveries,
+            Permission.ViewSupportDashboard);
 
         builder
             .HasMany<Role>()
@@ -126,7 +127,12 @@ internal sealed class PermissionConfiguration : IEntityTypeConfiguration<Permiss
                     CreateRolePermission(Role.DeliveryDriver, Permission.GetDeliveries),
                     CreateRolePermission(Role.DeliveryDriver, Permission.ManageDeliveries),
                     CreateRolePermission(Role.DeliveryDriver, Permission.GetUser),
-                    CreateRolePermission(Role.DeliveryDriver, Permission.ModifyUser));
+                    CreateRolePermission(Role.DeliveryDriver, Permission.ModifyUser),
+                    // SupportAgent: the RealTime support dashboard's live global activity feed (Milestone
+                    // D), plus their own profile. No operational permissions — support is read-only.
+                    CreateRolePermission(Role.SupportAgent, Permission.ViewSupportDashboard),
+                    CreateRolePermission(Role.SupportAgent, Permission.GetUser),
+                    CreateRolePermission(Role.SupportAgent, Permission.ModifyUser));
             });
     }
 

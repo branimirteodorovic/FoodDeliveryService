@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using FoodDeliveryService.Common.Application.Caching;
 using FoodDeliveryService.Common.Application.EventBus;
+using FoodDeliveryService.Common.Domain;
 using FoodDeliveryService.Modules.RealTime.Application.RealTime;
 using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR.Client;
@@ -18,10 +19,10 @@ public class BaseIntegrationTest
     private const string PublicClientId = "fooddeliveryservice-public-client";
     private const string HubPath = "hubs/tracking";
 
-    // All test classes share the same IntegrationTestWebAppFactory (one per collection), so the
-    // token for the single seeded test user is fetched once and reused by every test.
+    // All test classes share the same IntegrationTestWebAppFactory (one per collection), so each
+    // seeded test user's token is fetched once (keyed by email) and reused by every test.
     private static readonly SemaphoreSlim TokenLock = new(1, 1);
-    private static string? _cachedAccessToken;
+    private static readonly Dictionary<string, string> CachedAccessTokensByEmail = [];
 
     public BaseIntegrationTest(IntegrationTestWebAppFactory factory)
     {
@@ -66,7 +67,16 @@ public class BaseIntegrationTest
         return builder.Build();
     }
 
-    protected async Task<string> GetAccessTokenAsync() => await GetOrCreateAccessTokenAsync();
+    protected Task<string> GetAccessTokenAsync() =>
+        GetOrCreateAccessTokenAsync(Factory.TestUserEmail, Factory.TestUserPassword);
+
+    /// <summary>Milestone D: the seeded RestaurantManager test user's token.</summary>
+    protected Task<string> GetRestaurantManagerAccessTokenAsync() =>
+        GetOrCreateAccessTokenAsync(Factory.RestaurantManagerEmail, Factory.RestaurantManagerPassword);
+
+    /// <summary>Milestone D: the seeded SupportAgent test user's token.</summary>
+    protected Task<string> GetSupportAgentAccessTokenAsync() =>
+        GetOrCreateAccessTokenAsync(Factory.SupportAgentEmail, Factory.SupportAgentPassword);
 
     /// <summary>
     /// Publishes an integration event onto the real RabbitMQ broker through the host's own
@@ -94,6 +104,33 @@ public class BaseIntegrationTest
             .GetAsync<DriverBinding>($"rt:driver:{driverId}", cancellationToken);
 
     /// <summary>
+    /// Milestone D: polls the RestaurantManager replica (built by ProcessInboxJob off a published
+    /// RestaurantRegisteredIntegrationEvent, on its own interval — not synchronous with the publish)
+    /// until the row for <paramref name="managerUserId"/> lands, or the timeout elapses.
+    /// </summary>
+    protected async Task<Guid?> WaitForRestaurantManagerReplicaAsync(
+        Guid managerUserId,
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default)
+    {
+        Result<Guid> result = await Poller.WaitAsync<Guid>(timeout, async () =>
+        {
+            // IRestaurantManagerStore is scoped (it depends on the scoped RealTimeDbContext for the
+            // write path), so it must be resolved from a scope — not the root provider.
+            await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+            IRestaurantManagerStore store = scope.ServiceProvider.GetRequiredService<IRestaurantManagerStore>();
+
+            Guid? restaurantId = await store.GetRestaurantIdAsync(managerUserId, cancellationToken);
+
+            return restaurantId is null
+                ? Result.Failure<Guid>(Error.Failure("RestaurantManager.NotReplicatedYet", "No replica row yet."))
+                : restaurantId.Value;
+        });
+
+        return result.IsSuccess ? result.Value : null;
+    }
+
+    /// <summary>
     /// Publishes a driver-position message on the same Redis channel Delivery's
     /// <c>RedisDriverLocationStore</c> publishes to in production — the real path here is a
     /// PUBLISH, not the bus (plan §4.1), so this bypasses RabbitMQ entirely on purpose.
@@ -113,15 +150,19 @@ public class BaseIntegrationTest
         return subscriber.PublishAsync(RedisChannel.Literal("delivery:driver-locations"), payload);
     }
 
-    private async Task<string> GetOrCreateAccessTokenAsync()
+    private static async Task<string> GetOrCreateAccessTokenAsync(string email, string password)
     {
         await TokenLock.WaitAsync();
 
         try
         {
-            _cachedAccessToken ??= await RequestAccessTokenAsync(Factory.TestUserEmail, Factory.TestUserPassword);
+            if (!CachedAccessTokensByEmail.TryGetValue(email, out string? accessToken))
+            {
+                accessToken = await RequestAccessTokenAsync(email, password);
+                CachedAccessTokensByEmail[email] = accessToken;
+            }
 
-            return _cachedAccessToken;
+            return accessToken;
         }
         finally
         {

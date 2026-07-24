@@ -15,6 +15,11 @@ public static class ConnectionClaims
     // exactly what makes user:{sub} the correct fan-out target for a customer's own orders.
     private const string Sub = "sub";
 
+    // Mirrors Common.Infrastructure.Authentication.CustomClaims.Permission's value. Duplicated
+    // (rather than referenced) for the same reason Sub is: Application must not depend on
+    // Infrastructure.
+    private const string Permission = "permission";
+
     /// <summary>
     /// The module-side user id of the connected caller. Throws when the principal carries no
     /// resolved <c>sub</c> claim, so an unresolved connection joins no group and is rejected cleanly.
@@ -27,4 +32,12 @@ public static class ConnectionClaims
             ? parsedUserId
             : throw new Common.Application.Exceptions.ApplicationException("User identifier is unavailable");
     }
+
+    /// <summary>
+    /// Whether the connected caller's claims include the given permission code (see
+    /// <see cref="Permissions"/>) — the signal <c>TrackingHub.OnConnectedAsync</c> (Milestone D) uses
+    /// to decide whether to attempt joining the restaurant or support dashboard group.
+    /// </summary>
+    public static bool HasPermission(this ClaimsPrincipal? principal, string permission) =>
+        principal?.HasClaim(Permission, permission) ?? false;
 }

@@ -71,4 +71,56 @@ internal sealed class RealTimeNotifier(
                 frame.OrderId, GroupNames.User(userId));
         }
     }
+
+    public async Task NotifyRestaurantAsync(Guid restaurantId, RestaurantActivityFrame frame, CancellationToken cancellationToken = default)
+    {
+        using IDisposable? logScope = logger.BeginScope(new Dictionary<string, object>
+        {
+            ["OrderId"] = frame.OrderId,
+            ["RestaurantId"] = restaurantId,
+            ["Status"] = frame.Status
+        });
+
+        try
+        {
+            await hubContext.Clients
+                .Group(GroupNames.Restaurant(restaurantId))
+                .SendAsync(TrackingHubMethods.RestaurantActivity, frame, cancellationToken);
+
+            logger.LogDebug("Pushed restaurant-activity frame '{Status}' for order {OrderId} to {Group}",
+                frame.Status, frame.OrderId, GroupNames.Restaurant(restaurantId));
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger.LogWarning(exception,
+                "Failed to push restaurant-activity frame '{Status}' for order {OrderId} to {Group}",
+                frame.Status, frame.OrderId, GroupNames.Restaurant(restaurantId));
+        }
+    }
+
+    public async Task NotifySupportAsync(SupportActivityFrame frame, CancellationToken cancellationToken = default)
+    {
+        using IDisposable? logScope = logger.BeginScope(new Dictionary<string, object>
+        {
+            ["OrderId"] = frame.OrderId,
+            ["RestaurantId"] = frame.RestaurantId,
+            ["Status"] = frame.Status
+        });
+
+        try
+        {
+            await hubContext.Clients
+                .Group(GroupNames.Support)
+                .SendAsync(TrackingHubMethods.SupportActivity, frame, cancellationToken);
+
+            logger.LogDebug("Pushed support-activity frame '{Status}' for order {OrderId} to {Group}",
+                frame.Status, frame.OrderId, GroupNames.Support);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger.LogWarning(exception,
+                "Failed to push support-activity frame '{Status}' for order {OrderId} to {Group}",
+                frame.Status, frame.OrderId, GroupNames.Support);
+        }
+    }
 }

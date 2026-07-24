@@ -1,32 +1,41 @@
 using FoodDeliveryService.Common.Application.Authorization;
+using FoodDeliveryService.Common.Application.EventBus;
 using FoodDeliveryService.Common.Presentation.Endpoints;
+using FoodDeliveryService.Modules.RealTime.Application.Abstractions.Data;
 using FoodDeliveryService.Modules.RealTime.Application.RealTime;
 using FoodDeliveryService.Modules.RealTime.Infrastructure.Authorization;
 using FoodDeliveryService.Modules.RealTime.Infrastructure.Consumers;
+using FoodDeliveryService.Modules.RealTime.Infrastructure.Database;
+using FoodDeliveryService.Modules.RealTime.Infrastructure.Database.RestaurantManagers;
+using FoodDeliveryService.Modules.RealTime.Infrastructure.Inbox;
 using FoodDeliveryService.Modules.RealTime.Infrastructure.RealTime;
+using FoodDeliveryService.Modules.Restaurants.IntegrationEvents;
 using FoodDeliveryService.Modules.Users.IntegrationEvents;
 using MassTransit;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace FoodDeliveryService.Modules.RealTime.Infrastructure;
 
 /// <summary>
 /// Registration surface for the Real-Time module. Unlike the other modules this one owns no
-/// database, no aggregates and no outbox/inbox — it maps the tracking hub and wires direct bus
-/// consumers that fan out to SignalR groups (Milestone B: the Orders lifecycle → customer timeline).
-/// The fan-out goes through <see cref="IRealTimeNotifier"/> (implemented over the SignalR hub) and
-/// every transition warms the ephemeral <see cref="IOrderRoutingMap"/> in Redis.
+/// aggregates and no outbox — it maps the tracking hub and wires direct bus consumers that fan out
+/// to SignalR groups (Milestone B: Orders lifecycle → customer timeline; Milestone C: Delivery
+/// lifecycle → driver tracking). From Milestone D it owns its first (and only) database — a minimal
+/// RestaurantManager replica, consumed durably via the inbox, unlike every other consumer here.
 /// </summary>
 public static class RealTimeModule
 {
-#pragma warning disable IDE0060 // Remove unused parameter — kept for parity with every other Add{Module} and for Milestone D, which introduces the RestaurantManager replica DbContext bound from configuration.
     public static IServiceCollection AddRealTimeModule(
         this IServiceCollection services,
         IConfiguration configuration)
-#pragma warning restore IDE0060 // Remove unused parameter
     {
-        services.AddInfrastructure();
+        services.AddIntegrationEventHandlers();
+
+        services.AddInfrastructure(configuration);
 
         services.AddEndpoints(Presentation.AssemblyReference.Assembly);
 
@@ -64,9 +73,18 @@ public static class RealTimeModule
             .Endpoint(c => c.InstanceId = instanceId);
         registrationConfigurator.AddConsumer<OrderDeliveredConsumer>()
             .Endpoint(c => c.InstanceId = instanceId);
+
+        // Milestone D: unlike every consumer above, the RestaurantManager replica must survive a
+        // cold start reliably, so these two go through the durable inbox instead of broadcasting
+        // directly — a deliberate, localized exception to this module's "all direct" rule (see the
+        // plan's §5.1 justification).
+        registrationConfigurator.AddConsumer<IntegrationEventConsumer<RestaurantRegisteredIntegrationEvent>>()
+            .Endpoint(c => c.InstanceId = instanceId);
+        registrationConfigurator.AddConsumer<IntegrationEventConsumer<RestaurantAddressUpdatedIntegrationEvent>>()
+            .Endpoint(c => c.InstanceId = instanceId);
     }
 
-    private static void AddInfrastructure(this IServiceCollection services)
+    private static void AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
         // Resolves the connecting principal's module-side id + permissions over the bus (see
         // PermissionService). Required because CustomClaimsTransformation runs on every
@@ -82,5 +100,48 @@ public static class RealTimeModule
         // Delivery's Redis pub/sub location stream and forwards positions through it.
         services.AddSingleton<IDriverBindingStore, DriverBindingStore>();
         services.AddHostedService<DriverLocationSubscriber>();
+
+        // Milestone D: the service's first database — the RestaurantManager replica, kept current
+        // from Restaurants' events via the inbox above. No InsertOutboxMessagesInterceptor: this
+        // service raises no domain events and publishes no integration events of its own.
+        services.AddDbContext<RealTimeDbContext>((_, options) =>
+            options
+                .UseNpgsql(
+                    configuration.GetConnectionString("Database"),
+                    npgsqlOptions => npgsqlOptions
+                        .MigrationsHistoryTable(HistoryRepository.DefaultTableName))
+                .UseSnakeCaseNamingConvention());
+
+        services.AddScoped<IUnitOfWork>(sp => sp.GetRequiredService<RealTimeDbContext>());
+
+        services.AddScoped<IRestaurantManagerStore, RestaurantManagerStore>();
+
+        services.Configure<InboxOptions>(configuration.GetSection("MessageProcessor:Inbox"));
+
+        services.ConfigureOptions<ConfigureProcessInboxJob>();
+    }
+
+    private static void AddIntegrationEventHandlers(this IServiceCollection services)
+    {
+        Type[] integrationEventHandlers = Presentation.AssemblyReference.Assembly
+            .GetTypes()
+            .Where(t => t.IsAssignableTo(typeof(IIntegrationEventHandler)))
+            .ToArray();
+
+        foreach (Type integrationEventHandler in integrationEventHandlers)
+        {
+            services.TryAddScoped(integrationEventHandler);
+
+            Type integrationEvent = integrationEventHandler
+                .GetInterfaces()
+                .Single(i => i.IsGenericType)
+                .GetGenericArguments()
+                .Single();
+
+            Type closedIdempotentHandler =
+                typeof(IdempotentIntegrationEventHandler<>).MakeGenericType(integrationEvent);
+
+            services.Decorate(integrationEventHandler, closedIdempotentHandler);
+        }
     }
 }
