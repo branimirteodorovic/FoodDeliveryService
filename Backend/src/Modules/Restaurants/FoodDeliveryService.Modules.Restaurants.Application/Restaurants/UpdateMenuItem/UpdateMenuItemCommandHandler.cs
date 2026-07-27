@@ -50,6 +50,9 @@ internal sealed class UpdateMenuItemCommandHandler(
         // integration-event snapshot, so a stale cache entry here would leak into that snapshot.
         await cacheService.RemoveAsync(RestaurantCacheKeys.Item(request.MenuItemId), cancellationToken);
 
+        // The composed menu embeds this item, so it goes stale on the same write (Milestone C).
+        await cacheService.RemoveAsync(RestaurantCacheKeys.Menu(request.RestaurantId), cancellationToken);
+
         return Result.Success();
     }
 }

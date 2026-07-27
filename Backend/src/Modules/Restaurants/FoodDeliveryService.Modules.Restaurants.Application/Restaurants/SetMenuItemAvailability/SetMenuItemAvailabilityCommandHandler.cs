@@ -45,6 +45,10 @@ internal sealed class SetMenuItemAvailabilityCommandHandler(
         // availability change's now-stale cache entry (see UpdateMenuItemCommandHandler).
         await cacheService.RemoveAsync(RestaurantCacheKeys.Item(request.MenuItemId), cancellationToken);
 
+        // The composed menu carries each item's availability flag, so selling an item out has to
+        // invalidate it too — otherwise browsers keep seeing the item as orderable (Milestone C).
+        await cacheService.RemoveAsync(RestaurantCacheKeys.Menu(request.RestaurantId), cancellationToken);
+
         return Result.Success();
     }
 }

@@ -1,7 +1,9 @@
+using FoodDeliveryService.Common.Application.Caching;
 using FoodDeliveryService.Common.Application.Messaging;
 using FoodDeliveryService.Common.Domain;
 using FoodDeliveryService.Modules.Restaurants.Application.Abstractions.Authentication;
 using FoodDeliveryService.Modules.Restaurants.Application.Abstractions.Data;
+using FoodDeliveryService.Modules.Restaurants.Application.Caching;
 using FoodDeliveryService.Modules.Restaurants.Domain.Restaurants;
 
 namespace FoodDeliveryService.Modules.Restaurants.Application.Restaurants.CreateMenuCategory;
@@ -9,7 +11,8 @@ namespace FoodDeliveryService.Modules.Restaurants.Application.Restaurants.Create
 internal sealed class CreateMenuCategoryCommandHandler(
     IRestaurantsRepository restaurantsRepository,
     IRestaurantsContext restaurantsContext,
-    IUnitOfWork unitOfWork)
+    IUnitOfWork unitOfWork,
+    ICacheService cacheService)
     : ICommandHandler<CreateMenuCategoryCommand, Guid>
 {
     public async Task<Result<Guid>> Handle(CreateMenuCategoryCommand request, CancellationToken cancellationToken)
@@ -36,6 +39,9 @@ internal sealed class CreateMenuCategoryCommandHandler(
         }
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
+
+        // The composed menu is grouped by category, so a new (empty) category changes its shape.
+        await cacheService.RemoveAsync(RestaurantCacheKeys.Menu(request.RestaurantId), cancellationToken);
 
         return categoryResult.Value.Id;
     }

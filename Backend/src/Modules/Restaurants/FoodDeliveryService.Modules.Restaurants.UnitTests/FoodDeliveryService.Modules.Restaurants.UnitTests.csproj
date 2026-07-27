@@ -21,6 +21,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\FoodDeliveryService.Modules.Restaurants.Domain\FoodDeliveryService.Modules.Restaurants.Domain.csproj" />
+    <!-- Needed by the menu cache-invalidation tests, which drive the real command handlers. -->
+    <ProjectReference Include="..\FoodDeliveryService.Modules.Restaurants.Application\FoodDeliveryService.Modules.Restaurants.Application.csproj" />
   </ItemGroup>
 
   <ItemGroup>

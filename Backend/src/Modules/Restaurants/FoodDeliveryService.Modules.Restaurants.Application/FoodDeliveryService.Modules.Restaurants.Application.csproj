@@ -6,4 +6,8 @@
     <ProjectReference Include="..\FoodDeliveryService.Modules.Restaurants.IntegrationEvents\FoodDeliveryService.Modules.Restaurants.IntegrationEvents.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="FoodDeliveryService.Modules.Restaurants.UnitTests" />
+  </ItemGroup>
+
 </Project>

@@ -1,7 +1,9 @@
+using FoodDeliveryService.Common.Application.Caching;
 using FoodDeliveryService.Common.Application.Messaging;
 using FoodDeliveryService.Common.Domain;
 using FoodDeliveryService.Modules.Restaurants.Application.Abstractions.Authentication;
 using FoodDeliveryService.Modules.Restaurants.Application.Abstractions.Data;
+using FoodDeliveryService.Modules.Restaurants.Application.Caching;
 using FoodDeliveryService.Modules.Restaurants.Domain.Restaurants;
 
 namespace FoodDeliveryService.Modules.Restaurants.Application.Restaurants.CreateMenuItem;
@@ -9,7 +11,8 @@ namespace FoodDeliveryService.Modules.Restaurants.Application.Restaurants.Create
 internal sealed class CreateMenuItemCommandHandler(
     IRestaurantsRepository restaurantsRepository,
     IRestaurantsContext restaurantsContext,
-    IUnitOfWork unitOfWork)
+    IUnitOfWork unitOfWork,
+    ICacheService cacheService)
     : ICommandHandler<CreateMenuItemCommand, Guid>
 {
     public async Task<Result<Guid>> Handle(CreateMenuItemCommand request, CancellationToken cancellationToken)
@@ -42,6 +45,11 @@ internal sealed class CreateMenuItemCommandHandler(
         }
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
+
+        // The new item belongs to this restaurant's composed menu, so the cached menu is now
+        // missing a row — evicted inline, matching how UpdateRestaurant/UpdateMenuItem invalidate
+        // their own keys. No `restaurants:item:{id}` evict is needed: the id is brand new.
+        await cacheService.RemoveAsync(RestaurantCacheKeys.Menu(request.RestaurantId), cancellationToken);
 
         return itemResult.Value.Id;
     }
