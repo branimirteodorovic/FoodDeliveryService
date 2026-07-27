@@ -1,7 +1,9 @@
+using FoodDeliveryService.Common.Application.Caching;
 using FoodDeliveryService.Common.Application.Messaging;
 using FoodDeliveryService.Common.Domain;
 using FoodDeliveryService.Modules.Restaurants.Application.Abstractions.Authentication;
 using FoodDeliveryService.Modules.Restaurants.Application.Abstractions.Data;
+using FoodDeliveryService.Modules.Restaurants.Application.Caching;
 using FoodDeliveryService.Modules.Restaurants.Domain.Restaurants;
 
 namespace FoodDeliveryService.Modules.Restaurants.Application.Restaurants.UpdateMenuItem;
@@ -9,7 +11,8 @@ namespace FoodDeliveryService.Modules.Restaurants.Application.Restaurants.Update
 internal sealed class UpdateMenuItemCommandHandler(
     IRestaurantsRepository restaurantsRepository,
     IRestaurantsContext restaurantsContext,
-    IUnitOfWork unitOfWork)
+    IUnitOfWork unitOfWork,
+    ICacheService cacheService)
     : ICommandHandler<UpdateMenuItemCommand>
 {
     public async Task<Result> Handle(UpdateMenuItemCommand request, CancellationToken cancellationToken)
@@ -41,6 +44,11 @@ internal sealed class UpdateMenuItemCommandHandler(
         }
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
+
+        // Evicted inline for the same reason as UpdateRestaurantCommandHandler: MenuItemUpdated/
+        // MenuItemPriceChangedDomainEventHandler read this cached query via ISender to build their
+        // integration-event snapshot, so a stale cache entry here would leak into that snapshot.
+        await cacheService.RemoveAsync(RestaurantCacheKeys.Item(request.MenuItemId), cancellationToken);
 
         return Result.Success();
     }

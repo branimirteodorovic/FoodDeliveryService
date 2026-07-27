@@ -12,4 +12,8 @@
     <ProjectReference Include="..\FoodDeliveryService.Common.Domain\FoodDeliveryService.Common.Domain.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="FoodDeliveryService.Common.UnitTests" />
+  </ItemGroup>
+
 </Project>

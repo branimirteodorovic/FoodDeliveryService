@@ -1,7 +1,9 @@
+using FoodDeliveryService.Common.Application.Caching;
 using FoodDeliveryService.Common.Application.Messaging;
 using FoodDeliveryService.Common.Domain;
 using FoodDeliveryService.Modules.Restaurants.Application.Abstractions.Authentication;
 using FoodDeliveryService.Modules.Restaurants.Application.Abstractions.Data;
+using FoodDeliveryService.Modules.Restaurants.Application.Caching;
 using FoodDeliveryService.Modules.Restaurants.Domain.Restaurants;
 
 namespace FoodDeliveryService.Modules.Restaurants.Application.Restaurants.SetMenuItemAvailability;
@@ -9,7 +11,8 @@ namespace FoodDeliveryService.Modules.Restaurants.Application.Restaurants.SetMen
 internal sealed class SetMenuItemAvailabilityCommandHandler(
     IRestaurantsRepository restaurantsRepository,
     IRestaurantsContext restaurantsContext,
-    IUnitOfWork unitOfWork)
+    IUnitOfWork unitOfWork,
+    ICacheService cacheService)
     : ICommandHandler<SetMenuItemAvailabilityCommand>
 {
     public async Task<Result> Handle(SetMenuItemAvailabilityCommand request, CancellationToken cancellationToken)
@@ -36,6 +39,11 @@ internal sealed class SetMenuItemAvailabilityCommandHandler(
         }
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
+
+        // Evicted inline so a later UpdateMenuItem on the same item can't have its
+        // MenuItemUpdated/MenuItemPriceChangedDomainEventHandler snapshot read pick up this
+        // availability change's now-stale cache entry (see UpdateMenuItemCommandHandler).
+        await cacheService.RemoveAsync(RestaurantCacheKeys.Item(request.MenuItemId), cancellationToken);
 
         return Result.Success();
     }

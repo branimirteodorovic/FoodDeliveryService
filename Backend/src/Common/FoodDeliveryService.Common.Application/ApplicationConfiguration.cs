@@ -27,9 +27,12 @@ public static class ApplicationConfiguration
             // 2. RequestLogging   — Serilog-logs each request with its outcome
             // 3. Validation       — runs the FluentValidation validators; short-circuits
             //    with a validation failure Result before the handler executes
+            // 4. Caching          — for queries implementing ICachedQuery, serves a cache hit
+            //    without reaching the handler, and caches a successful miss
             config.AddOpenBehavior(typeof(ExceptionHandlingPipelineBehavior<,>));
             config.AddOpenBehavior(typeof(RequestLoggingPipelineBehavior<,>));
             config.AddOpenBehavior(typeof(ValidationPipelineBehavior<,>));
+            config.AddOpenBehavior(typeof(QueryCachingBehavior<,>));
         });
 
         // FluentValidation: scans the module assemblies for AbstractValidator<TCommand>
