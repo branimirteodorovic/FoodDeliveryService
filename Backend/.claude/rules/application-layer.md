@@ -74,6 +74,27 @@ internal sealed class Create{Entity}CommandValidator : AbstractValidator<Create{
 }
 ```
 
+## Concurrency: locking a contended write
+
+Before writing a handler, ask: **does this read a value, decide on it, then write — where a concurrent caller could change that value in between, and losing the race double-books something scarce?** (A driver, a seat, a stock item, a one-per-order record.) If yes, the handler needs `IDistributedLock`; if no, skip this section entirely — most handlers don't need it.
+
+This matters more than usual here because **no aggregate has an optimistic concurrency token**: two concurrent `SaveChangesAsync` calls on the same row both succeed. The domain guard (`if (Status != Available) return Failure`) is a check-then-act like any other — it only holds if the two callers are serialized.
+
+```csharp
+// Acquire BEFORE loading the aggregate — the check-then-act starts at the read.
+await using IAsyncDisposable? handle = await distributedLock.TryAcquireAsync(
+    {Module}Locks.{Resource}(id), {Module}Locks.Ttl, cancellationToken);
+
+if (handle is null)
+    return Result.Failure({Entity}Errors.SomethingInProgress);  // not Result.Success()
+```
+
+- Build keys/TTL in one shared static per module (see `DeliveryLocks`) — never inline the string.
+- Returning `Result.Success()` on a lost acquisition **strands** the entity unless a retry exists. `ProcessInboxJob` does not retry (it records the error and marks the message processed); a Quartz scan only re-drives rows still matching its `WHERE`.
+- Keep the domain guard as well. The lock serializes the callers; the aggregate is still what decides.
+
+Reference: `Delivery.Application/.../AcceptDeliveryOffer/AcceptDeliveryOfferCommandHandler.cs`.
+
 ## Domain Event Handlers (publish integration events)
 ```csharp
 internal sealed class {Entity}CreatedDomainEventHandler(ISender sender, IEventBus eventBus)

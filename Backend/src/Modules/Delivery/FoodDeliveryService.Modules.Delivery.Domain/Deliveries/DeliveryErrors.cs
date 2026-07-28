@@ -30,6 +30,15 @@ public static class DeliveryErrors
         "Deliveries.NotAuthorizedToView",
         "You are not authorized to view this delivery");
 
+    // Distributed-lock contention on the assignment path: another trigger is offering this same
+    // delivery, or the chosen driver is being handed another one, right now. Deliberately a
+    // failure and not a silent success — the delivery is still Pending, and only the caller's
+    // retry (the inbox for a fresh create, the next expiry-job tick, the driver re-sending their
+    // rejection) gets it moving again. Reporting success would strand it with nothing to re-drive.
+    public static readonly Error AssignmentInProgress = Error.Problem(
+        "Deliveries.AssignmentInProgress",
+        "Another assignment attempt for this delivery or driver is already in progress");
+
     public static Error NotFound(Guid deliveryId) => Error.NotFound(
         "Deliveries.NotFound",
         $"The delivery with the identifier {deliveryId} was not found");

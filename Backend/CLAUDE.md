@@ -97,6 +97,24 @@ registrationConfigurator
 ```
 Chained handlers are fine for one-hop reactions; use a saga when the flow has 3+ steps, needs rollback/compensation, or its state must be queryable.
 
+### Distributed Locking (concurrent writes to contended state)
+`IDistributedLock` (`Common.Application/Locking`; Redis `SET NX PX` + token-checked Lua release) is the cross-process `lock`. A C# `lock` protects nothing here: services run as multiple replicas, and Quartz's `[DisallowConcurrentExecution]` is per-scheduler — two pods tick the same job at the same instant.
+
+Take it when a write is **check-then-act on state another caller can change** (read a status → decide → write) and losing the race double-books a scarce resource. **No aggregate carries an optimistic concurrency token**, so the database will *not* reject the second write — nothing else is protecting you.
+
+```csharp
+// Acquire BEFORE the read — the check-then-act begins at the read, so a lock
+// taken after it still lets both callers act on the same stale snapshot.
+await using IAsyncDisposable? handle = await distributedLock.TryAcquireAsync(resource, ttl, ct);
+if (handle is null) return Result.Failure({Entity}Errors.SomethingInProgress);
+```
+- Keys + TTL live in **one** shared static per module (`DeliveryLocks`) so the read side and write side can't drift onto different names.
+- TTL comfortably exceeds the critical section, far short of the business window it guards (assignment: 5 s vs a 30 s offer).
+- A lost acquisition must land somewhere a retry actually exists. Returning `Result.Success()` strands the entity if nothing re-drives it — note `ProcessInboxJob` does **not** retry: it records the error and marks the message processed.
+- The lock *complements* the aggregate guard (`driver.Reserve()`), never replaces it. It's advisory — a new write path that skips it reopens the race.
+
+Reference: `DeliveryAssignmentService.OfferNextAsync` + `AcceptDeliveryOfferCommandHandler`.
+
 ### Minimal API Endpoints
 ```csharp
 internal sealed class CreateOrder : IEndpoint {
@@ -167,6 +185,7 @@ Discovered via `AddEndpoints(Presentation.AssemblyReference.Assembly)`, mapped b
 | YARP config | `src/API/FoodDeliveryService.Gateway/appsettings.Development.json` |
 | Entity base + Result<T> | `src/Common/FoodDeliveryService.Common.Domain/` |
 | Pipeline behaviors | `src/Common/FoodDeliveryService.Common.Application/Behaviors/` |
+| Distributed lock (check-then-act writes) | `src/Modules/Delivery/...Delivery.Infrastructure/Assignment/DeliveryAssignmentService.cs` + `.../Application/Abstractions/Assignment/DeliveryLocks.cs` |
 | Domain unit tests | `src/Modules/Restaurants/...Restaurants.UnitTests/` (skill: `/write-unit-tests`) |
 | Full-stack integration tests | `src/Modules/Restaurants/...Restaurants.IntegrationTests/` (skill: `/write-integration-tests`) |
 

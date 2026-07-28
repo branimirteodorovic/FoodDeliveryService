@@ -35,6 +35,11 @@ description: Use when the user describes a feature, user story, or requirement t
 - Truly synchronous need? Only MassTransit request/response (`IRequestClient<T>`, pattern: `GetUserPermissionsRequest`) — use sparingly, cache in Redis if hot-path
 - **Saga check**: does the flow span 3+ steps across services, need compensation/rollback, or timeouts (e.g. place order → restaurant confirms → delivery → notify)? Then PROPOSE a MassTransit state machine saga (`AddSagaStateMachine<TSaga, TState>().RedisRepository(...)` — commented scaffold in `OrdersModule.ConfigureConsumers`) instead of chaining event handlers, and explain the trade-off to the user before building it
 
+**Concurrency check (ask once per write path):**
+- Does any write **read a value, decide on it, then write** — where a second caller could change that value in between? Triggers that overlap in practice: an HTTP request racing a Quartz job tick, an inbox handler racing an endpoint, or two replicas of the same service.
+- If losing that race double-books something scarce (a driver, a seat, the last unit of stock), the handler must take `IDistributedLock` **before** the read. No aggregate here carries an optimistic concurrency token, so the database will not reject the second write — see the Distributed Locking section in `CLAUDE.md` and `DeliveryAssignmentService`/`AcceptDeliveryOfferCommandHandler` for the worked example.
+- A lost acquisition returns `Result.Failure`, not `Result.Success` — silently skipping strands the entity unless something re-drives it (the inbox does **not** retry).
+
 **Edge concerns:**
 - Endpoint route: falls under the module's existing YARP prefix (`{module}/**`)? If a new prefix, add route + cluster in the Gateway appsettings
 - Auth: which permission guards the endpoint? Anonymous endpoints need an explicit `anonymous` YARP route (like `users/register`)
@@ -144,6 +149,7 @@ internal sealed class {Event}IntegrationEventHandler(ISender sender)
 - [ ] Query handlers use `IDbConnectionFactory` + Dapper (grep for `DbSet` in query files) and touch only this service's DB
 - [ ] All commands/queries return `Result<T>`; endpoints use `result.Match(Results.Ok, ApiResults.Problem)`
 - [ ] Domain event raised in every state-changing method
+- [ ] Any check-then-act write on contended state takes `IDistributedLock` before its read (and fails, not skips, when it loses)
 - [ ] Cross-service reactions: integration event published (outbox) AND consumer registered + handler added in every consuming service (inbox)
 - [ ] Migration added for schema changes
 - [ ] Route reachable through the Gateway; new prefixes added to YARP config

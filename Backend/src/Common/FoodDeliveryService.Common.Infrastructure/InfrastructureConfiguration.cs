@@ -3,12 +3,14 @@ using FoodDeliveryService.Common.Application.Caching;
 using FoodDeliveryService.Common.Application.Clock;
 using FoodDeliveryService.Common.Application.Data;
 using FoodDeliveryService.Common.Application.EventBus;
+using FoodDeliveryService.Common.Application.Locking;
 using FoodDeliveryService.Common.Infrastructure.Authentication;
 using FoodDeliveryService.Common.Infrastructure.Authorization;
 using FoodDeliveryService.Common.Infrastructure.Caching;
 using FoodDeliveryService.Common.Infrastructure.Clock;
 using FoodDeliveryService.Common.Infrastructure.Data;
 using FoodDeliveryService.Common.Infrastructure.EventBus;
+using FoodDeliveryService.Common.Infrastructure.Locking;
 using FoodDeliveryService.Common.Infrastructure.Outbox;
 using MassTransit;
 using Microsoft.Extensions.DependencyInjection;
@@ -131,10 +133,19 @@ public static class InfrastructureConfiguration
             services.AddSingleton(connectionMultiplexer);
             services.AddStackExchangeRedisCache(options =>
                 options.ConnectionMultiplexerFactory = () => Task.FromResult(connectionMultiplexer));
+
+            // Cross-instance mutual exclusion on the same connection (SET NX PX + owner-checked
+            // release). Used by Delivery's driver assignment, where two overlapping triggers could
+            // otherwise offer one delivery twice or hand one driver two orders.
+            services.TryAddSingleton<IDistributedLock, RedisDistributedLock>();
         }
         catch
         {
             services.AddDistributedMemoryCache();
+
+            // Same reason as the in-memory cache above: keep a Redis-less local run bootable. It
+            // only excludes callers inside this process — see InMemoryDistributedLock.
+            services.TryAddSingleton<IDistributedLock, InMemoryDistributedLock>();
         }
 
         services.ConfigureOptions<CachingConfigureOptions>();
