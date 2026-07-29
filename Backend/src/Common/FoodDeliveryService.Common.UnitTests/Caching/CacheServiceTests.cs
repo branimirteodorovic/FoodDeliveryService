@@ -11,6 +11,7 @@ public class CacheServiceTests
     // registers the open-generic IOptions<> plumbing, so IOptions<CachingSettings> resolves without
     // any explicit Configure call.
     private readonly ICacheService _sut = new ServiceCollection()
+        .AddLogging()
         .AddDistributedMemoryCache()
         .AddSingleton<ICacheService, CacheService>()
         .BuildServiceProvider()

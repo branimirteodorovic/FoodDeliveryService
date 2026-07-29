@@ -2,11 +2,15 @@
 using System.Text.Json;
 using FoodDeliveryService.Common.Application.Caching;
 using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace FoodDeliveryService.Common.Infrastructure.Caching;
 
-internal sealed class CacheService(IDistributedCache cache, IOptions<CachingSettings> cachingSettings) : ICacheService
+internal sealed class CacheService(
+    IDistributedCache cache,
+    IOptions<CachingSettings> cachingSettings,
+    ILogger<CacheService> logger) : ICacheService
 {
     private readonly CachingSettings _settings = cachingSettings.Value;
 
@@ -14,7 +18,21 @@ internal sealed class CacheService(IDistributedCache cache, IOptions<CachingSett
     {
         byte[]? bytes = await cache.GetAsync(key, cancellationToken);
 
-        return bytes is null ? default : Deserialize<T>(bytes);
+        // Every cache read in the platform funnels through here, so this is where hit rate is
+        // measured (see CacheDiagnostics). The log carries the full key — logs have no cardinality
+        // budget to blow — while the counter tag is only its prefix.
+        if (bytes is null)
+        {
+            CacheDiagnostics.RecordMiss(key);
+            logger.LogDebug("Cache miss for {CacheKey}", key);
+
+            return default;
+        }
+
+        CacheDiagnostics.RecordHit(key);
+        logger.LogDebug("Cache hit for {CacheKey}", key);
+
+        return Deserialize<T>(bytes);
     }
 
     public Task SetAsync<T>(

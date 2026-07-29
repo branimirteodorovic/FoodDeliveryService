@@ -14,6 +14,7 @@ public class QueryCachingBehaviorTests
     // CacheServiceTests uses — so these tests exercise the real Get/Set round-trip rather than a
     // hand-rolled fake.
     private readonly ICacheService _cacheService = new ServiceCollection()
+        .AddLogging()
         .AddDistributedMemoryCache()
         .AddSingleton<ICacheService, CacheService>()
         .BuildServiceProvider()
