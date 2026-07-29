@@ -26,14 +26,14 @@ namespace FoodDeliveryService.Common.Infrastructure;
 
 /// <summary>
 /// Central infrastructure bootstrap shared by every API host. Each service's Program.cs calls
-/// <see cref="AddInfrastructure(IServiceCollection, string, Action{IRegistrationConfigurator, string, string}[], RabbitMqSettings, string, string)"/>
+/// <see cref="AddInfrastructure(IServiceCollection, string, Action{IRegistrationConfigurator, string, string}[], RabbitMqSettings, string, string, bool)"/>
 /// once, which wires up the whole cross-cutting stack: JWT authentication (tokens issued by Duende
 /// IdentityServer), permission-based authorization, Npgsql + Dapper for read-side data access,
 /// Quartz for the outbox/inbox background jobs, Redis for distributed caching, MassTransit over
 /// RabbitMQ for messaging, and OpenTelemetry tracing exported to Jaeger.
 /// <para>
 /// The database-less overload
-/// (<see cref="AddInfrastructure(IServiceCollection, string, Action{IRegistrationConfigurator, string, string}[], RabbitMqSettings, string)"/>)
+/// (<see cref="AddInfrastructure(IServiceCollection, string, Action{IRegistrationConfigurator, string, string}[], RabbitMqSettings, string, bool)"/>)
 /// serves the one service that owns no PostgreSQL database — the Real-Time SignalR hub — by skipping
 /// the Npgsql/Dapper/outbox-interceptor registrations while keeping everything else identical.
 /// </para>
@@ -51,7 +51,8 @@ public static class InfrastructureConfiguration
         Action<IRegistrationConfigurator, string, string>[] moduleConfigureConsumers,
         RabbitMqSettings rabbitMqSettings,
         string databaseConnectionString,
-        string redisConnectionString)
+        string redisConnectionString,
+        bool allowInMemoryCacheFallback = true)
     {
         // Npgsql: the PostgreSQL ADO.NET driver. A single pooled NpgsqlDataSource per service is
         // shared by Dapper queries and the outbox/inbox jobs; EF Core opens its own connections
@@ -76,7 +77,8 @@ public static class InfrastructureConfiguration
             serviceName,
             moduleConfigureConsumers,
             rabbitMqSettings,
-            redisConnectionString);
+            redisConnectionString,
+            allowInMemoryCacheFallback);
     }
 
     /// <summary>
@@ -87,12 +89,19 @@ public static class InfrastructureConfiguration
     /// remaining cross-cutting wiring — JWT auth, permission authorization, Quartz, Redis cache,
     /// MassTransit/RabbitMQ and OpenTelemetry — is exactly as the database-backed hosts get it.
     /// </summary>
+    /// <param name="allowInMemoryCacheFallback">
+    /// Whether an unreachable Redis may be replaced by an in-process cache and an in-process lock.
+    /// Hosts pass <c>builder.Environment.IsDevelopment()</c>: convenient for a local run without the
+    /// container, wrong everywhere else, because a process-local <c>IDistributedLock</c> silently
+    /// stops protecting anything as soon as a second replica exists.
+    /// </param>
     public static IServiceCollection AddInfrastructure(
         this IServiceCollection services,
         string serviceName,
         Action<IRegistrationConfigurator, string, string>[] moduleConfigureConsumers,
         RabbitMqSettings rabbitMqSettings,
-        string redisConnectionString)
+        string redisConnectionString,
+        bool allowInMemoryCacheFallback = true)
     {
         // ASP.NET Core JWT Bearer authentication. Tokens are issued by the Duende IdentityServer
         // host (:18080); each service validates them independently against Duende's OpenID Connect
@@ -126,26 +135,45 @@ public static class InfrastructureConfiguration
 
         // StackExchange.Redis: distributed cache used by ICacheService — most importantly to cache
         // user permissions for 5 minutes so authorization doesn't hit the Users service on every
-        // request. Falls back to an in-memory cache when Redis is unreachable (local dev).
-        try
+        // request. RedisConnectionOptions hardens the parsed connection string (abortConnect=false +
+        // exponential reconnect; TLS and everything else stay the connection string's business),
+        // which is what lets the same code path serve a local container and Azure Cache for Redis
+        // with only configuration changing. See docs/caching.md.
+        //
+        // Because abortConnect is false, Connect() returns a usable, self-reconnecting multiplexer
+        // even against a server that is currently down — it throws only when the connection string
+        // itself is unusable, which is a misconfiguration worth failing fast on. The multiplexer is
+        // therefore ALWAYS registered: Delivery's driver-location GEO store and Real-Time's
+        // location subscriber depend on it directly, and a Redis outage should degrade those calls,
+        // not fail their DI resolution.
+        var connectionMultiplexer =
+            ConnectionMultiplexer.Connect(RedisConnectionOptions.Create(redisConnectionString, serviceName));
+
+        services.AddSingleton<IConnectionMultiplexer>(connectionMultiplexer);
+
+        if (connectionMultiplexer.IsConnected || !allowInMemoryCacheFallback)
         {
-            IConnectionMultiplexer connectionMultiplexer = ConnectionMultiplexer.Connect(redisConnectionString);
-            services.AddSingleton(connectionMultiplexer);
             services.AddStackExchangeRedisCache(options =>
-                options.ConnectionMultiplexerFactory = () => Task.FromResult(connectionMultiplexer));
+                options.ConnectionMultiplexerFactory = () => Task.FromResult<IConnectionMultiplexer>(connectionMultiplexer));
 
             // Cross-instance mutual exclusion on the same connection (SET NX PX + owner-checked
             // release). Used by Delivery's driver assignment, where two overlapping triggers could
             // otherwise offer one delivery twice or hand one driver two orders.
             services.TryAddSingleton<IDistributedLock, RedisDistributedLock>();
         }
-        catch
+        else
         {
+            // Keep a Redis-less local run bootable. Never reached when the caller refuses the
+            // fallback: there the host boots against the reconnecting multiplexer instead and its
+            // Redis health check reports unhealthy until the server is back — degrading a replica to
+            // a process-local cache and a process-local lock is worse than being out of rotation.
             services.AddDistributedMemoryCache();
 
-            // Same reason as the in-memory cache above: keep a Redis-less local run bootable. It
-            // only excludes callers inside this process — see InMemoryDistributedLock.
+            // Same reason as the in-memory cache above. It only excludes callers inside this
+            // process — see InMemoryDistributedLock — so the fallback is announced at startup.
             services.TryAddSingleton<IDistributedLock, InMemoryDistributedLock>();
+
+            services.AddHostedService<InMemoryFallbackWarning>();
         }
 
         services.ConfigureOptions<CachingConfigureOptions>();

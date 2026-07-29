@@ -8,6 +8,7 @@ using HealthChecks.UI.Client;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using RabbitMQ.Client;
 using Serilog;
+using StackExchange.Redis;
 using FoodDeliveryService.Common.Application;
 using FoodDeliveryService.Users.Api.Extensions;
 using FoodDeliveryService.Users.Api.OpenTelemetry;
@@ -53,16 +54,21 @@ builder.Services.AddInfrastructure(
     [UsersModule.ConfigureConsumers()],
     rabbitMqSettings,
     databaseConnectionString,
-    redisConnectionString);
+    redisConnectionString,
+    // An unreachable Redis degrades to an in-process cache and an in-process lock in local
+    // development only — anywhere else the host keeps the reconnecting Redis connection and lets
+    // the health check below report it unhealthy. See docs/caching.md.
+    allowInMemoryCacheFallback: builder.Environment.IsDevelopment());
 
 Uri duendeHealthUrl = builder.Configuration.GetDuendeHealthUrl();
 
 // AspNetCore.HealthChecks.* packages: liveness probes for every external dependency —
-// PostgreSQL (Npgsql), Redis, RabbitMQ (reuses the raw IConnection registered in
-// AddInfrastructure) and the Duende IdentityServer /health endpoint.
+// PostgreSQL (Npgsql), Redis and RabbitMQ (both probe the very connection AddInfrastructure
+// registered — so the Redis check reports on the multiplexer the app actually uses, TLS and
+// reconnect policy included) and the Duende IdentityServer /health endpoint.
 builder.Services.AddHealthChecks()
     .AddNpgSql(databaseConnectionString)
-    .AddRedis(redisConnectionString)
+    .AddRedis(sp => sp.GetRequiredService<IConnectionMultiplexer>())
     .AddRabbitMQ(sp => sp.GetRequiredService<IConnection>())
     .AddDuende(duendeHealthUrl);
 

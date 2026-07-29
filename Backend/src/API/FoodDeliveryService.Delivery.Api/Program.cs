@@ -13,6 +13,7 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using OpenTelemetry.Trace;
 using RabbitMQ.Client;
 using Serilog;
+using StackExchange.Redis;
 
 // API host for the Delivery module (:5500) — reached through the YARP gateway via delivery/**.
 // Owns driver profiles and (from Milestone E) the delivery leg of every order. Onboards drivers
@@ -54,7 +55,11 @@ builder.Services.AddInfrastructure(
     [DeliveryModule.ConfigureConsumers()],
     rabbitMqSettings,
     databaseConnectionString,
-    redisConnectionString);
+    redisConnectionString,
+    // An unreachable Redis degrades to an in-process cache and an in-process lock in local
+    // development only — anywhere else the host keeps the reconnecting Redis connection and lets
+    // the health check below report it unhealthy. See docs/caching.md.
+    allowInMemoryCacheFallback: builder.Environment.IsDevelopment());
 
 // Register the Delivery-specific tracing source (the "find nearest available driver" geo span)
 // alongside the instrumentation AddInfrastructure already wired up.
@@ -64,11 +69,12 @@ builder.Services.ConfigureOpenTelemetryTracerProvider(tracing =>
 Uri duendeHealthUrl = builder.Configuration.GetDuendeHealthUrl();
 
 // AspNetCore.HealthChecks.* packages: liveness probes for every external dependency —
-// PostgreSQL (Npgsql), Redis, RabbitMQ (reuses the raw IConnection registered in
-// AddInfrastructure) and the Duende IdentityServer /health endpoint.
+// PostgreSQL (Npgsql), Redis and RabbitMQ (both probe the very connection AddInfrastructure
+// registered — so the Redis check reports on the multiplexer the app actually uses, TLS and
+// reconnect policy included) and the Duende IdentityServer /health endpoint.
 builder.Services.AddHealthChecks()
     .AddNpgSql(databaseConnectionString)
-    .AddRedis(redisConnectionString)
+    .AddRedis(sp => sp.GetRequiredService<IConnectionMultiplexer>())
     .AddRabbitMQ(sp => sp.GetRequiredService<IConnection>())
     .AddDuende(duendeHealthUrl);
 

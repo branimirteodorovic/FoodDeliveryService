@@ -1,4 +1,5 @@
 using FoodDeliveryService.Common.Infrastructure;
+using FoodDeliveryService.Common.Infrastructure.Caching;
 using FoodDeliveryService.Common.Infrastructure.Configuration;
 using FoodDeliveryService.Common.Infrastructure.EventBus;
 using FoodDeliveryService.Common.Presentation.Endpoints;
@@ -11,6 +12,7 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using OpenTelemetry.Trace;
 using RabbitMQ.Client;
 using Serilog;
+using StackExchange.Redis;
 
 // API host for the Real-Time service (:5600) — reached through the YARP gateway via hubs/**.
 // Holds authenticated SignalR connections and fans out ephemeral order-status and driver-location
@@ -52,7 +54,11 @@ builder.Services.AddInfrastructure(
     [RealTimeModule.ConfigureConsumers],
     rabbitMqSettings,
     databaseConnectionString,
-    redisConnectionString);
+    redisConnectionString,
+    // An unreachable Redis degrades to an in-process cache and an in-process lock in local
+    // development only — anywhere else the host keeps the reconnecting Redis connection and lets
+    // the health check below report it unhealthy. See docs/caching.md.
+    allowInMemoryCacheFallback: builder.Environment.IsDevelopment());
 
 // Register the RealTime-specific tracing source (the Milestone C location-forward span) alongside
 // the instrumentation AddInfrastructure already wired up.
@@ -60,8 +66,12 @@ builder.Services.ConfigureOpenTelemetryTracerProvider(tracing =>
     tracing.AddSource(FoodDeliveryService.Modules.RealTime.Infrastructure.RealTime.RealTimeDiagnostics.SourceName));
 
 // SignalR with a Redis backplane so scale-out across multiple RealTime instances works: any
-// instance can broadcast to a connection held by any other instance.
-builder.Services.AddSignalR().AddStackExchangeRedis(redisConnectionString);
+// instance can broadcast to a connection held by any other instance. It builds its own connection
+// (SignalR owns the backplane's subscriptions), so it is given the same hardened options as the
+// cache — otherwise the backplane would be the one connection that ignores TLS and the reconnect
+// policy on an Azure Cache for Redis endpoint.
+builder.Services.AddSignalR().AddStackExchangeRedis(options =>
+    options.Configuration = RedisConnectionOptions.Create(redisConnectionString, DiagnosticsConfig.ServiceName));
 
 // The browser WebSocket handshake can't set an Authorization header, so SignalR sends the JWT as
 // the access_token query-string parameter; this hook feeds it to JwtBearer for hubs/* paths only.
@@ -70,11 +80,12 @@ builder.Services.AddRealTimeHubAuthentication();
 Uri duendeHealthUrl = builder.Configuration.GetDuendeHealthUrl();
 
 // Liveness probes for every external dependency this service uses — PostgreSQL (Npgsql, from
-// Milestone D), Redis (cache + backplane), RabbitMQ (reuses the raw IConnection from
+// Milestone D), Redis (the cache multiplexer registered by AddInfrastructure; the backplane's own
+// connection shares its configuration), RabbitMQ (reuses the raw IConnection from
 // AddInfrastructure) and the Duende IdentityServer /health endpoint.
 builder.Services.AddHealthChecks()
     .AddNpgSql(databaseConnectionString)
-    .AddRedis(redisConnectionString)
+    .AddRedis(sp => sp.GetRequiredService<IConnectionMultiplexer>())
     .AddRabbitMQ(sp => sp.GetRequiredService<IConnection>())
     .AddDuende(duendeHealthUrl);
 
