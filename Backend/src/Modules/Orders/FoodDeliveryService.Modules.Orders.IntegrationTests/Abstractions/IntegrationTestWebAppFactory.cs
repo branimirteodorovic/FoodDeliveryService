@@ -1,11 +1,14 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
+using FoodDeliveryService.Common.Infrastructure.Diagnostics;
+using FoodDeliveryService.Modules.Orders.IntegrationTests.Telemetry;
 using FoodDeliveryService.Modules.Users.Application.Abstractions.Data;
 using FoodDeliveryService.Modules.Users.Domain.Users;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using OpenTelemetry.Metrics;
 using Testcontainers.PostgreSql;
 using Testcontainers.Redis;
 using Testcontainers.RabbitMq;
@@ -38,6 +41,8 @@ public class IntegrationTestWebAppFactory : WebApplicationFactory<Program>, IAsy
         .WithUsername("guest")
         .WithPassword("guest")
         .Build();
+
+    private readonly List<Metric> _exportedMetrics = [];
 
     private UsersApiTestFactory? _usersApiFactory;
 
@@ -89,6 +94,32 @@ public class IntegrationTestWebAppFactory : WebApplicationFactory<Program>, IAsy
         // /health at that same docker-internal hostname. Left alone it fails DNS and every run
         // reports the host unready — see the health probe tests.
         Environment.SetEnvironmentVariable("Duende:HealthUrl", $"{IdentityBaseUrl}/health");
+
+        // A second metrics reader alongside the OTLP one AddInfrastructure wires up, so the metrics
+        // tests can assert what this host actually exports without a collector. The smoke
+        // diagnostics registration is the module-owned half of the same question: a meter declared
+        // the way Delivery and Real-Time declare theirs, wired with the one call a host makes.
+        builder.ConfigureServices(services =>
+        {
+            services.AddModuleDiagnostics(SmokeDiagnostics.Name);
+
+            services.ConfigureOpenTelemetryMeterProvider(metrics =>
+                metrics.AddInMemoryExporter(_exportedMetrics));
+        });
+    }
+
+    /// <summary>
+    /// Collects everything the host's <see cref="MeterProvider"/> has aggregated since the last
+    /// call and returns it. Metrics are exported on a periodic reader in production, so a test has
+    /// to force the collection cycle itself.
+    /// </summary>
+    public IReadOnlyList<Metric> CollectMetrics()
+    {
+        _exportedMetrics.Clear();
+
+        Services.GetRequiredService<MeterProvider>().ForceFlush();
+
+        return [.. _exportedMetrics];
     }
 
     public async ValueTask InitializeAsync()

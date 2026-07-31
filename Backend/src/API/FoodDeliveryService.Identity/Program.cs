@@ -3,6 +3,8 @@ using FoodDeliveryService.Identity;
 using FoodDeliveryService.Identity.Data;
 using FoodDeliveryService.Identity.Seed;
 using FoodDeliveryService.Common.Presentation.Health;
+using FoodDeliveryService.Common.Presentation.Telemetry;
+using FoodDeliveryService.Identity.OpenTelemetry;
 using FoodDeliveryService.Identity.Users;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -19,6 +21,13 @@ var builder = WebApplication.CreateBuilder(args);
 // Serilog structured logging (Console + Seq sinks, configured in appsettings "Serilog").
 builder.Host.UseSerilog((context, loggerConfig) =>
     loggerConfig.ReadFrom.Configuration(context.Configuration));
+
+// OpenTelemetry traces + metrics → OTLP exporter (:4317; traces browsable in Jaeger at :16686) —
+// the same baseline the Gateway and, through AddInfrastructure, the six module hosts get.
+// Until this call, Identity emitted no telemetry at all: the token endpoint sits on the critical
+// path of every authenticated request in the system and was a blank gap in every distributed trace,
+// so a slow login looked like a slow *caller*. Its spans now join the trace the gateway started.
+builder.Services.AddHostTelemetry(DiagnosticsConfig.ServiceName);
 
 string databaseConnectionString = builder.Configuration.GetConnectionString("Database")
     ?? throw new InvalidOperationException("The 'Database' connection string is not configured.");

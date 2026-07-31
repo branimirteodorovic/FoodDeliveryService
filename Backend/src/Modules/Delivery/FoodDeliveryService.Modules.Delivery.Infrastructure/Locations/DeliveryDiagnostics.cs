@@ -1,16 +1,27 @@
 using System.Diagnostics;
+using System.Diagnostics.Metrics;
+using FoodDeliveryService.Common.Infrastructure.Diagnostics;
 
 namespace FoodDeliveryService.Modules.Delivery.Infrastructure.Locations;
 
 /// <summary>
-/// Named tracing source for Delivery-specific spans that the generic instrumentation doesn't
-/// cover. Right now that is only the "find nearest available driver" geo query — worth an explicit
-/// span because a slow or empty candidate search is the first thing to look at when a delivery
-/// won't assign. Registered with OpenTelemetry via AddSource in the Delivery host's Program.cs.
+/// The Delivery module's custom telemetry surface, on the shared <see cref="AppDiagnostics"/>
+/// convention. Today it carries one span — the "find nearest available driver" geo query, worth an
+/// explicit span because a slow or empty candidate search is the first thing to look at when a
+/// delivery won't assign — and a meter that is registered and waiting for the assignment
+/// outcome/duration instruments of Milestone B.
+/// <para>
+/// Both halves are wired by the single <c>AddModuleDiagnostics(Name)</c> call in the Delivery host's
+/// Program.cs.
+/// </para>
 /// </summary>
 public static class DeliveryDiagnostics
 {
-    public const string SourceName = "FoodDeliveryService.Delivery";
+    public const string Name = "FoodDeliveryService.Delivery";
 
-    public static readonly ActivitySource ActivitySource = new(SourceName);
+    private static readonly AppDiagnostics Diagnostics = new(Name);
+
+    public static ActivitySource ActivitySource => Diagnostics.ActivitySource;
+
+    public static Meter Meter => Diagnostics.Meter;
 }

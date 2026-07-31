@@ -26,6 +26,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\FoodDeliveryService.Common.Application\FoodDeliveryService.Common.Application.csproj" />
+    <!-- AddHostTelemetry — the OpenTelemetry baseline AddInfrastructure layers the module sources
+         and meters on top of. It lives in Common.Presentation because the Gateway and Identity need
+         it without taking a dependency on this project (same reasoning as the health probes). -->
+    <ProjectReference Include="..\FoodDeliveryService.Common.Presentation\FoodDeliveryService.Common.Presentation.csproj" />
   </ItemGroup>
 
   <ItemGroup>

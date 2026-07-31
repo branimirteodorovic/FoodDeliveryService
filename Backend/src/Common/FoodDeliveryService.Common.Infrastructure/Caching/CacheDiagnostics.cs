@@ -10,11 +10,10 @@ namespace FoodDeliveryService.Common.Infrastructure.Caching;
 /// and any direct <c>GetAsync</c> call. Instrumenting the pipeline behavior as well would
 /// double-count every cached query, so the behavior stays uninstrumented.
 /// <para>
-/// <b>These measurements are collected by nothing today.</b> <c>AddInfrastructure</c> wires the
-/// OpenTelemetry <i>tracing</i> pillar only — there is no meter provider, metrics reader or metrics
-/// exporter anywhere in the solution yet. They become visible when Telemetry (Feature 2.4,
-/// Milestone A) adds the metrics pipeline and registers <see cref="MeterName"/> through
-/// <c>AddMeter</c>. Until then, do not build a dashboard panel expecting data here.
+/// <c>AddInfrastructure</c> registers <see cref="MeterName"/> through <c>AddMeter</c> on the metrics
+/// reader it stands up (Telemetry Feature 2.4, Milestone A), so these measurements leave the process
+/// over OTLP like every other metric. A backend to point them at — Collector → Prometheus → Grafana,
+/// with the hit-rate panel built from exactly these two counters — is Telemetry Milestone E.
 /// </para>
 /// </summary>
 public static class CacheDiagnostics

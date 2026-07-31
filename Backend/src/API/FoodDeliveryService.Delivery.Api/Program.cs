@@ -2,6 +2,7 @@ using System.Reflection;
 using FoodDeliveryService.Common.Application;
 using FoodDeliveryService.Common.Infrastructure;
 using FoodDeliveryService.Common.Infrastructure.Configuration;
+using FoodDeliveryService.Common.Infrastructure.Diagnostics;
 using FoodDeliveryService.Common.Infrastructure.EventBus;
 using FoodDeliveryService.Common.Presentation.Endpoints;
 using FoodDeliveryService.Common.Presentation.Health;
@@ -9,7 +10,6 @@ using FoodDeliveryService.Delivery.Api.Extensions;
 using FoodDeliveryService.Delivery.Api.Middleware;
 using FoodDeliveryService.Delivery.Api.OpenTelemetry;
 using FoodDeliveryService.Modules.Delivery.Infrastructure;
-using OpenTelemetry.Trace;
 using RabbitMQ.Client;
 using Serilog;
 using StackExchange.Redis;
@@ -48,7 +48,7 @@ var rabbitMqSettings = new RabbitMqSettings(builder.Configuration.GetConnectionS
 
 // Shared infrastructure stack (see InfrastructureConfiguration): JWT auth (Duende), permission
 // authorization, Npgsql + Dapper, Quartz outbox/inbox jobs, Redis caching, MassTransit/RabbitMQ
-// messaging (registering this module's consumers), and OpenTelemetry tracing to Jaeger.
+// messaging (registering this module's consumers), and OpenTelemetry traces + metrics over OTLP.
 builder.Services.AddInfrastructure(
     DiagnosticsConfig.ServiceName,
     [DeliveryModule.ConfigureConsumers()],
@@ -60,10 +60,11 @@ builder.Services.AddInfrastructure(
     // the health check below report it unhealthy. See docs/caching.md.
     allowInMemoryCacheFallback: builder.Environment.IsDevelopment());
 
-// Register the Delivery-specific tracing source (the "find nearest available driver" geo span)
-// alongside the instrumentation AddInfrastructure already wired up.
-builder.Services.ConfigureOpenTelemetryTracerProvider(tracing =>
-    tracing.AddSource(FoodDeliveryService.Modules.Delivery.Infrastructure.Locations.DeliveryDiagnostics.SourceName));
+// Registers the module's own activity source (the "find nearest available driver" geo span) AND its
+// meter under one name, alongside the instrumentation AddInfrastructure already wired up. One call
+// for both pillars, so a Delivery instrument can't ship unregistered and silently uncollected.
+builder.Services.AddModuleDiagnostics(
+    FoodDeliveryService.Modules.Delivery.Infrastructure.Locations.DeliveryDiagnostics.Name);
 
 Uri duendeHealthUrl = builder.Configuration.GetDuendeHealthUrl();
 

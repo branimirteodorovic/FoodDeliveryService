@@ -12,11 +12,13 @@ using FoodDeliveryService.Common.Infrastructure.Data;
 using FoodDeliveryService.Common.Infrastructure.EventBus;
 using FoodDeliveryService.Common.Infrastructure.Locking;
 using FoodDeliveryService.Common.Infrastructure.Outbox;
+using FoodDeliveryService.Common.Presentation.Telemetry;
 using MassTransit;
+using MassTransit.Monitoring;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Npgsql;
-using OpenTelemetry.Resources;
+using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 using Quartz;
 using RabbitMQ.Client;
@@ -26,20 +28,27 @@ namespace FoodDeliveryService.Common.Infrastructure;
 
 /// <summary>
 /// Central infrastructure bootstrap shared by every API host. Each service's Program.cs calls
-/// <see cref="AddInfrastructure(IServiceCollection, string, Action{IRegistrationConfigurator, string, string}[], RabbitMqSettings, string, string, bool)"/>
+/// <see cref="AddInfrastructure(IServiceCollection, string, Action{IRegistrationConfigurator, string, string}[], RabbitMqSettings, string, string, bool, bool)"/>
 /// once, which wires up the whole cross-cutting stack: JWT authentication (tokens issued by Duende
 /// IdentityServer), permission-based authorization, Npgsql + Dapper for read-side data access,
 /// Quartz for the outbox/inbox background jobs, Redis for distributed caching, MassTransit over
-/// RabbitMQ for messaging, and OpenTelemetry tracing exported to Jaeger.
+/// RabbitMQ for messaging, and OpenTelemetry traces + metrics exported over OTLP.
 /// <para>
 /// The database-less overload
-/// (<see cref="AddInfrastructure(IServiceCollection, string, Action{IRegistrationConfigurator, string, string}[], RabbitMqSettings, string, bool)"/>)
+/// (<see cref="AddInfrastructure(IServiceCollection, string, Action{IRegistrationConfigurator, string, string}[], RabbitMqSettings, string, bool, bool)"/>)
 /// serves the one service that owns no PostgreSQL database — the Real-Time SignalR hub — by skipping
 /// the Npgsql/Dapper/outbox-interceptor registrations while keeping everything else identical.
 /// </para>
 /// </summary>
 public static class InfrastructureConfiguration
 {
+    /// <summary>
+    /// The meter the Npgsql driver publishes its connection-pool and command metrics on. Not exposed
+    /// as a constant by Npgsql.OpenTelemetry, unlike MassTransit's
+    /// <see cref="InstrumentationOptions.MeterName"/>.
+    /// </summary>
+    private const string NpgsqlMeterName = "Npgsql";
+
     /// <summary>
     /// Full stack for a database-backed service: everything in the database-less overload PLUS the
     /// Npgsql data source, the Dapper connection factory (CQRS read side) and the transactional
@@ -52,7 +61,8 @@ public static class InfrastructureConfiguration
         RabbitMqSettings rabbitMqSettings,
         string databaseConnectionString,
         string redisConnectionString,
-        bool allowInMemoryCacheFallback = true)
+        bool allowInMemoryCacheFallback = true,
+        bool exportLogsViaOtlp = false)
     {
         // Npgsql: the PostgreSQL ADO.NET driver. A single pooled NpgsqlDataSource per service is
         // shared by Dapper queries and the outbox/inbox jobs; EF Core opens its own connections
@@ -78,7 +88,8 @@ public static class InfrastructureConfiguration
             moduleConfigureConsumers,
             rabbitMqSettings,
             redisConnectionString,
-            allowInMemoryCacheFallback);
+            allowInMemoryCacheFallback,
+            exportLogsViaOtlp);
     }
 
     /// <summary>
@@ -95,13 +106,19 @@ public static class InfrastructureConfiguration
     /// container, wrong everywhere else, because a process-local <c>IDistributedLock</c> silently
     /// stops protecting anything as soon as a second replica exists.
     /// </param>
+    /// <param name="exportLogsViaOtlp">
+    /// Whether log records are also shipped over OTLP. Off by default — Serilog → Seq is the primary
+    /// log path and already carries the trace correlation. See
+    /// <see cref="HostTelemetryExtensions.AddHostTelemetry"/>.
+    /// </param>
     public static IServiceCollection AddInfrastructure(
         this IServiceCollection services,
         string serviceName,
         Action<IRegistrationConfigurator, string, string>[] moduleConfigureConsumers,
         RabbitMqSettings rabbitMqSettings,
         string redisConnectionString,
-        bool allowInMemoryCacheFallback = true)
+        bool allowInMemoryCacheFallback = true,
+        bool exportLogsViaOtlp = false)
     {
         // ASP.NET Core JWT Bearer authentication. Tokens are issued by the Duende IdentityServer
         // host (:18080); each service validates them independently against Duende's OpenID Connect
@@ -221,26 +238,34 @@ public static class InfrastructureConfiguration
             });
         });
 
-        // OpenTelemetry distributed tracing. Every incoming request, outgoing HTTP call, EF Core /
-        // Npgsql query, Redis command and MassTransit message (traces propagate across RabbitMQ)
-        // becomes a span. The OTLP exporter ships spans to Jaeger (endpoint from the standard
-        // OTEL_EXPORTER_OTLP_ENDPOINT setting, :4317; browse traces at :16686). serviceName is what
-        // shows up in the Jaeger service dropdown.
-        services
-            .AddOpenTelemetry()
-            .ConfigureResource(resource => resource.AddService(serviceName))
-            .WithTracing(tracing =>
-            {
-                tracing
-                    .AddAspNetCoreInstrumentation()
-                    .AddHttpClientInstrumentation()
-                    .AddEntityFrameworkCoreInstrumentation()
-                    .AddRedisInstrumentation()
-                    .AddNpgsql()
-                    .AddSource(MassTransit.Logging.DiagnosticHeaders.DefaultListenerName);
+        // OpenTelemetry. The resource, the ASP.NET Core/HttpClient instrumentation, the runtime and
+        // process metrics and the OTLP exporters on both pillars come from the shared host baseline
+        // (endpoint from the standard OTEL_EXPORTER_OTLP_ENDPOINT setting, :4317; browse traces at
+        // :16686). The Gateway and Identity call the same extension, so the three hosts that are NOT
+        // module hosts and the six that are describe themselves identically.
+        services.AddHostTelemetry(serviceName, exportLogsViaOtlp);
 
-                tracing.AddOtlpExporter();
-            });
+        // Tracing sources only a module host has: every EF Core / Npgsql query, Redis command and
+        // MassTransit message (traces propagate across RabbitMQ) becomes a span.
+        services.ConfigureOpenTelemetryTracerProvider(tracing =>
+            tracing
+                .AddEntityFrameworkCoreInstrumentation()
+                .AddRedisInstrumentation()
+                .AddNpgsql()
+                .AddSource(MassTransit.Logging.DiagnosticHeaders.DefaultListenerName));
+
+        // The matching meters. All three are emitted whether or not anything collects them — until
+        // this reader existed they were simply dropped, which is exactly what CacheDiagnostics
+        // documents about its own hit/miss counters.
+        services.ConfigureOpenTelemetryMeterProvider(metrics =>
+            metrics
+                // Connection-pool saturation and command duration, from the Npgsql driver.
+                .AddMeter(NpgsqlMeterName)
+                // Consume/publish rates, in-flight message counts and consumer duration.
+                .AddMeter(InstrumentationOptions.MeterName)
+                // cache.hits / cache.misses, recorded in CacheService.GetAsync (Caching 2.3 E) and
+                // the source of the Grafana hit-rate panel in Milestone E.
+                .AddMeter(CacheDiagnostics.MeterName));
 
         return services;
     }

@@ -15,6 +15,8 @@ WORKDIR /src
 COPY ["Directory.Packages.props", "."]
 COPY ["Directory.Build.props", "."]
 COPY ["src/API/FoodDeliveryService.Identity/FoodDeliveryService.Identity.csproj", "src/API/FoodDeliveryService.Identity/"]
+COPY ["src/Common/FoodDeliveryService.Common.Presentation/FoodDeliveryService.Common.Presentation.csproj", "src/Common/FoodDeliveryService.Common.Presentation/"]
+COPY ["src/Common/FoodDeliveryService.Common.Domain/FoodDeliveryService.Common.Domain.csproj", "src/Common/FoodDeliveryService.Common.Domain/"]
 RUN dotnet restore "./src/API/FoodDeliveryService.Identity/FoodDeliveryService.Identity.csproj"
 COPY . .
 WORKDIR "/src/src/API/FoodDeliveryService.Identity"

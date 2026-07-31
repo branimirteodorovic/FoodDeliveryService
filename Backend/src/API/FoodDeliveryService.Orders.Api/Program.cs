@@ -46,7 +46,7 @@ var rabbitMqSettings = new RabbitMqSettings(builder.Configuration.GetConnectionS
 
 // Shared infrastructure stack (see InfrastructureConfiguration): JWT auth (Duende), permission
 // authorization, Npgsql + Dapper, Quartz outbox/inbox jobs, Redis caching, MassTransit/RabbitMQ
-// messaging (registering this module's consumers), and OpenTelemetry tracing to Jaeger.
+// messaging (registering this module's consumers), and OpenTelemetry traces + metrics over OTLP.
 builder.Services.AddInfrastructure(
     DiagnosticsConfig.ServiceName,
     [OrdersModule.ConfigureConsumers],

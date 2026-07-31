@@ -1,7 +1,8 @@
-using OpenTelemetry.Resources;
 using Serilog;
+using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 using FoodDeliveryService.Common.Presentation.Health;
+using FoodDeliveryService.Common.Presentation.Telemetry;
 using FoodDeliveryService.Gateway.OpenTelemetry;
 using FoodDeliveryService.Gateway.Authentication;
 using FoodDeliveryService.Gateway.Middleware;
@@ -23,21 +24,20 @@ builder.Host.UseSerilog((context, loggerConfig) => loggerConfig.ReadFrom.Configu
 builder.Services.AddReverseProxy()
     .LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
 
-// OpenTelemetry tracing → OTLP exporter → Jaeger (:4317, UI :16686). The extra
-// "Yarp.ReverseProxy" activity source makes the proxy hop itself visible, so a Jaeger trace
-// shows Gateway → service → database/bus end to end.
-builder.Services
-            .AddOpenTelemetry()
-            .ConfigureResource(resource => resource.AddService(DiagnosticsConfig.ServiceName))
-            .WithTracing(tracing =>
-            {
-                tracing
-                    .AddAspNetCoreInstrumentation()
-                    .AddHttpClientInstrumentation()
-                    .AddSource("Yarp.ReverseProxy");
+// OpenTelemetry traces + metrics → OTLP exporter (:4317; traces browsable in Jaeger at :16686).
+// The same shared baseline the module hosts get through AddInfrastructure — the gateway used to
+// hand-roll its own copy of it, which is how the two drifted apart in the first place.
+builder.Services.AddHostTelemetry(DiagnosticsConfig.ServiceName);
 
-                tracing.AddOtlpExporter();
-            });
+// The proxy's own telemetry, which no other host has. The activity source makes the proxy hop
+// visible, so a Jaeger trace shows Gateway → service → database/bus end to end; the meter of the
+// same name carries the forwarding metrics (requests in flight, failures by reason) that explain a
+// spike the downstream services don't account for.
+const string YarpTelemetryName = "Yarp.ReverseProxy";
+
+builder.Services.ConfigureOpenTelemetryTracerProvider(tracing => tracing.AddSource(YarpTelemetryName));
+
+builder.Services.ConfigureOpenTelemetryMeterProvider(metrics => metrics.AddMeter(YarpTelemetryName));
 
 builder.Services.AddAuthorization();
 

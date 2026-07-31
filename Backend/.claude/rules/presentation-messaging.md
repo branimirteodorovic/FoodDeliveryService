@@ -62,11 +62,13 @@ The generic `IntegrationEventConsumer<T>` (module Infrastructure/Inbox) only wri
 ## API Hosts (`src/API/`)
 Each host runs exactly one module. Follow `FoodDeliveryService.Orders.Api/Program.cs`:
 - `AddApplication([{Module}.Application.AssemblyReference.Assembly])`
-- `AddInfrastructure(DiagnosticsConfig.ServiceName, [{Module}Module.ConfigureConsumers], rabbitMqSettings, dbConnString, redisConnString)` — wires auth, MassTransit, OTel tracing (OTLP → Jaeger), Dapper, Redis
-- `Add{Module}Module(builder.Configuration)`, health checks (Npgsql, Redis, RabbitMQ, Duende), Serilog + Seq, `app.ApplyMigrations()`, `app.UseLogContext()`, `app.MapEndpoints()`
+- `AddInfrastructure(DiagnosticsConfig.ServiceName, [{Module}Module.ConfigureConsumers], rabbitMqSettings, dbConnString, redisConnString)` — wires auth, MassTransit, OTel traces + metrics (OTLP), Dapper, Redis
+- `Add{Module}Module(builder.Configuration)`, health checks, Serilog + Seq, `app.ApplyMigrations()`, `app.UseLogContext()`, `app.MapEndpoints()`
+- Health checks follow the probe contract in `docs/health-probe-contract.md`: `.AddLivenessCheck()` plus every dependency (Npgsql, Redis, RabbitMQ, Duende) tagged `HealthCheckTags.Ready`, then one `app.MapHealthProbes()` call for `/health/live` + `/health/ready` + `/health`. An untagged dependency check is invisible to both probes
 - Connection string targets the service's OWN database: `fooddeliveryservice_{module}`
 - Never expose a service port publicly — clients go through the Gateway (:3000)
 
 ## Observability
-- Tracing is configured centrally in `AddInfrastructure` (ASP.NET Core, HttpClient, EF Core, Npgsql, Redis, MassTransit sources). Traces propagate across RabbitMQ automatically — do not break this by publishing outside `IEventBus`
-- Gateway adds `Yarp.ReverseProxy` source; new hosts define `DiagnosticsConfig.ServiceName` in an `OpenTelemetry/` folder
+- Traces and metrics are configured centrally: `AddHostTelemetry` (`Common.Presentation/Telemetry`) is the per-host baseline, and `AddInfrastructure` calls it and adds the module sources (EF Core, Npgsql, Redis, MassTransit) and meters (`Npgsql`, MassTransit, `FoodDeliveryService.Cache`). Traces propagate across RabbitMQ automatically — do not break this by publishing outside `IEventBus`
+- Gateway adds the `Yarp.ReverseProxy` source + meter and, like Identity, calls `AddHostTelemetry` directly; new hosts define `DiagnosticsConfig.ServiceName` in an `OpenTelemetry/` folder
+- A module's own spans/instruments go on a `{Module}Diagnostics` holder over `AppDiagnostics` (`Common.Infrastructure/Diagnostics`), registered by one `AddModuleDiagnostics({Module}Diagnostics.Name)` call in the host — it wires the activity source **and** the meter. Skipping it doesn't fail: the instrument just records into nothing

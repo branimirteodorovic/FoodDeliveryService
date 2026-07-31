@@ -1,6 +1,7 @@
 using FoodDeliveryService.Common.Infrastructure;
 using FoodDeliveryService.Common.Infrastructure.Caching;
 using FoodDeliveryService.Common.Infrastructure.Configuration;
+using FoodDeliveryService.Common.Infrastructure.Diagnostics;
 using FoodDeliveryService.Common.Infrastructure.EventBus;
 using FoodDeliveryService.Common.Presentation.Endpoints;
 using FoodDeliveryService.Common.Presentation.Health;
@@ -8,7 +9,6 @@ using FoodDeliveryService.Modules.RealTime.Infrastructure;
 using FoodDeliveryService.RealTime.Api.Extensions;
 using FoodDeliveryService.RealTime.Api.Middleware;
 using FoodDeliveryService.RealTime.Api.OpenTelemetry;
-using OpenTelemetry.Trace;
 using RabbitMQ.Client;
 using Serilog;
 using StackExchange.Redis;
@@ -47,7 +47,7 @@ var rabbitMqSettings = new RabbitMqSettings(builder.Configuration.GetConnectionS
 // Full infrastructure stack: JWT auth (Duende), permission authorization, Npgsql + Dapper, Quartz
 // (outbox/inbox jobs — this module only schedules an inbox job, see RealTimeModule), Redis caching,
 // MassTransit/RabbitMQ messaging (registering this module's request client + consumers), and
-// OpenTelemetry tracing to Jaeger.
+// OpenTelemetry traces + metrics over OTLP.
 builder.Services.AddInfrastructure(
     DiagnosticsConfig.ServiceName,
     [RealTimeModule.ConfigureConsumers],
@@ -59,10 +59,11 @@ builder.Services.AddInfrastructure(
     // the health check below report it unhealthy. See docs/caching.md.
     allowInMemoryCacheFallback: builder.Environment.IsDevelopment());
 
-// Register the RealTime-specific tracing source (the Milestone C location-forward span) alongside
-// the instrumentation AddInfrastructure already wired up.
-builder.Services.ConfigureOpenTelemetryTracerProvider(tracing =>
-    tracing.AddSource(FoodDeliveryService.Modules.RealTime.Infrastructure.RealTime.RealTimeDiagnostics.SourceName));
+// Registers the module's own activity source (the location-forward span) AND its meter under one
+// name, alongside the instrumentation AddInfrastructure already wired up. One call for both pillars,
+// so a Real-Time instrument can't ship unregistered and silently uncollected.
+builder.Services.AddModuleDiagnostics(
+    FoodDeliveryService.Modules.RealTime.Infrastructure.RealTime.RealTimeDiagnostics.Name);
 
 // SignalR with a Redis backplane so scale-out across multiple RealTime instances works: any
 // instance can broadcast to a connection held by any other instance. It builds its own connection

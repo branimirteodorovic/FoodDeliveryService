@@ -13,6 +13,14 @@
          Lives here rather than in each host so the Gateway and Identity, which take no
          Common.Infrastructure dependency, get the probe contract from this project alone. -->
     <PackageReference Include="AspNetCore.HealthChecks.UI.Client" />
+    <!-- Same reason as the health checks above: AddHostTelemetry is the OpenTelemetry baseline the
+         Gateway and Identity need without becoming module hosts. AddInfrastructure builds on it. -->
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Process" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" />
   </ItemGroup>
 
 </Project>
