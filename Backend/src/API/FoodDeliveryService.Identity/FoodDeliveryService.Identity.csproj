@@ -31,4 +31,10 @@
     <PackageReference Include="Serilog.Sinks.Seq" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The health-probe contract only (HealthCheckTags / AddLivenessCheck / MapHealthProbes).
+         Identity is a plain host, not a module — it takes no Common.Infrastructure dependency. -->
+    <ProjectReference Include="..\..\Common\FoodDeliveryService.Common.Presentation\FoodDeliveryService.Common.Presentation.csproj" />
+  </ItemGroup>
+
 </Project>

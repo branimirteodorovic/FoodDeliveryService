@@ -2,9 +2,8 @@ using Duende.IdentityServer;
 using FoodDeliveryService.Identity;
 using FoodDeliveryService.Identity.Data;
 using FoodDeliveryService.Identity.Seed;
+using FoodDeliveryService.Common.Presentation.Health;
 using FoodDeliveryService.Identity.Users;
-using HealthChecks.UI.Client;
-using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Serilog;
@@ -108,10 +107,12 @@ builder.Services.AddAuthorization(options =>
         policy.RequireClaim("scope", "users:register");
     }));
 
-// Health check for the Identity database; exposed at GET /health — the module services also
-// probe this URL via their own "Duende" health check.
+// Identity's readiness set is its own database and nothing else — it depends on no other service.
+// The module hosts probe the aggregate GET /health below via their own "Duende" health check, so an
+// Identity database outage propagates to their readiness too. See docs/health-probe-contract.md.
 builder.Services.AddHealthChecks()
-    .AddNpgSql(databaseConnectionString);
+    .AddLivenessCheck()
+    .AddNpgSql(databaseConnectionString, tags: [HealthCheckTags.Ready]);
 
 WebApplication app = builder.Build();
 
@@ -132,10 +133,8 @@ app.UseAuthorization();
 // the ONLY sanctioned HTTP call between services in this system.
 app.MapUserEndpoints();
 
-app.MapHealthChecks("health", new HealthCheckOptions
-{
-    ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
-});
+// GET /health/live + /health/ready + /health, the same contract every service exposes.
+app.MapHealthProbes();
 
 await app.RunAsync();
 

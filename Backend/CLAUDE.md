@@ -115,6 +115,11 @@ if (handle is null) return Result.Failure({Entity}Errors.SomethingInProgress);
 
 Reference: `DeliveryAssignmentService.OfferNextAsync` + `AcceptDeliveryOfferCommandHandler`.
 
+### Caching (Redis)
+A query opts into caching by implementing `ICachedQuery<TResponse>` (cache key + TTL); `QueryCachingBehavior` wraps the handler in `ICacheService.GetOrCreateAsync`, so handlers stay pure Dapper and failures are never cached. Keys come from a module's convention class (`RestaurantCacheKeys`) built on `CacheKeys.Create` — never concatenated at a call site. **Invalidation is a `RemoveAsync` inline in the command handler, right after `SaveChangesAsync`** — not a domain-event handler, whose outbox lag both delays freshness and, for keys an event handler reads back, publishes stale snapshots.
+
+One Redis instance per environment carries the cache, the `IDistributedLock`, Delivery's live driver GEO store and the SignalR backplane, so it is an availability dependency, not a latency optimization. All of them share the multiplexer built by `AddInfrastructure` from `RedisConnectionOptions.Create` (`abortConnect=false` + exponential reconnect; anything else comes from the `ConnectionStrings:Cache` string, which is all that changes to run on Azure Cache for Redis). An unreachable Redis degrades to an in-process cache **and an in-process lock** in Development only — hosts pass `allowInMemoryCacheFallback: builder.Environment.IsDevelopment()`. Keys, TTLs, the invalidation model and the Azure smoke check: `docs/caching.md`.
+
 ### Minimal API Endpoints
 ```csharp
 internal sealed class CreateOrder : IEndpoint {
@@ -137,6 +142,7 @@ Discovered via `AddEndpoints(Presentation.AssemblyReference.Assembly)`, mapped b
 ## Observability (always wire up for new services)
 - **Tracing**: OpenTelemetry → OTLP exporter → Jaeger (`:4317`, UI `:16686`). `AddInfrastructure` instruments ASP.NET Core, HttpClient, EF Core, Redis, Npgsql, and MassTransit (traces propagate across RabbitMQ). The Gateway adds the `Yarp.ReverseProxy` source. Each service sets its name via `DiagnosticsConfig.ServiceName` (in the API host's `OpenTelemetry/` folder)
 - **Logging**: Serilog → Console + Seq (`:5341`, UI `:8081`); `app.UseLogContext()` middleware enriches with correlation info; `UseSerilogRequestLogging()`
+- **Health probes**: every host maps `/health/live` (process only), `/health/ready` (dependencies) and `/health` (aggregate) via the shared `app.MapHealthProbes()`; dependency checks are tagged `HealthCheckTags.Ready` and `.AddLivenessCheck()` adds the `live` self check. Contract: `docs/health-probe-contract.md`
 - New API hosts must replicate this setup; new external calls must be instrumented
 
 ## Data
@@ -186,6 +192,7 @@ Discovered via `AddEndpoints(Presentation.AssemblyReference.Assembly)`, mapped b
 | Entity base + Result<T> | `src/Common/FoodDeliveryService.Common.Domain/` |
 | Pipeline behaviors | `src/Common/FoodDeliveryService.Common.Application/Behaviors/` |
 | Distributed lock (check-then-act writes) | `src/Modules/Delivery/...Delivery.Infrastructure/Assignment/DeliveryAssignmentService.cs` + `.../Application/Abstractions/Assignment/DeliveryLocks.cs` |
+| Cached query + inline invalidation | `src/Modules/Restaurants/...Restaurants.Application/Restaurants/GetMenu/GetMenuQuery.cs` + `.../UpdateMenuItem/UpdateMenuItemCommandHandler.cs` (docs: `docs/caching.md`) |
 | Domain unit tests | `src/Modules/Restaurants/...Restaurants.UnitTests/` (skill: `/write-unit-tests`) |
 | Full-stack integration tests | `src/Modules/Restaurants/...Restaurants.IntegrationTests/` (skill: `/write-integration-tests`) |
 

@@ -1,6 +1,7 @@
 using OpenTelemetry.Resources;
 using Serilog;
 using OpenTelemetry.Trace;
+using FoodDeliveryService.Common.Presentation.Health;
 using FoodDeliveryService.Gateway.OpenTelemetry;
 using FoodDeliveryService.Gateway.Authentication;
 using FoodDeliveryService.Gateway.Middleware;
@@ -49,7 +50,18 @@ builder.Services.AddAuthentication().AddJwtBearer();
 // audience, metadata address).
 builder.Services.ConfigureOptions<JwtBearerConfigureOptions>();
 
+// The gateway's first health check. Its readiness deliberately equals its liveness: the obvious
+// readiness candidate — "are the downstream clusters up?" — is exactly what YARP exists to degrade
+// around, and one dead cluster must not take the single public entry point, and with it every other
+// service, out of rotation. Downstream health is each service's own /health/ready to report.
+builder.Services.AddHealthChecks()
+    .AddLivenessCheck(HealthCheckTags.Ready);
+
 var app = builder.Build();
+
+// GET /health/live + /health/ready + /health, the same contract every service exposes. Mapped
+// before MapReverseProxy and matched by no YARP route, so they are served here and never proxied.
+app.MapHealthProbes();
 
 // Pushes trace/correlation ids into the Serilog LogContext so gateway logs in Seq can be
 // correlated with the Jaeger trace of the same request.

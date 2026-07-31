@@ -22,4 +22,10 @@
     <PackageReference Include="Yarp.ReverseProxy" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The health-probe contract only (HealthCheckTags / AddLivenessCheck / MapHealthProbes).
+         The gateway takes no Common.Infrastructure dependency — it is a proxy, not a module host. -->
+    <ProjectReference Include="..\..\Common\FoodDeliveryService.Common.Presentation\FoodDeliveryService.Common.Presentation.csproj" />
+  </ItemGroup>
+
 </Project>

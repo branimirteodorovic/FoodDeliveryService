@@ -20,6 +20,8 @@ public class DashboardFanOutTests(IntegrationTestWebAppFactory factory) : BaseIn
     private static readonly TimeSpan ReceiveTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan SilenceWindow = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan ReplicaTimeout = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan JoinTimeout = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan ProbeInterval = TimeSpan.FromSeconds(1);
 
     [Fact]
     public async Task RestaurantManager_ReceivesActivityForTheirOwnRestaurantOnly()
@@ -34,16 +36,20 @@ public class DashboardFanOutTests(IntegrationTestWebAppFactory factory) : BaseIn
         await using TrackedConnection<RestaurantActivityFrame> manager = await ConnectAsync<RestaurantActivityFrame>(
             await GetRestaurantManagerAccessTokenAsync(), TrackingHubMethods.RestaurantActivity, ct);
 
+        await manager.WaitUntilJoinedAsync(
+            () => PublishAsync(OrderAccepted(Guid.NewGuid(), Guid.NewGuid(), restaurantId), ct), ct);
+
         var orderId = Guid.NewGuid();
         await PublishAsync(OrderAccepted(orderId, Guid.NewGuid(), restaurantId), ct);
 
-        RestaurantActivityFrame frame = await manager.ReadNextAsync(ct);
-        frame.OrderId.Should().Be(orderId);
+        // Matched on this order's id, so a probe frame still in flight can't stand in for it.
+        RestaurantActivityFrame frame = await manager.ReadNextAsync(f => f.OrderId == orderId, ct);
         frame.Status.Should().Be(OrderStatuses.Accepted);
 
         // A transition on someone else's restaurant must never reach this manager.
-        await PublishAsync(OrderAccepted(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid()), ct);
-        await manager.AssertNoFrameAsync();
+        var foreignOrderId = Guid.NewGuid();
+        await PublishAsync(OrderAccepted(foreignOrderId, Guid.NewGuid(), Guid.NewGuid()), ct);
+        await manager.AssertNoFrameAsync(f => f.OrderId == foreignOrderId);
     }
 
     [Fact]
@@ -54,12 +60,14 @@ public class DashboardFanOutTests(IntegrationTestWebAppFactory factory) : BaseIn
         await using TrackedConnection<SupportActivityFrame> support = await ConnectAsync<SupportActivityFrame>(
             await GetSupportAgentAccessTokenAsync(), TrackingHubMethods.SupportActivity, ct);
 
+        await support.WaitUntilJoinedAsync(
+            () => PublishAsync(OrderPlaced(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid()), ct), ct);
+
         var orderId = Guid.NewGuid();
         var restaurantId = Guid.NewGuid();
         await PublishAsync(OrderPlaced(orderId, Guid.NewGuid(), restaurantId), ct);
 
-        SupportActivityFrame frame = await support.ReadNextAsync(ct);
-        frame.OrderId.Should().Be(orderId);
+        SupportActivityFrame frame = await support.ReadNextAsync(f => f.OrderId == orderId, ct);
         frame.RestaurantId.Should().Be(restaurantId);
         frame.Status.Should().Be(OrderStatuses.Placed);
     }
@@ -95,19 +103,87 @@ public class DashboardFanOutTests(IntegrationTestWebAppFactory factory) : BaseIn
     /// <summary>A connected hub client whose frames of one server→client method stream into a channel.</summary>
     private sealed class TrackedConnection<TFrame>(HubConnection connection, ChannelReader<TFrame> frames) : IAsyncDisposable
     {
-        public async Task<TFrame> ReadNextAsync(CancellationToken cancellationToken)
+        /// <summary>
+        /// Blocks until this connection is provably in its dashboard group.
+        /// <para>
+        /// <c>StartAsync</c> returns as soon as the client reads the handshake response, which the
+        /// server writes <em>before</em> it runs <c>TrackingHub.OnConnectedAsync</c> — and that is
+        /// where the group is joined, behind a RestaurantManager replica lookup. So an event
+        /// published the instant <c>StartAsync</c> returns can be fanned out to a group this
+        /// connection has not joined yet, and the frame is simply never delivered. Group membership
+        /// is not observable from the client, so the fan-out itself is the probe: publish throwaway
+        /// events until one comes back. Each probe carries its own order id, so the assertions in the
+        /// tests match on the id they care about and ignore probe frames still in flight.
+        /// </para>
+        /// <para>
+        /// Nothing here compensates for a production defect — the socket is best-effort by design and
+        /// the client re-fetches authoritative state over REST on connect (see <c>TrackingHub</c>).
+        /// This is purely the test establishing the happens-before that SignalR does not give it.
+        /// </para>
+        /// </summary>
+        public async Task WaitUntilJoinedAsync(Func<Task> publishProbe, CancellationToken cancellationToken)
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(JoinTimeout);
+
+            while (true)
+            {
+                await publishProbe();
+
+                using var attempt = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
+                attempt.CancelAfter(ProbeInterval);
+
+                try
+                {
+                    await frames.ReadAsync(attempt.Token);
+                    return;
+                }
+                catch (OperationCanceledException) when (!timeout.IsCancellationRequested)
+                {
+                    // The join hasn't landed yet — probe again until JoinTimeout gives up for real.
+                }
+            }
+        }
+
+        /// <summary>Reads until a frame the test cares about arrives, discarding the rest.</summary>
+        public async Task<TFrame> ReadNextAsync(Func<TFrame, bool> matches, CancellationToken cancellationToken)
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(ReceiveTimeout);
 
-            return await frames.ReadAsync(timeout.Token);
+            while (true)
+            {
+                TFrame frame = await frames.ReadAsync(timeout.Token);
+
+                if (matches(frame))
+                {
+                    return frame;
+                }
+            }
         }
 
-        public async Task AssertNoFrameAsync()
+        /// <summary>
+        /// Asserts no frame matching <paramref name="matches"/> arrives within the silence window.
+        /// Non-matching frames are ignored rather than failing the assertion, so a probe frame in
+        /// flight cannot masquerade as the leak being tested for.
+        /// </summary>
+        public async Task AssertNoFrameAsync(Func<TFrame, bool> matches)
         {
             using var timeout = new CancellationTokenSource(SilenceWindow);
 
-            Func<Task> read = async () => await frames.ReadAsync(timeout.Token);
+            Func<Task> read = async () =>
+            {
+                while (true)
+                {
+                    TFrame frame = await frames.ReadAsync(timeout.Token);
+
+                    // A matching frame is the leak: return normally so the assertion below fails.
+                    if (matches(frame))
+                    {
+                        return;
+                    }
+                }
+            };
 
             await read.Should().ThrowAsync<OperationCanceledException>();
         }

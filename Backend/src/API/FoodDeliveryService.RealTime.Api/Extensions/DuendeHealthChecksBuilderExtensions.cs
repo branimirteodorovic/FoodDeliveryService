@@ -1,4 +1,5 @@
 using FoodDeliveryService.Common.Infrastructure.Configuration;
+using FoodDeliveryService.Common.Presentation.Health;
 
 namespace FoodDeliveryService.RealTime.Api.Extensions;
 
@@ -9,7 +10,9 @@ internal static class DuendeHealthChecksBuilderExtensions
 
     internal static IHealthChecksBuilder AddDuende(this IHealthChecksBuilder builder, Uri healthUri)
     {
-        builder.AddUrlGroup(healthUri, HttpMethod.Get, DuendeHealthCheck);
+        // Tagged ready, not live: an unreachable Identity means this host cannot resolve permissions
+        // and so cannot serve authenticated traffic — but restarting it would not help.
+        builder.AddUrlGroup(healthUri, HttpMethod.Get, DuendeHealthCheck, tags: [HealthCheckTags.Ready]);
 
         return builder;
     }

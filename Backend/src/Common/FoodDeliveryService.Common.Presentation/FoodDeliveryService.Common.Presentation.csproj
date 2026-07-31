@@ -9,7 +9,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    
+    <!-- UIResponseWriter — the JSON payload shape the /health endpoints have always rendered.
+         Lives here rather than in each host so the Gateway and Identity, which take no
+         Common.Infrastructure dependency, get the probe contract from this project alone. -->
+    <PackageReference Include="AspNetCore.HealthChecks.UI.Client" />
   </ItemGroup>
 
 </Project>

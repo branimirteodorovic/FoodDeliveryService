@@ -3,12 +3,11 @@ using FoodDeliveryService.Common.Infrastructure.Caching;
 using FoodDeliveryService.Common.Infrastructure.Configuration;
 using FoodDeliveryService.Common.Infrastructure.EventBus;
 using FoodDeliveryService.Common.Presentation.Endpoints;
+using FoodDeliveryService.Common.Presentation.Health;
 using FoodDeliveryService.Modules.RealTime.Infrastructure;
 using FoodDeliveryService.RealTime.Api.Extensions;
 using FoodDeliveryService.RealTime.Api.Middleware;
 using FoodDeliveryService.RealTime.Api.OpenTelemetry;
-using HealthChecks.UI.Client;
-using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using OpenTelemetry.Trace;
 using RabbitMQ.Client;
 using Serilog;
@@ -79,14 +78,23 @@ builder.Services.AddRealTimeHubAuthentication();
 
 Uri duendeHealthUrl = builder.Configuration.GetDuendeHealthUrl();
 
-// Liveness probes for every external dependency this service uses — PostgreSQL (Npgsql, from
-// Milestone D), Redis (the cache multiplexer registered by AddInfrastructure; the backplane's own
-// connection shares its configuration), RabbitMQ (reuses the raw IConnection from
-// AddInfrastructure) and the Duende IdentityServer /health endpoint.
+// AspNetCore.HealthChecks.* packages: the two probe check sets. Redis (the cache multiplexer
+// registered by AddInfrastructure; the SignalR backplane's own connection shares its configuration)
+// and RabbitMQ (the raw IConnection from AddInfrastructure) probe the very connections the app uses,
+// rather than a second connection opened just for the check.
 builder.Services.AddHealthChecks()
-    .AddNpgSql(databaseConnectionString)
-    .AddRedis(sp => sp.GetRequiredService<IConnectionMultiplexer>())
-    .AddRabbitMQ(sp => sp.GetRequiredService<IConnection>())
+    // The dependency-free "self" check behind GET /health/live: reaching it at all is the signal.
+    // Nothing an outage elsewhere can break may join it — a liveness failure restarts the container,
+    // and restarting a pod does not bring PostgreSQL back.
+    .AddLivenessCheck()
+    // Everything below is the readiness set behind GET /health/ready — tagged so a dependency outage
+    // pulls the pod out of rotation while leaving it running. MassTransit registers its own
+    // "masstransit-bus" check, already tagged ready. See docs/health-probe-contract.md.
+    .AddNpgSql(databaseConnectionString, tags: [HealthCheckTags.Ready])
+    .AddRedis(sp => sp.GetRequiredService<IConnectionMultiplexer>(), tags: [HealthCheckTags.Ready])
+    .AddRabbitMQ(sp => sp.GetRequiredService<IConnection>(), tags: [HealthCheckTags.Ready])
+    // Tags itself ready: an Identity outage deliberately takes every module host unready at once,
+    // because a service that cannot resolve permissions cannot serve authenticated traffic.
     .AddDuende(duendeHealthUrl);
 
 // Module-specific registrations: the tracking hub endpoint + the permission service used by
@@ -104,11 +112,9 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
-// GET /health — aggregated dependency status rendered as JSON (HealthChecks.UI.Client format).
-app.MapHealthChecks("health", new HealthCheckOptions
-{
-    ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
-});
+// GET /health/live (the process only), GET /health/ready (its dependencies) and the unchanged
+// aggregate GET /health — one shared mapping, so all eight hosts expose an identical probe contract.
+app.MapHealthProbes();
 
 // Pushes trace/correlation ids into the Serilog LogContext so Seq logs link to Jaeger traces.
 app.UseLogContext();

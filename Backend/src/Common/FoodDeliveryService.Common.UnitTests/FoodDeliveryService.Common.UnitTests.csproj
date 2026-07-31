@@ -28,6 +28,7 @@
   <ItemGroup>
     <ProjectReference Include="..\FoodDeliveryService.Common.Application\FoodDeliveryService.Common.Application.csproj" />
     <ProjectReference Include="..\FoodDeliveryService.Common.Infrastructure\FoodDeliveryService.Common.Infrastructure.csproj" />
+    <ProjectReference Include="..\FoodDeliveryService.Common.Presentation\FoodDeliveryService.Common.Presentation.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -84,6 +84,11 @@ public class IntegrationTestWebAppFactory : WebApplicationFactory<Program>, IAsy
         Environment.SetEnvironmentVariable(
             "Authentication:MetadataAddress",
             $"{IdentityBaseUrl}/.well-known/openid-configuration");
+
+        // Same story for the "Duende" readiness health check, which probes Identity's aggregate
+        // /health at that same docker-internal hostname. Left alone it fails DNS and every run
+        // reports the host unready — see the health probe tests.
+        Environment.SetEnvironmentVariable("Duende:HealthUrl", $"{IdentityBaseUrl}/health");
     }
 
     public async ValueTask InitializeAsync()
