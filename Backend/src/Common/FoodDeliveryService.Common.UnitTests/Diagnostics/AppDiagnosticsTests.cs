@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using AwesomeAssertions;
+using FoodDeliveryService.Common.Application.Diagnostics;
 using FoodDeliveryService.Common.Infrastructure.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using OpenTelemetry;

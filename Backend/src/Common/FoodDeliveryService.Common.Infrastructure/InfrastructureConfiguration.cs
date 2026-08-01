@@ -2,6 +2,7 @@ using Dapper;
 using FoodDeliveryService.Common.Application.Caching;
 using FoodDeliveryService.Common.Application.Clock;
 using FoodDeliveryService.Common.Application.Data;
+using FoodDeliveryService.Common.Application.Diagnostics;
 using FoodDeliveryService.Common.Application.EventBus;
 using FoodDeliveryService.Common.Application.Locking;
 using FoodDeliveryService.Common.Infrastructure.Authentication;
@@ -254,7 +255,7 @@ public static class InfrastructureConfiguration
                 .AddNpgsql()
                 .AddSource(MassTransit.Logging.DiagnosticHeaders.DefaultListenerName));
 
-        // The matching meters. All three are emitted whether or not anything collects them — until
+        // The matching meters. All of them are emitted whether or not anything collects them — until
         // this reader existed they were simply dropped, which is exactly what CacheDiagnostics
         // documents about its own hit/miss counters.
         services.ConfigureOpenTelemetryMeterProvider(metrics =>
@@ -265,7 +266,11 @@ public static class InfrastructureConfiguration
                 .AddMeter(InstrumentationOptions.MeterName)
                 // cache.hits / cache.misses, recorded in CacheService.GetAsync (Caching 2.3 E) and
                 // the source of the Grafana hit-rate panel in Milestone E.
-                .AddMeter(CacheDiagnostics.MeterName));
+                .AddMeter(CacheDiagnostics.MeterName)
+                // app.requests / app.request.duration / app.request.failures — the per-command RED
+                // signal RequestMetricsBehavior records for every host that calls AddApplication,
+                // which is every host that calls this method.
+                .AddMeter(ApplicationDiagnostics.Name));
 
         return services;
     }

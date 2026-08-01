@@ -1,6 +1,7 @@
 using FoodDeliveryService.Common.Application.EventBus;
 using FoodDeliveryService.Common.Application.Messaging;
 using FoodDeliveryService.Common.Domain;
+using FoodDeliveryService.Modules.Orders.Application.Diagnostics;
 using FoodDeliveryService.Modules.Orders.Domain.Orders;
 using FoodDeliveryService.Modules.Orders.IntegrationEvents;
 using MediatR;
@@ -48,5 +49,10 @@ internal sealed class OrderReadyForPickupDomainEventHandler(ISender sender, IEve
                 details.Subtotal,
                 details.PlacedOnUtc),
             cancellationToken);
+
+        // Last, and it matters most here: this handler throws when the pickup-details query fails,
+        // and the outbox re-runs the whole handler on the next tick — see
+        // OrderPlacedDomainEventHandler.
+        OrdersDiagnostics.RecordTransition(domainEvent.PreviousStatus, OrderStatus.ReadyForPickup);
     }
 }

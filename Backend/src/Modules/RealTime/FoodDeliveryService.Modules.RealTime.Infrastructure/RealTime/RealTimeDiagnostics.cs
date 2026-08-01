@@ -1,6 +1,6 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
-using FoodDeliveryService.Common.Infrastructure.Diagnostics;
+using FoodDeliveryService.Common.Application.Diagnostics;
 
 namespace FoodDeliveryService.Modules.RealTime.Infrastructure.RealTime;
 

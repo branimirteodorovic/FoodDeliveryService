@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using FoodDeliveryService.Common.Application.Clock;
 using FoodDeliveryService.Common.Application.Locking;
 using FoodDeliveryService.Common.Domain;
@@ -50,6 +51,8 @@ internal sealed class DeliveryAssignmentService(
 
     public async Task<Result> OfferNextAsync(Guid deliveryId, CancellationToken cancellationToken = default)
     {
+        long startedAt = Stopwatch.GetTimestamp();
+
         // Taken before the delivery is loaded, not after: the check-then-act this protects starts
         // at the read, so a lock acquired after it would still let both callers act on the same
         // Pending snapshot.
@@ -64,26 +67,40 @@ internal sealed class DeliveryAssignmentService(
                 "Delivery {DeliveryId}: another trigger is running the offer routine — standing down",
                 deliveryId);
 
+            Record(DeliveryAssignmentOutcome.LockContended, startedAt);
+
             return Result.Failure(DeliveryErrors.AssignmentInProgress);
         }
 
-        return await OfferNextCoreAsync(deliveryId, cancellationToken);
+        Attempt attempt = await OfferNextCoreAsync(deliveryId, cancellationToken);
+
+        Record(attempt.Outcome, startedAt);
+
+        return attempt.Result;
     }
 
-    private async Task<Result> OfferNextCoreAsync(Guid deliveryId, CancellationToken cancellationToken)
+    /// <summary>
+    /// The routine reports its outcome alongside its <see cref="Result"/> because the two are not
+    /// the same question: "offered", "nobody in range, parked Unassigned" and "somebody else already
+    /// moved it" are all <c>Result.Success()</c>, and telling them apart is the entire value of the
+    /// assignment panel.
+    /// </summary>
+    private async Task<Attempt> OfferNextCoreAsync(Guid deliveryId, CancellationToken cancellationToken)
     {
         DeliveryAggregate? delivery = await deliveriesRepository.GetAsync(deliveryId, cancellationToken);
 
         if (delivery is null)
         {
-            return Result.Failure(DeliveryErrors.NotFound(deliveryId));
+            return new Attempt(
+                Result.Failure(DeliveryErrors.NotFound(deliveryId)),
+                DeliveryAssignmentOutcome.Failed);
         }
 
         // Idempotent re-entry: a redelivered event or a raced job tick finds the delivery already
         // offered/assigned/terminal and must not push it anywhere.
         if (delivery.Status != DeliveryStatus.Pending)
         {
-            return Result.Success();
+            return new Attempt(Result.Success(), DeliveryAssignmentOutcome.NotPending);
         }
 
         IReadOnlyCollection<NearbyDriver> nearbyDrivers = await driverLocationStore.FindNearestAvailableAsync(
@@ -158,12 +175,12 @@ internal sealed class DeliveryAssignmentService(
 
                 if (offerResult.IsFailure)
                 {
-                    return offerResult;
+                    return new Attempt(offerResult, DeliveryAssignmentOutcome.Failed);
                 }
 
                 await unitOfWork.SaveChangesAsync(cancellationToken);
 
-                return Result.Success();
+                return new Attempt(Result.Success(), DeliveryAssignmentOutcome.Offered);
             }
         }
 
@@ -175,7 +192,11 @@ internal sealed class DeliveryAssignmentService(
                 delivery.Id,
                 delivery.OrderId);
 
-            return Result.Failure(DeliveryErrors.AssignmentInProgress);
+            // Same tag value as a lost offer lock, and for the same reason: nothing about this
+            // delivery failed, another caller simply holds the drivers it wanted.
+            return new Attempt(
+                Result.Failure(DeliveryErrors.AssignmentInProgress),
+                DeliveryAssignmentOutcome.LockContended);
         }
 
         logger.LogWarning(
@@ -190,11 +211,18 @@ internal sealed class DeliveryAssignmentService(
 
         if (unassignedResult.IsFailure)
         {
-            return unassignedResult;
+            return new Attempt(unassignedResult, DeliveryAssignmentOutcome.Failed);
         }
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
-        return Result.Success();
+        return new Attempt(Result.Success(), DeliveryAssignmentOutcome.NoDriver);
     }
+
+    private static void Record(DeliveryAssignmentOutcome outcome, long startedAt) =>
+        DeliveryAssignmentDiagnostics.RecordAttempt(
+            outcome,
+            Stopwatch.GetElapsedTime(startedAt).TotalSeconds);
+
+    private readonly record struct Attempt(Result Result, DeliveryAssignmentOutcome Outcome);
 }

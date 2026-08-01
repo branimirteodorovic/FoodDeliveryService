@@ -6,6 +6,7 @@ using FoodDeliveryService.Modules.Users.Domain.Users;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using OpenTelemetry.Metrics;
 using Testcontainers.PostgreSql;
 using Testcontainers.RabbitMq;
 using Testcontainers.Redis;
@@ -31,6 +32,8 @@ public class IntegrationTestWebAppFactory : WebApplicationFactory<Program>, IAsy
         .WithUsername("guest")
         .WithPassword("guest")
         .Build();
+
+    private readonly List<Metric> _exportedMetrics = [];
 
     private UsersApiTestFactory? _usersApiFactory;
 
@@ -89,6 +92,27 @@ public class IntegrationTestWebAppFactory : WebApplicationFactory<Program>, IAsy
         Environment.SetEnvironmentVariable(
             "Authentication:MetadataAddress",
             $"{IdentityBaseUrl}/.well-known/openid-configuration");
+
+        // A second metrics reader alongside the OTLP one AddInfrastructure wires up, so the
+        // assignment-metrics test asserts what this host actually exports rather than what a
+        // listener attached straight to the meter would see regardless of registration.
+        builder.ConfigureServices(services =>
+            services.ConfigureOpenTelemetryMeterProvider(metrics =>
+                metrics.AddInMemoryExporter(_exportedMetrics)));
+    }
+
+    /// <summary>
+    /// Collects everything the host's <see cref="MeterProvider"/> has aggregated since the last
+    /// call. Metrics are exported on a periodic reader in production, so a test has to force the
+    /// collection cycle itself.
+    /// </summary>
+    public IReadOnlyList<Metric> CollectMetrics()
+    {
+        _exportedMetrics.Clear();
+
+        Services.GetRequiredService<MeterProvider>().ForceFlush();
+
+        return [.. _exportedMetrics];
     }
 
     public async ValueTask InitializeAsync()

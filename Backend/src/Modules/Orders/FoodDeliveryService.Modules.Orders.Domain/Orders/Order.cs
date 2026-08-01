@@ -89,11 +89,13 @@ public sealed class Order : Entity
 
     public Result Accept(DateTime utcNow)
     {
+        OrderStatus previousStatus = Status;
+
         Result result = Transition(OrderStatus.Accepted, OrderStatus.Pending);
 
         if (result.IsSuccess)
         {
-            Raise(new OrderAcceptedDomainEvent(Id, CustomerId, RestaurantId, utcNow));
+            Raise(new OrderAcceptedDomainEvent(Id, CustomerId, RestaurantId, previousStatus, utcNow));
         }
 
         return result;
@@ -101,11 +103,13 @@ public sealed class Order : Entity
 
     public Result Reject(string reason, DateTime utcNow)
     {
+        OrderStatus previousStatus = Status;
+
         Result result = Transition(OrderStatus.Rejected, OrderStatus.Pending);
 
         if (result.IsSuccess)
         {
-            Raise(new OrderRejectedDomainEvent(Id, CustomerId, RestaurantId, reason, utcNow));
+            Raise(new OrderRejectedDomainEvent(Id, CustomerId, RestaurantId, previousStatus, reason, utcNow));
         }
 
         return result;
@@ -113,11 +117,13 @@ public sealed class Order : Entity
 
     public Result StartPreparing()
     {
+        OrderStatus previousStatus = Status;
+
         Result result = Transition(OrderStatus.Preparing, OrderStatus.Accepted);
 
         if (result.IsSuccess)
         {
-            Raise(new OrderPreparingDomainEvent(Id, CustomerId, RestaurantId));
+            Raise(new OrderPreparingDomainEvent(Id, CustomerId, RestaurantId, previousStatus));
         }
 
         return result;
@@ -125,11 +131,13 @@ public sealed class Order : Entity
 
     public Result MarkReadyForPickup()
     {
+        OrderStatus previousStatus = Status;
+
         Result result = Transition(OrderStatus.ReadyForPickup, OrderStatus.Preparing);
 
         if (result.IsSuccess)
         {
-            Raise(new OrderReadyForPickupDomainEvent(Id, CustomerId, RestaurantId));
+            Raise(new OrderReadyForPickupDomainEvent(Id, CustomerId, RestaurantId, previousStatus));
         }
 
         return result;
@@ -138,11 +146,13 @@ public sealed class Order : Entity
     // Customers may back out until the restaurant starts preparing the food.
     public Result Cancel(DateTime utcNow)
     {
+        OrderStatus previousStatus = Status;
+
         Result result = Transition(OrderStatus.Cancelled, OrderStatus.Pending, OrderStatus.Accepted);
 
         if (result.IsSuccess)
         {
-            Raise(new OrderCancelledDomainEvent(Id, CustomerId, RestaurantId, utcNow));
+            Raise(new OrderCancelledDomainEvent(Id, CustomerId, RestaurantId, previousStatus, utcNow));
         }
 
         return result;
@@ -150,11 +160,13 @@ public sealed class Order : Entity
 
     public Result MarkOutForDelivery()
     {
+        OrderStatus previousStatus = Status;
+
         Result result = Transition(OrderStatus.OutForDelivery, OrderStatus.ReadyForPickup);
 
         if (result.IsSuccess)
         {
-            Raise(new OrderOutForDeliveryDomainEvent(Id, CustomerId, RestaurantId));
+            Raise(new OrderOutForDeliveryDomainEvent(Id, CustomerId, RestaurantId, previousStatus));
         }
 
         return result;
@@ -162,11 +174,13 @@ public sealed class Order : Entity
 
     public Result MarkDelivered(DateTime utcNow)
     {
+        OrderStatus previousStatus = Status;
+
         Result result = Transition(OrderStatus.Delivered, OrderStatus.OutForDelivery);
 
         if (result.IsSuccess)
         {
-            Raise(new OrderDeliveredDomainEvent(Id, CustomerId, RestaurantId, utcNow));
+            Raise(new OrderDeliveredDomainEvent(Id, CustomerId, RestaurantId, previousStatus, utcNow));
         }
 
         return result;

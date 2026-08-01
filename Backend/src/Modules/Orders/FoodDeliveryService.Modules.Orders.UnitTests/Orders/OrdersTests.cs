@@ -163,6 +163,10 @@ public class OrdersTests : BaseTest
         domainEvent.CustomerId.Should().Be(customerId);
         domainEvent.RestaurantId.Should().Be(restaurantId);
         domainEvent.AcceptedOnUtc.Should().Be(acceptedOnUtc);
+
+        // Only the aggregate can report the status it moved out of — by the time a handler sees the
+        // event the order has already advanced. It is what tags the orders.state_transition counter.
+        domainEvent.PreviousStatus.Should().Be(OrderStatus.Pending);
     }
 
     [Fact]
@@ -203,6 +207,7 @@ public class OrdersTests : BaseTest
         domainEvent.RestaurantId.Should().Be(restaurantId);
         domainEvent.Reason.Should().Be(reason);
         domainEvent.RejectedOnUtc.Should().Be(rejectedOnUtc);
+        domainEvent.PreviousStatus.Should().Be(OrderStatus.Pending);
     }
 
     [Fact]
@@ -240,6 +245,7 @@ public class OrdersTests : BaseTest
         domainEvent.OrderId.Should().Be(order.Id);
         domainEvent.CustomerId.Should().Be(customerId);
         domainEvent.RestaurantId.Should().Be(restaurantId);
+        domainEvent.PreviousStatus.Should().Be(OrderStatus.Accepted);
     }
 
     [Fact]
@@ -279,6 +285,7 @@ public class OrdersTests : BaseTest
         domainEvent.OrderId.Should().Be(order.Id);
         domainEvent.CustomerId.Should().Be(customerId);
         domainEvent.RestaurantId.Should().Be(restaurantId);
+        domainEvent.PreviousStatus.Should().Be(OrderStatus.Preparing);
     }
 
     [Fact]
@@ -317,6 +324,7 @@ public class OrdersTests : BaseTest
         domainEvent.CustomerId.Should().Be(customerId);
         domainEvent.RestaurantId.Should().Be(restaurantId);
         domainEvent.CancelledOnUtc.Should().Be(cancelledOnUtc);
+        domainEvent.PreviousStatus.Should().Be(OrderStatus.Pending);
     }
 
     [Fact]
@@ -332,6 +340,13 @@ public class OrdersTests : BaseTest
         // Assert
         result.IsSuccess.Should().BeTrue();
         order.Status.Should().Be(OrderStatus.Cancelled);
+
+        // Cancel is the one transition with a genuinely variable source, so the event has to carry
+        // it: a cancellation the restaurant had already accepted cost somebody a kitchen slot, one
+        // out of Pending cost nothing, and the orders.state_transition counter tells them apart on
+        // the `from` tag alone.
+        AssertDomainEventWasPublished<OrderCancelledDomainEvent>(order)
+            .PreviousStatus.Should().Be(OrderStatus.Accepted);
     }
 
     [Fact]
@@ -364,7 +379,8 @@ public class OrdersTests : BaseTest
         // Assert
         result.IsSuccess.Should().BeTrue();
         order.Status.Should().Be(OrderStatus.OutForDelivery);
-        AssertDomainEventWasPublished<OrderOutForDeliveryDomainEvent>(order);
+        AssertDomainEventWasPublished<OrderOutForDeliveryDomainEvent>(order)
+            .PreviousStatus.Should().Be(OrderStatus.ReadyForPickup);
     }
 
     [Fact]
@@ -401,6 +417,7 @@ public class OrdersTests : BaseTest
         OrderDeliveredDomainEvent domainEvent = AssertDomainEventWasPublished<OrderDeliveredDomainEvent>(order);
         domainEvent.OrderId.Should().Be(order.Id);
         domainEvent.DeliveredOnUtc.Should().Be(deliveredOnUtc);
+        domainEvent.PreviousStatus.Should().Be(OrderStatus.OutForDelivery);
     }
 
     [Fact]

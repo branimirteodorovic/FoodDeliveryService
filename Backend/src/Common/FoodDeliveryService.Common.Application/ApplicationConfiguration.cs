@@ -23,13 +23,19 @@ public static class ApplicationConfiguration
             config.RegisterServicesFromAssemblies(moduleAssemblies);
 
             // Pipeline behaviors wrap every Send() like middleware, in this order:
-            // 1. ExceptionHandling — converts unhandled exceptions into failure Results
-            // 2. RequestLogging   — Serilog-logs each request with its outcome
-            // 3. Validation       — runs the FluentValidation validators; short-circuits
+            // 1. ExceptionHandling — logs and wraps unhandled exceptions as ApplicationException
+            // 2. Metrics          — records the RED signal (count, duration, failures) per request
+            // 3. RequestLogging   — Serilog-logs each request with its outcome
+            // 4. Validation       — runs the FluentValidation validators; short-circuits
             //    with a validation failure Result before the handler executes
-            // 4. Caching          — for queries implementing ICachedQuery, serves a cache hit
+            // 5. Caching          — for queries implementing ICachedQuery, serves a cache hit
             //    without reaching the handler, and caches a successful miss
+            //
+            // Metrics must stay OUTSIDE Caching: the caching behavior short-circuits, so measuring
+            // inside it would silently drop every cache hit from the RED signal and leave a latency
+            // dashboard describing misses only. See RequestMetricsBehavior.
             config.AddOpenBehavior(typeof(ExceptionHandlingPipelineBehavior<,>));
+            config.AddOpenBehavior(typeof(RequestMetricsBehavior<,>));
             config.AddOpenBehavior(typeof(RequestLoggingPipelineBehavior<,>));
             config.AddOpenBehavior(typeof(ValidationPipelineBehavior<,>));
             config.AddOpenBehavior(typeof(QueryCachingBehavior<,>));

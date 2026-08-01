@@ -1,3 +1,4 @@
+using FoodDeliveryService.Common.Application.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;

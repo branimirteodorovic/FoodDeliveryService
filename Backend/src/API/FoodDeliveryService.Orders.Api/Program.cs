@@ -1,9 +1,11 @@
 using System.Reflection;
 using FoodDeliveryService.Common.Infrastructure;
 using FoodDeliveryService.Common.Infrastructure.Configuration;
+using FoodDeliveryService.Common.Infrastructure.Diagnostics;
 using FoodDeliveryService.Common.Infrastructure.EventBus;
 using FoodDeliveryService.Common.Presentation.Endpoints;
 using FoodDeliveryService.Common.Presentation.Health;
+using FoodDeliveryService.Modules.Orders.Application.Diagnostics;
 using FoodDeliveryService.Modules.Orders.Infrastructure;
 using FoodDeliveryService.Orders.Api.Extensions;
 using FoodDeliveryService.Orders.Api.Middleware;
@@ -57,6 +59,11 @@ builder.Services.AddInfrastructure(
     // development only — anywhere else the host keeps the reconnecting Redis connection and lets
     // the health check below report it unhealthy. See docs/caching.md.
     allowInMemoryCacheFallback: builder.Environment.IsDevelopment());
+
+// Registers the Orders module's own meter (orders.placed, orders.state_transition) and its activity
+// source under one name, alongside the instrumentation AddInfrastructure already wired up. Without
+// it the counters would still record — into nothing.
+builder.Services.AddModuleDiagnostics(OrdersDiagnostics.Name);
 
 Uri duendeHealthUrl = builder.Configuration.GetDuendeHealthUrl();
 

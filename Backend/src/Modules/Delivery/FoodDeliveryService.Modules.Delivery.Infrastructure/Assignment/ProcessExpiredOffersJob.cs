@@ -44,6 +44,12 @@ internal sealed class ProcessExpiredOffersJob(
 
         foreach (Guid deliveryId in expiredDeliveryIds)
         {
+            // Counted here, at detection, rather than after the command: the SELECT above IS the
+            // definition of a lapsed offer, so a delivery that races to another state before the
+            // expiry lands has still had an offer lapse. The re-offer the command triggers is
+            // counted separately, by the offer routine, on its own turn.
+            DeliveryAssignmentDiagnostics.RecordExpiredOffer();
+
             // One scope (one DbContext/transaction) per delivery, and failures are contained — a
             // delivery the routine cannot advance must not stall the others; the next tick retries
             // it because its state still matches the scan.

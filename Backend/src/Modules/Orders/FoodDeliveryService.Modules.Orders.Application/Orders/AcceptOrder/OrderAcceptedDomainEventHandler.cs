@@ -1,5 +1,6 @@
 using FoodDeliveryService.Common.Application.EventBus;
 using FoodDeliveryService.Common.Application.Messaging;
+using FoodDeliveryService.Modules.Orders.Application.Diagnostics;
 using FoodDeliveryService.Modules.Orders.Domain.Orders;
 using FoodDeliveryService.Modules.Orders.IntegrationEvents;
 
@@ -23,5 +24,9 @@ internal sealed class OrderAcceptedDomainEventHandler(IEventBus eventBus)
                 domainEvent.RestaurantId,
                 domainEvent.AcceptedOnUtc),
             cancellationToken);
+
+        // Last, so an outbox retry of a failed handler doesn't count the transition twice — see
+        // OrderPlacedDomainEventHandler.
+        OrdersDiagnostics.RecordTransition(domainEvent.PreviousStatus, OrderStatus.Accepted);
     }
 }

@@ -1,5 +1,6 @@
 using FoodDeliveryService.Common.Application.EventBus;
 using FoodDeliveryService.Common.Application.Messaging;
+using FoodDeliveryService.Modules.Orders.Application.Diagnostics;
 using FoodDeliveryService.Modules.Orders.Domain.Orders;
 using FoodDeliveryService.Modules.Orders.IntegrationEvents;
 
@@ -21,5 +22,10 @@ internal sealed class OrderCancelledDomainEventHandler(IEventBus eventBus)
                 domainEvent.RestaurantId,
                 domainEvent.CancelledOnUtc),
             cancellationToken);
+
+        // Last, so an outbox retry doesn't count twice (see OrderPlacedDomainEventHandler). The
+        // `from` tag is what makes this one interesting: a cancellation out of Accepted has already
+        // cost the restaurant something, one out of Pending has not.
+        OrdersDiagnostics.RecordTransition(domainEvent.PreviousStatus, OrderStatus.Cancelled);
     }
 }
