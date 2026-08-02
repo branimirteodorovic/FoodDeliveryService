@@ -21,6 +21,13 @@
     <PackageReference Include="OpenTelemetry.Instrumentation.Http" />
     <PackageReference Include="OpenTelemetry.Instrumentation.Process" />
     <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" />
+    <!-- Serilog's LogContext + PropertyEnricher, for the request-correlation middleware every host
+         shares. The sinks stay a host concern; this project only pushes properties into the scope. -->
+    <PackageReference Include="Serilog" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="FoodDeliveryService.Common.UnitTests" />
   </ItemGroup>
 
 </Project>

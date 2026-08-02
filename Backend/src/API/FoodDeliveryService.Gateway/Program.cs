@@ -1,11 +1,11 @@
 using Serilog;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
+using FoodDeliveryService.Common.Presentation.Correlation;
 using FoodDeliveryService.Common.Presentation.Health;
 using FoodDeliveryService.Common.Presentation.Telemetry;
 using FoodDeliveryService.Gateway.OpenTelemetry;
 using FoodDeliveryService.Gateway.Authentication;
-using FoodDeliveryService.Gateway.Middleware;
 
 // API Gateway — the single public entry point (:3000). Built on YARP (Yet Another Reverse
 // Proxy), Microsoft's reverse-proxy library: it authenticates incoming requests and forwards
@@ -63,9 +63,14 @@ var app = builder.Build();
 // before MapReverseProxy and matched by no YARP route, so they are served here and never proxied.
 app.MapHealthProbes();
 
-// Pushes trace/correlation ids into the Serilog LogContext so gateway logs in Seq can be
-// correlated with the Jaeger trace of the same request.
-app.UseLogContext();
+// Where the platform's correlation id is born. This middleware reads an inbound X-Correlation-Id,
+// or defaults it to the request's W3C trace id, then writes it back onto the REQUEST headers — YARP
+// copies request headers to the proxied call, so the downstream service sees the same id and
+// preserves it rather than minting its own, and no YARP transform is needed to carry it. The id is
+// also echoed on the response and pushed into the Serilog LogContext (with the trace id, span id and
+// service name), so one string off a failed response finds the Seq logs of every service that
+// touched the request and the Jaeger trace they belong to.
+app.UseRequestCorrelation();
 
 app.UseSerilogRequestLogging();
 

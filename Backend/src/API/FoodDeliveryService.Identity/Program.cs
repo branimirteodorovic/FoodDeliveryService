@@ -2,6 +2,7 @@ using Duende.IdentityServer;
 using FoodDeliveryService.Identity;
 using FoodDeliveryService.Identity.Data;
 using FoodDeliveryService.Identity.Seed;
+using FoodDeliveryService.Common.Presentation.Correlation;
 using FoodDeliveryService.Common.Presentation.Health;
 using FoodDeliveryService.Common.Presentation.Telemetry;
 using FoodDeliveryService.Identity.OpenTelemetry;
@@ -129,6 +130,13 @@ await ApplyDatabaseMigrationsAsync(app);
 
 // Config-driven initial-administrator seed (idempotent; no-ops when "AdminSeed" is empty).
 await AdminSeeder.SeedAdminAsync(app);
+
+// Identity's first log correlation. It had no LogContext middleware at all, so token issuance —
+// the one hop every authenticated request in the system passes through — logged nothing that could
+// be tied back to the request that caused it: a failed login in Seq was an island. Milestone A gave
+// this host its first spans; this gives their ids to its logs, and echoes the Gateway's correlation
+// id on the token response.
+app.UseRequestCorrelation();
 
 app.UseSerilogRequestLogging();
 

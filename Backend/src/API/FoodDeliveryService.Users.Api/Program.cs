@@ -2,6 +2,7 @@ using System.Reflection;
 using FoodDeliveryService.Common.Infrastructure;
 using FoodDeliveryService.Common.Infrastructure.Configuration;
 using FoodDeliveryService.Common.Infrastructure.EventBus;
+using FoodDeliveryService.Common.Presentation.Correlation;
 using FoodDeliveryService.Common.Presentation.Endpoints;
 using FoodDeliveryService.Common.Presentation.Health;
 using FoodDeliveryService.Modules.Users.Infrastructure;
@@ -103,8 +104,12 @@ if (app.Environment.IsDevelopment())
 // aggregate GET /health — one shared mapping, so all eight hosts expose an identical probe contract.
 app.MapHealthProbes();
 
-// Pushes trace/correlation ids into the Serilog LogContext so Seq logs link to Jaeger traces.
-app.UseLogContext();
+// One shared middleware (Common.Presentation/Correlation) for the whole platform: it preserves the
+// X-Correlation-Id the Gateway stamped — or mints one from the trace id for a call that reached this
+// host directly — echoes it on the response, and pushes TraceId + SpanId + ServiceName + any business
+// id on the route into the Serilog LogContext, so a Seq line links to its Jaeger span and every line
+// about one order is a single query away.
+app.UseRequestCorrelation();
 
 app.UseSerilogRequestLogging();
 

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
@@ -8,7 +9,12 @@ using FoodDeliveryService.Modules.Users.Domain.Users;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using OpenTelemetry.Metrics;
+using OpenTelemetry.Trace;
+using Serilog;
+using Serilog.Events;
+using Serilog.Extensions.Logging;
 using Testcontainers.PostgreSql;
 using Testcontainers.Redis;
 using Testcontainers.RabbitMq;
@@ -43,6 +49,10 @@ public class IntegrationTestWebAppFactory : WebApplicationFactory<Program>, IAsy
         .Build();
 
     private readonly List<Metric> _exportedMetrics = [];
+
+    private readonly ExportCollection<Activity> _exportedActivities = [];
+
+    private readonly CapturingLogSink _logSink = new();
 
     private UsersApiTestFactory? _usersApiFactory;
 
@@ -105,8 +115,53 @@ public class IntegrationTestWebAppFactory : WebApplicationFactory<Program>, IAsy
 
             services.ConfigureOpenTelemetryMeterProvider(metrics =>
                 metrics.AddInMemoryExporter(_exportedMetrics));
+
+            // The trace equivalent: the spans this host produced, so the correlation tests can prove
+            // a span that consumed a message off RabbitMQ is a child of the span that published it
+            // in the Users host — the one assertion that fails if trace context stops crossing the
+            // bus.
+            services.ConfigureOpenTelemetryTracerProvider(tracing =>
+                tracing.AddInMemoryExporter(_exportedActivities));
+
+            // Serilog builds its logger once, inside the ILoggerFactory registration UseSerilog
+            // adds, so there is no hook to attach a sink to a built host. Replacing the factory is
+            // the hook: same LogContext enrichment as production (that is the thing under test),
+            // Console/Seq swapped for an in-memory sink.
+            services.AddSingleton<ILoggerFactory>(_ =>
+            {
+                Serilog.ILogger logger = new LoggerConfiguration()
+                    .MinimumLevel.Information()
+                    .Enrich.FromLogContext()
+                    .WriteTo.Sink(_logSink)
+                    .CreateLogger();
+
+                var loggerFactory = new LoggerFactory();
+
+                loggerFactory.AddProvider(new SerilogLoggerProvider(logger, dispose: true));
+
+                return loggerFactory;
+            });
         });
     }
+
+    /// <summary>
+    /// Every span the host has exported so far. Not cleared between calls: a cross-service
+    /// assertion has to match a span here against one from the Users host, and the two are produced
+    /// seconds apart by background jobs.
+    /// </summary>
+    public IReadOnlyList<Activity> CollectActivities()
+    {
+        Services.GetRequiredService<TracerProvider>().ForceFlush();
+
+        return _exportedActivities.Snapshot();
+    }
+
+    /// <summary>
+    /// The most recent log events the host wrote, with the properties the Serilog
+    /// <c>LogContext</c> carried at the time — which is where the trace, span, service and business
+    /// ids show up.
+    /// </summary>
+    public IReadOnlyList<LogEvent> CollectLogEvents() => _logSink.Snapshot();
 
     /// <summary>
     /// Collects everything the host's <see cref="MeterProvider"/> has aggregated since the last

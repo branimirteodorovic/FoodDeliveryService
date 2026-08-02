@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using OpenTelemetry;
 using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
@@ -42,6 +43,11 @@ public static class HostTelemetryExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
+
+        // The same name the resource below reports, made resolvable so the log scope can stamp
+        // service.name on every log line without a second constant to keep in sync
+        // (UseRequestCorrelation).
+        services.TryAddSingleton(new HostServiceName(serviceName));
 
         IOpenTelemetryBuilder builder = services
             .AddOpenTelemetry()

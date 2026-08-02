@@ -55,7 +55,7 @@ public sealed class $ARGUMENTSDbContext(DbContextOptions<$ARGUMENTSDbContext> op
 ## 2. API Host: `src/API/FoodDeliveryService.$ARGUMENTS.Api`
 
 Copy `FoodDeliveryService.Restaurants.Api` and rename. It must contain:
-- `Program.cs`: Serilog, `AddApplication([Modules.$ARGUMENTS.Application.AssemblyReference.Assembly])`, `AddInfrastructure(DiagnosticsConfig.ServiceName, [$ARGUMENTSModule.ConfigureConsumers], rabbitMqSettings, dbConnString, redisConnString)`, health checks (Npgsql, Redis, RabbitMQ, Duende), `Add$ARGUMENTSModule`, `app.ApplyMigrations()`, `app.UseLogContext()`, `app.UseAuthentication()/UseAuthorization()`, `app.MapEndpoints()`
+- `Program.cs`: Serilog, `AddApplication([Modules.$ARGUMENTS.Application.AssemblyReference.Assembly])`, `AddInfrastructure(DiagnosticsConfig.ServiceName, [$ARGUMENTSModule.ConfigureConsumers], rabbitMqSettings, dbConnString, redisConnString)`, health checks (Npgsql, Redis, RabbitMQ, Duende), `Add$ARGUMENTSModule`, `app.ApplyMigrations()`, `app.UseRequestCorrelation()`, `app.UseAuthentication()/UseAuthorization()`, `app.MapEndpoints()`
 - `OpenTelemetry/DiagnosticsConfig.cs` with `ServiceName = "FoodDeliveryService.$ARGUMENTS.Api"` (this is the service name in Jaeger)
 - `Dockerfile` (context is repo root `Backend/`)
 - csproj: reference `FoodDeliveryService.Modules.$ARGUMENTS.Infrastructure` only; same packages as Orders.Api

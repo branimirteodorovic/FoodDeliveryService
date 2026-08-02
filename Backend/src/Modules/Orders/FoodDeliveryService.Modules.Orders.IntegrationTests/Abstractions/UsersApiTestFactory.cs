@@ -1,7 +1,10 @@
 extern alias UsersApi;
 
+using System.Diagnostics;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
+using OpenTelemetry.Trace;
 using Testcontainers.PostgreSql;
 
 namespace FoodDeliveryService.Modules.Orders.IntegrationTests.Abstractions;
@@ -24,8 +27,26 @@ internal sealed class UsersApiTestFactory(string redisConnectionString, string r
         .WithPassword("postgres")
         .Build();
 
+    private readonly ExportCollection<Activity> _exportedActivities = [];
+
+    /// <summary>
+    /// The producer side of the cross-service trace assertion: the spans this host emits when its
+    /// outbox publishes an integration event. The consumer-side span lives in the Orders host, so
+    /// the two collections together are what proves the trace crossed RabbitMQ.
+    /// </summary>
+    public IReadOnlyList<Activity> CollectActivities()
+    {
+        Services.GetRequiredService<TracerProvider>().ForceFlush();
+
+        return _exportedActivities.Snapshot();
+    }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        builder.ConfigureServices(services =>
+            services.ConfigureOpenTelemetryTracerProvider(tracing =>
+                tracing.AddInMemoryExporter(_exportedActivities)));
+
         // Program.cs reads these via builder.Configuration.GetConnectionStringOrThrow(...) in its
         // own top-level statements, evaluated eagerly before WebApplicationFactory's deferred host
         // builder applies ConfigureAppConfiguration overrides — environment variables are the only
