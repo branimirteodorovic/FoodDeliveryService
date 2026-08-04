@@ -9,6 +9,7 @@ using FoodDeliveryService.Common.Infrastructure.Authentication;
 using FoodDeliveryService.Common.Infrastructure.Authorization;
 using FoodDeliveryService.Common.Infrastructure.Caching;
 using FoodDeliveryService.Common.Infrastructure.Clock;
+using FoodDeliveryService.Common.Infrastructure.Correlation;
 using FoodDeliveryService.Common.Infrastructure.Data;
 using FoodDeliveryService.Common.Infrastructure.EventBus;
 using FoodDeliveryService.Common.Infrastructure.Locking;
@@ -234,6 +235,14 @@ public static class InfrastructureConfiguration
                     h.Username(rabbitMqSettings.Username);
                     h.Password(rabbitMqSettings.Password);
                 });
+                // Correlation across the broker. The publish side puts the ambient X-Correlation-Id
+                // on the message; the consume side reads it back into the ambient context so the
+                // inbox row it produces carries it. Registered here, on the bus, rather than per
+                // consumer — every message crosses both filters or the chain has a hole in it.
+                cfg.UsePublishFilter(typeof(CorrelationPublishFilter<>), context);
+
+                cfg.UseConsumeFilter(typeof(CorrelationConsumeFilter<>), context);
+
                 // Auto-creates receive endpoints (queues) for all registered consumers.
                 cfg.ConfigureEndpoints(context);
             });
@@ -253,7 +262,11 @@ public static class InfrastructureConfiguration
                 .AddEntityFrameworkCoreInstrumentation()
                 .AddRedisInstrumentation()
                 .AddNpgsql()
-                .AddSource(MassTransit.Logging.DiagnosticHeaders.DefaultListenerName));
+                .AddSource(MassTransit.Logging.DiagnosticHeaders.DefaultListenerName)
+                // The outbox/inbox dispatch spans (MessageDispatchScope). Without this the jobs
+                // still restore the correlation id into the logs, they just produce no span — and
+                // the link back to the trace that caused the message would exist nowhere.
+                .AddSource(MessagingDiagnostics.Name));
 
         // The matching meters. All of them are emitted whether or not anything collects them — until
         // this reader existed they were simply dropped, which is exactly what CacheDiagnostics

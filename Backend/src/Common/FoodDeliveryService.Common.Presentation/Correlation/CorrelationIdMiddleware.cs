@@ -9,7 +9,10 @@ namespace FoodDeliveryService.Common.Presentation.Correlation;
 /// copies request headers to the proxied call, so the service that actually handles the request sees
 /// the same id and preserves it), on the response (the id the agent copies out of a failed call),
 /// and in <see cref="HttpContext.Items"/> for <see cref="LogContextTraceLoggingMiddleware"/> to push
-/// into the Serilog scope.
+/// into the Serilog scope. It also pushes the id — with the request's <c>traceparent</c> — into the
+/// ambient <see cref="CorrelationContext"/>, which is what carries it past the end of the request:
+/// onto the <c>outbox_messages</c> row the handler writes, and from there to the job that dispatches
+/// it seconds later.
 /// <para>
 /// The id <b>defaults to the W3C trace id</b> rather than a fresh scheme of its own — that is the
 /// whole point: the same string finds the Seq logs and the Jaeger trace, so nothing has to join two
@@ -17,7 +20,7 @@ namespace FoodDeliveryService.Common.Presentation.Correlation;
 /// <see cref="Activity"/> at all (no tracing configured, or a probe hit before the pipeline is up).
 /// </para>
 /// </summary>
-internal sealed class CorrelationIdMiddleware(RequestDelegate next)
+internal sealed class CorrelationIdMiddleware(RequestDelegate next, CorrelationContext correlationContext)
 {
     /// <summary>
     /// Long enough for a 32-character trace id, a GUID or a caller's own request id, short enough
@@ -25,7 +28,7 @@ internal sealed class CorrelationIdMiddleware(RequestDelegate next)
     /// </summary>
     private const int MaxLength = 128;
 
-    public Task Invoke(HttpContext context)
+    public async Task Invoke(HttpContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
 
@@ -47,7 +50,13 @@ internal sealed class CorrelationIdMiddleware(RequestDelegate next)
             return Task.CompletedTask;
         });
 
-        return next(context);
+        // The traceparent is captured HERE rather than at SaveChanges: by then Activity.Current is
+        // whatever EF Core or Npgsql opened, and a link to a database span says nothing useful. The
+        // request's own span is the thing an async dispatch should point back at.
+        using (correlationContext.Push(correlationId, Activity.Current?.Id))
+        {
+            await next(context);
+        }
     }
 
     private static string Resolve(HttpContext context)

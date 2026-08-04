@@ -35,6 +35,11 @@ namespace FoodDeliveryService.Modules.Orders.Infrastructure.Database.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("content");
 
+                    b.Property<string>("CorrelationId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("correlation_id");
+
                     b.Property<string>("Error")
                         .HasColumnType("text")
                         .HasColumnName("error");
@@ -47,6 +52,11 @@ namespace FoodDeliveryService.Modules.Orders.Infrastructure.Database.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("processed_on_utc");
 
+                    b.Property<string>("TraceParent")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("trace_parent");
+
                     b.Property<string>("Type")
                         .IsRequired()
                         .HasColumnType("text")
@@ -54,6 +64,10 @@ namespace FoodDeliveryService.Modules.Orders.Infrastructure.Database.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_inbox_messages");
+
+                    b.HasIndex("CorrelationId")
+                        .HasDatabaseName("ix_inbox_messages_correlation_id")
+                        .HasFilter("correlation_id IS NOT NULL");
 
                     b.ToTable("inbox_messages", (string)null);
                 });
@@ -88,6 +102,11 @@ namespace FoodDeliveryService.Modules.Orders.Infrastructure.Database.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("content");
 
+                    b.Property<string>("CorrelationId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("correlation_id");
+
                     b.Property<string>("Error")
                         .HasColumnType("text")
                         .HasColumnName("error");
@@ -100,6 +119,11 @@ namespace FoodDeliveryService.Modules.Orders.Infrastructure.Database.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("processed_on_utc");
 
+                    b.Property<string>("TraceParent")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("trace_parent");
+
                     b.Property<string>("Type")
                         .IsRequired()
                         .HasColumnType("text")
@@ -107,6 +131,10 @@ namespace FoodDeliveryService.Modules.Orders.Infrastructure.Database.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_outbox_messages");
+
+                    b.HasIndex("CorrelationId")
+                        .HasDatabaseName("ix_outbox_messages_correlation_id")
+                        .HasFilter("correlation_id IS NOT NULL");
 
                     b.ToTable("outbox_messages", (string)null);
                 });

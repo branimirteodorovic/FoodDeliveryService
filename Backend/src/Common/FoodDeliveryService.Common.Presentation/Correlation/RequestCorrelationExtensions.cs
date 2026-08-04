@@ -33,8 +33,15 @@ public static class RequestCorrelationExtensions
             app.ApplicationServices.GetService<HostServiceName>() ??
             new HostServiceName(app.ApplicationServices.GetRequiredService<IHostEnvironment>().ApplicationName);
 
+        // Same story, and the same fallback: the ambient context is what the outbox interceptor and
+        // the dispatch jobs read. The fallback only ever runs for a host that skipped
+        // AddHostTelemetry, which is a host with no outbox to stamp — everything that reads this
+        // context resolves it from the container, so it must be the registered instance.
+        CorrelationContext correlationContext =
+            app.ApplicationServices.GetService<CorrelationContext>() ?? new CorrelationContext();
+
         // Order matters: the id is resolved first so the log scope can carry it.
-        app.UseMiddleware<CorrelationIdMiddleware>();
+        app.UseMiddleware<CorrelationIdMiddleware>(correlationContext);
 
         app.UseMiddleware<LogContextTraceLoggingMiddleware>(serviceName);
 

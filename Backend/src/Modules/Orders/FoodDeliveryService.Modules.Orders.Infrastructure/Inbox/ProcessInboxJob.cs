@@ -4,8 +4,10 @@ using Dapper;
 using FoodDeliveryService.Common.Application.Clock;
 using FoodDeliveryService.Common.Application.Data;
 using FoodDeliveryService.Common.Application.EventBus;
+using FoodDeliveryService.Common.Infrastructure.Correlation;
 using FoodDeliveryService.Common.Infrastructure.Inbox;
 using FoodDeliveryService.Common.Infrastructure.Serialization;
+using FoodDeliveryService.Common.Presentation.Correlation;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -20,6 +22,7 @@ internal sealed class ProcessInboxJob(
     IServiceScopeFactory serviceScopeFactory,
     IDateTimeProvider dateTimeProvider,
     IOptions<InboxOptions> inboxOptions,
+    CorrelationContext correlationContext,
     ILogger<ProcessInboxJob> logger) : IJob
 {
     private const string ModuleName = "Orders";
@@ -37,11 +40,34 @@ internal sealed class ProcessInboxJob(
         {
             Exception? exception = null;
 
+            // The producing service's correlation id, carried over the bus on a header and written
+            // onto this row by IntegrationEventConsumer. Restoring it here is what ties a consuming
+            // handler's log lines back to the request in the OTHER service that caused them.
+            using IDisposable dispatch = MessageDispatchScope.Begin(
+                correlationContext,
+                MessagingDiagnostics.InboxDispatch,
+                inboxMessage.Type,
+                inboxMessage.CorrelationId,
+                inboxMessage.TraceParent);
+
             try
             {
                 IIntegrationEvent integrationEvent = JsonConvert.DeserializeObject<IIntegrationEvent>(
                     inboxMessage.Content,
                     SerializerSettings.Instance)!;
+
+                // OrderId and its siblings, read off the event — the asynchronous half of "search
+                // for all logs related to one order".
+                using IDisposable businessIds = MessageDispatchScope.PushBusinessIds(integrationEvent);
+
+                // Per MESSAGE, unlike the two per-batch lines around this loop — and on this side it
+                // is the only line that ties this service's reaction back to the request in ANOTHER
+                // service that caused it.
+                logger.LogInformation(
+                    "{Module} - Dispatching inbox message {MessageId} of type {MessageType}",
+                    ModuleName,
+                    inboxMessage.Id,
+                    inboxMessage.Type);
 
                 using IServiceScope scope = serviceScopeFactory.CreateScope();
 
@@ -82,7 +108,10 @@ internal sealed class ProcessInboxJob(
             $"""
              SELECT
                 id AS {nameof(InboxMessageResponse.Id)},
-                content AS {nameof(InboxMessageResponse.Content)}
+                type AS {nameof(InboxMessageResponse.Type)},
+                content AS {nameof(InboxMessageResponse.Content)},
+                correlation_id AS {nameof(InboxMessageResponse.CorrelationId)},
+                trace_parent AS {nameof(InboxMessageResponse.TraceParent)}
              FROM inbox_messages
              WHERE processed_on_utc IS NULL
              ORDER BY occurred_on_utc
@@ -123,5 +152,14 @@ internal sealed class ProcessInboxJob(
             transaction: transaction);
     }
 
-    internal sealed record InboxMessageResponse(Guid Id, string Content);
+    /// <summary>
+    /// The correlation columns are nullable and stay nullable here: a row written before they
+    /// existed dispatches exactly as it always did, it simply carries no id to restore.
+    /// </summary>
+    internal sealed record InboxMessageResponse(
+        Guid Id,
+        string Type,
+        string Content,
+        string? CorrelationId,
+        string? TraceParent);
 }

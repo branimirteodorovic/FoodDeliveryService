@@ -112,8 +112,67 @@ public class CorrelationIdMiddlewareTests
         (await StartResponseAsync(context)).Should().Be(resolved);
     }
 
+    [Fact]
+    public async Task Invoke_Should_PopulateTheAmbientCorrelationContext()
+    {
+        // Arrange — this is the hand-off to the asynchronous half of the platform: the outbox
+        // interceptor reads the context, not the HttpContext, because it also runs where there is
+        // no request.
+        const string inbound = "gateway-0af7651916cd43dd8448eb211c80319c";
+
+        using var source = new ActivitySource(ActivitySourceName);
+        using ActivityListener listener = CreateListener();
+
+        ActivitySource.AddActivityListener(listener);
+
+        using Activity? activity = source.StartActivity("request");
+
+        activity.Should().NotBeNull();
+
+        var correlationContext = new CorrelationContext();
+
+        string? observedCorrelationId = null;
+        string? observedTraceParent = null;
+
+        // Act — read from inside the pipeline, which is where a SaveChanges happens.
+        await InvokeAsync(
+            CreateContext(inbound),
+            correlationContext,
+            _ =>
+            {
+                observedCorrelationId = correlationContext.CorrelationId;
+                observedTraceParent = correlationContext.TraceParent;
+
+                return Task.CompletedTask;
+            });
+
+        // Assert — the request's OWN span is the traceparent, captured here rather than at
+        // SaveChanges, where Activity.Current would be an EF Core or Npgsql span instead.
+        observedCorrelationId.Should().Be(inbound);
+        observedTraceParent.Should().Be(activity.Id);
+    }
+
+    [Fact]
+    public async Task Invoke_Should_UnwindTheAmbientContext_WhenTheRequestEnds()
+    {
+        // Arrange — a Kestrel thread serves request after request. A scope that did not unwind
+        // would leak one customer's correlation id onto the next customer's outbox rows.
+        Activity.Current = null;
+
+        var correlationContext = new CorrelationContext();
+
+        // Act
+        await InvokeAsync(CreateContext("gateway-1234"), correlationContext, _ => Task.CompletedTask);
+
+        // Assert
+        correlationContext.CorrelationId.Should().BeNull();
+    }
+
     private static Task InvokeAsync(HttpContext context) =>
-        new CorrelationIdMiddleware(_ => Task.CompletedTask).Invoke(context);
+        InvokeAsync(context, new CorrelationContext(), _ => Task.CompletedTask);
+
+    private static Task InvokeAsync(HttpContext context, CorrelationContext correlationContext, RequestDelegate next) =>
+        new CorrelationIdMiddleware(next, correlationContext).Invoke(context);
 
     /// <summary>
     /// The id as the downstream service sees it: written back onto the REQUEST headers, which is

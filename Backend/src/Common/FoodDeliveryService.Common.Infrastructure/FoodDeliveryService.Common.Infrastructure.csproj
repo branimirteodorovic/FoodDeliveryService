@@ -22,6 +22,9 @@
     <PackageReference Include="OpenTelemetry.Instrumentation.StackExchangeRedis" />
     <PackageReference Include="Quartz.Extensions.Hosting" />
     <PackageReference Include="Scrutor" />
+    <!-- LogContext + PropertyEnricher, for MessageDispatchScope — the outbox/inbox counterpart of
+         the request-correlation middleware. Sinks stay a host concern, as in Common.Presentation. -->
+    <PackageReference Include="Serilog" />
   </ItemGroup>
 
   <ItemGroup>

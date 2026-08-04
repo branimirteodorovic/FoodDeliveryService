@@ -1,3 +1,4 @@
+using FoodDeliveryService.Common.Presentation.Correlation;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using OpenTelemetry;
@@ -48,6 +49,11 @@ public static class HostTelemetryExtensions
         // service.name on every log line without a second constant to keep in sync
         // (UseRequestCorrelation).
         services.TryAddSingleton(new HostServiceName(serviceName));
+
+        // The ambient correlation id + traceparent, populated by UseRequestCorrelation and read by
+        // everything that has to correlate work with no HttpContext in sight — the outbox
+        // interceptor, the MassTransit filters, the outbox/inbox dispatch jobs.
+        services.TryAddSingleton<CorrelationContext>();
 
         IOpenTelemetryBuilder builder = services
             .AddOpenTelemetry()
