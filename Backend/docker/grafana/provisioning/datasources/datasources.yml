@@ -1,0 +1,30 @@
+# Grafana datasources, provisioned as code — nothing here is clicked together in the UI, so a fresh
+# `docker-compose up` on any machine gets the same Grafana the dashboards were authored against.
+#
+# The uids are fixed and referenced by the dashboard JSON. Letting Grafana generate them would make
+# every dashboard file machine-specific.
+#
+# Feature 2.4 — Distributed Telemetry & Observability, Milestone E (TELEMETRY_PHASE2_PLAN.md §6).
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: fooddelivery-prometheus
+    type: prometheus
+    access: proxy
+    url: http://fooddeliveryservice.prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      # Match the scrape interval so $__rate_interval resolves to something that actually contains
+      # samples; the default assumption of 15s happens to be right, but stating it keeps the two in
+      # step if prometheus.yml ever changes.
+      timeInterval: 15s
+
+  - name: Jaeger
+    uid: fooddelivery-jaeger
+    type: jaeger
+    access: proxy
+    url: http://fooddeliveryservice.jaeger:16686
+    editable: false

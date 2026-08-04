@@ -62,6 +62,10 @@
     <PackageVersion Include="Testcontainers.Redis" Version="4.13.0" />
     <PackageVersion Include="Ulid" Version="1.4.1" />
     <PackageVersion Include="Yarp.ReverseProxy" Version="2.3.0" />
+    <!-- Test-only: parses the Prometheus alert rules and the Grafana provisioning files so the
+         observability assets Telemetry 2.4 Milestone E ships are schema-checked by a test rather
+         than by whoever next runs docker-compose. -->
+    <PackageVersion Include="YamlDotNet" Version="16.3.0" />
     <PackageVersion Include="coverlet.collector" Version="10.0.1" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.7.0" />
     <PackageVersion Include="xunit.v3" Version="3.2.2" />

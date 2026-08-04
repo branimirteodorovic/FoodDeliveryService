@@ -1,0 +1,131 @@
+# Alert rules — the "error rate spikes and latency degradation" the project plan asks for, plus the
+# availability signal that makes both of them interpretable.
+#
+# There is no Alertmanager in this stack: a firing alert is visible in Prometheus (:9090/alerts) and
+# in Grafana's Alerting > Alert rules view, which is the whole notification story a local portfolio
+# stack needs. Routing to email/Slack/PagerDuty is a receiver's job and belongs with a real
+# environment, not with docker-compose.
+#
+# Ratio alerts are all guarded by a minimum request rate. Without it, one failed request during an
+# idle night is a 100% error rate and every alert here would be permanently firing.
+#
+# Feature 2.4 — Distributed Telemetry & Observability, Milestone E (TELEMETRY_PHASE2_PLAN.md §6).
+
+groups:
+  # ---------------------------------------------------------------------------------------------
+  # Availability. Built on the blackbox probes of Milestone C's endpoints, not on the OTLP metrics:
+  # a killed container reports nothing, and nothing is what an idle container reports too.
+  # ---------------------------------------------------------------------------------------------
+  - name: fooddeliveryservice-availability
+    interval: 15s
+    rules:
+      - alert: ServiceDown
+        expr: probe_success{job="health-live"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: '{{ $labels.service }} is not answering its liveness probe'
+          description: >-
+            GET {{ $labels.instance }} has failed for over a minute. The process is gone, wedged or
+            unreachable — this is not a dependency problem, /health/live never fails on a dependency.
+
+      - alert: ServiceNotReady
+        # Up but unready: the interesting half of the liveness/readiness split. Under Kubernetes this
+        # is a pod that has been pulled from rotation; here it means one of Postgres, Redis, RabbitMQ
+        # or Duende is unreachable from that host.
+        expr: |
+          probe_success{job="health-ready"} == 0
+            and on (service) probe_success{job="health-live"} == 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.service }} is live but not ready'
+          description: >-
+            A dependency check is failing. GET {{ $labels.instance }} names the one that is down.
+            Note that all six module hosts probe Duende, so an Identity outage shows up here as a
+            fleet-wide event by design (docs/health-probe-contract.md).
+
+  # ---------------------------------------------------------------------------------------------
+  # Errors. Two different questions, deliberately kept apart: what the caller saw (HTTP status) and
+  # what the application did (the Result a handler returned, plus anything that threw).
+  # ---------------------------------------------------------------------------------------------
+  - name: fooddeliveryservice-errors
+    interval: 15s
+    rules:
+      - alert: HighHttpErrorRate
+        expr: |
+          100 * sum by (service_name) (
+            rate(http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[5m])
+          )
+          / sum by (service_name) (rate(http_server_request_duration_seconds_count[5m])) > 5
+          and sum by (service_name) (rate(http_server_request_duration_seconds_count[5m])) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: '{{ $labels.service_name }} is answering 5xx to {{ printf "%.1f" $value }}% of requests'
+          description: >-
+            Server-side failures over the last 5 minutes. Open the RED dashboard for the failing
+            route, then pivot to the trace via the correlation id on the response.
+
+      - alert: HighApplicationExceptionRate
+        # app.request.failures{error.type="exception"} is the one class of error that never shows up
+        # as a business failure: ExceptionHandlingPipelineBehavior rethrows, so these are bugs and
+        # infrastructure faults, not rejected commands.
+        expr: |
+          100 * sum by (service_name) (rate(app_request_failures_total{error_type="exception"}[5m]))
+          / sum by (service_name) (rate(app_requests_total[5m])) > 5
+          and sum by (service_name) (rate(app_requests_total[5m])) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: '{{ $labels.service_name }} is throwing on {{ printf "%.1f" $value }}% of requests'
+          description: >-
+            Commands and queries that threw rather than returning a failure Result. Seq, filtered by
+            ServiceName, has the exception; the RED dashboard's failure panel has the request type.
+
+  # ---------------------------------------------------------------------------------------------
+  # Latency. Both layers again: the transport histogram includes middleware, model binding and the
+  # response write; the application histogram is the handler pipeline alone. A gap between them is
+  # itself the finding.
+  # ---------------------------------------------------------------------------------------------
+  - name: fooddeliveryservice-latency
+    interval: 15s
+    rules:
+      - alert: HighHttpLatencyP95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, service_name) (rate(http_server_request_duration_seconds_bucket[5m]))
+          ) > 1
+          and sum by (service_name) (rate(http_server_request_duration_seconds_count[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.service_name }} p95 latency is {{ printf "%.2f" $value }}s'
+          description: >-
+            95th percentile HTTP latency above one second for five minutes. Check the cache hit-rate
+            dashboard first — a collapsed hit rate on user_permissions puts a MassTransit round trip
+            to Users on every single request.
+
+      - alert: SlowApplicationRequests
+        # Per request type, not per service: a slow GetOrdersQuery and a slow PlaceOrderCommand have
+        # nothing to do with each other, and the aggregate hides whichever is rarer.
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, service_name, request) (rate(app_request_duration_seconds_bucket[5m]))
+          ) > 1
+          and sum by (service_name, request) (rate(app_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.request }} p95 is {{ printf "%.2f" $value }}s in {{ $labels.service_name }}'
+          description: >-
+            The handler pipeline itself is slow, so the cause is inside the application — a query, a
+            lock wait or an outbound call — rather than in the host or the proxy.

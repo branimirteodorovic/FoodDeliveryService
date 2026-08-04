@@ -1,0 +1,343 @@
+{
+  "uid": "fds-business",
+  "title": "FoodDeliveryService — Business",
+  "description": "The platform's own story rather than the host's: orders placed, where they move through the lifecycle, and how the driver-offer cycle is ending. Every measurement here is emitted from the place that already owns the state change (Milestone B), so a panel going flat means the flow stopped, not that the instrumentation broke.",
+  "tags": ["fooddeliveryservice", "business"],
+  "timezone": "browser",
+  "editable": true,
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": {
+    "from": "now-3h",
+    "to": "now"
+  },
+  "templating": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Orders / min",
+      "description": "The headline number. orders.placed is recorded from OrderPlacedDomainEventHandler, i.e. after the order is committed and its outbox row dispatched — it counts orders that really exist, not requests that were accepted.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fooddelivery-prometheus"
+      },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "decimals": 1 },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "60 * sum(rate(orders_placed_total[$__rate_interval]))",
+          "legendFormat": "orders/min",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Orders placed (window)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fooddelivery-prometheus"
+      },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "decimals": 0 },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "sum(increase(orders_placed_total[$__range]))",
+          "legendFormat": "placed",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Cancellation share",
+      "description": "Cancellations as a share of placements over the dashboard window. from=Pending and from=Accepted are both legal sources and the distinction is on the transitions panel below.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fooddelivery-prometheus"
+      },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 10 },
+              { "color": "red", "value": 25 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "100 * sum(increase(orders_state_transition_total{to=\"Canceled\"}[$__range])) / sum(increase(orders_placed_total[$__range]))",
+          "legendFormat": "canceled",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Offers finding no driver",
+      "description": "delivery.assignment.outcome{outcome=\"no_driver\"} as a share of the turns that actually searched — offered, no_driver and failed. lock_contended, not_pending and expired are excluded because none of them ran a candidate search.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fooddelivery-prometheus"
+      },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 20 },
+              { "color": "red", "value": 50 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "100 * sum(increase(delivery_assignment_outcome_total{outcome=\"no_driver\"}[$__range])) / sum(increase(delivery_assignment_outcome_total{outcome=~\"offered|no_driver|failed\"}[$__range]))",
+          "legendFormat": "no driver",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "row",
+      "title": "Order lifecycle",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "panels": []
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Orders placed / min",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fooddelivery-prometheus"
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": { "drawStyle": "line", "fillOpacity": 20, "lineWidth": 1, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "60 * sum(rate(orders_placed_total[$__rate_interval]))",
+          "legendFormat": "orders/min",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Lifecycle transitions / min",
+      "description": "Every transition the aggregate makes, tagged with the status it came from — the panel that answers \"where do orders stall?\". from=none is placement, which starts the lifecycle rather than moving through it.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fooddelivery-prometheus"
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": { "drawStyle": "line", "fillOpacity": 20, "lineWidth": 1, "showPoints": "never", "stacking": { "mode": "normal", "group": "A" } }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "60 * sum by (from, to) (rate(orders_state_transition_total[$__rate_interval]))",
+          "legendFormat": "{{from}} → {{to}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "barchart",
+      "title": "Transitions in window",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fooddelivery-prometheus"
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 14 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "lineWidth": 1, "fillOpacity": 80 }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "showValue": "auto",
+        "legend": { "displayMode": "list", "placement": "bottom", "calcs": [] },
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "sum by (from, to) (increase(orders_state_transition_total[$__range]))",
+          "legendFormat": "{{from}} → {{to}}",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "row",
+      "title": "Driver assignment",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 },
+      "panels": []
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Assignment outcomes / min",
+      "description": "A rising lock_contended is the early warning that the 5 s offer lock is too coarse — it is invisible in every other signal. not_pending is idempotent re-entry and is healthy. expired belongs to a PREVIOUS offer and is counted by the expiry job at detection.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fooddelivery-prometheus"
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 23 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": { "drawStyle": "line", "fillOpacity": 20, "lineWidth": 1, "showPoints": "never", "stacking": { "mode": "normal", "group": "A" } }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "60 * sum by (outcome) (rate(delivery_assignment_outcome_total[$__rate_interval]))",
+          "legendFormat": "{{outcome}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Assignment duration p95 by outcome",
+      "description": "Split by outcome on purpose: a lock_contended turn returns in microseconds and would otherwise drag the p50 of the real work down with it.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fooddelivery-prometheus"
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 23 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": { "drawStyle": "line", "fillOpacity": 0, "lineWidth": 1, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["max"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le, outcome) (rate(delivery_assignment_duration_seconds_bucket[$__rate_interval])))",
+          "legendFormat": "{{outcome}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "type": "text",
+      "title": "Reading these two instruments",
+      "gridPos": { "h": 5, "w": 24, "x": 0, "y": 31 },
+      "options": {
+        "mode": "markdown",
+        "content": "`delivery.assignment.outcome` and `delivery.assignment.duration` **do not share a denominator.** The histogram measures one turn of `DeliveryAssignmentService.OfferNextAsync`; the counter additionally carries `expired`, which the expiry job records for a *previous* offer that lapsed, and the re-offer it triggers is counted separately on its own turn.\n\nRead the counter **per outcome**, never as a total — a ratio built on `sum(...)` across all outcomes double-counts a delivery that was offered, expired and re-offered."
+      }
+    }
+  ]
+}

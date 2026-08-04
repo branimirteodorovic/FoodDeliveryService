@@ -1,0 +1,244 @@
+{
+  "uid": "fds-cache",
+  "title": "FoodDeliveryService — Cache",
+  "description": "Hit rate for the Redis cache, from the cache.hits / cache.misses counters recorded in CacheService.GetAsync (Caching Feature 2.3, Milestone E). Tagged by key prefix rather than by key, so the series count is bounded by the number of cached surfaces instead of the number of rows.",
+  "tags": ["fooddeliveryservice", "cache"],
+  "timezone": "browser",
+  "editable": true,
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "templating": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Hit rate",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fooddelivery-prometheus"
+      },
+      "gridPos": { "h": 5, "w": 8, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 50 },
+              { "color": "green", "value": 80 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "100 * sum(rate(cache_hits_total[$__rate_interval])) / (sum(rate(cache_hits_total[$__rate_interval])) + sum(rate(cache_misses_total[$__rate_interval])))",
+          "legendFormat": "hit rate",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Lookups / s",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fooddelivery-prometheus"
+      },
+      "gridPos": { "h": 5, "w": 8, "x": 8, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "decimals": 2 },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "sum(rate(cache_hits_total[$__rate_interval])) + sum(rate(cache_misses_total[$__rate_interval]))",
+          "legendFormat": "lookups",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Permission-cache hit rate",
+      "description": "The oldest and busiest consumer: every authenticated request on every service resolves permissions through it. A collapse here puts a MassTransit round trip to Users on the critical path of the whole platform, which shows up as latency everywhere at once.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fooddelivery-prometheus"
+      },
+      "gridPos": { "h": 5, "w": 8, "x": 16, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 60 },
+              { "color": "green", "value": 85 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "100 * sum(rate(cache_hits_total{cache_key_prefix=\"user_permissions\"}[$__rate_interval])) / (sum(rate(cache_hits_total{cache_key_prefix=\"user_permissions\"}[$__rate_interval])) + sum(rate(cache_misses_total{cache_key_prefix=\"user_permissions\"}[$__rate_interval])))",
+          "legendFormat": "user_permissions",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Hit rate by key prefix",
+      "description": "A prefix that sits near zero is either a TTL shorter than the read interval or an invalidation firing too eagerly — menu keys are evicted inline by every menu command, so a busy restaurant legitimately runs colder than the permission cache.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fooddelivery-prometheus"
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 5 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": { "drawStyle": "line", "fillOpacity": 0, "lineWidth": 1, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "min"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "100 * sum by (cache_key_prefix) (rate(cache_hits_total[$__rate_interval])) / (sum by (cache_key_prefix) (rate(cache_hits_total[$__rate_interval])) + sum by (cache_key_prefix) (rate(cache_misses_total[$__rate_interval])))",
+          "legendFormat": "{{cache_key_prefix}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Lookups / s by key prefix",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fooddelivery-prometheus"
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 5 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0,
+          "custom": { "drawStyle": "line", "fillOpacity": 20, "lineWidth": 1, "showPoints": "never", "stacking": { "mode": "normal", "group": "A" } }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "sum by (cache_key_prefix) (rate(cache_hits_total[$__rate_interval]))",
+          "legendFormat": "{{cache_key_prefix}} hit",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "editorMode": "code",
+          "expr": "sum by (cache_key_prefix) (rate(cache_misses_total[$__rate_interval]))",
+          "legendFormat": "{{cache_key_prefix}} miss",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Misses / s by service",
+      "description": "Which host is paying for the miss. The counters are recorded in the shared CacheService, so every service that reads the cache reports on the same two instruments and is separated only by service_name.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fooddelivery-prometheus"
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 14 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0,
+          "custom": { "drawStyle": "line", "fillOpacity": 20, "lineWidth": 1, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "sum by (service_name) (rate(cache_misses_total[$__rate_interval]))",
+          "legendFormat": "{{service_name}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "text",
+      "title": "What these panels cannot tell you",
+      "gridPos": { "h": 5, "w": 24, "x": 0, "y": 22 },
+      "options": {
+        "mode": "markdown",
+        "content": "In **Development** an unreachable Redis silently degrades to an in-process cache (`allowInMemoryCacheFallback`), and the counters keep reporting a healthy hit rate against it — the fallback is a real cache, just a process-local one. So a high hit rate here is **not** evidence that Redis is up. `/health/ready` is, and the RED dashboard's readiness stat shows it.\n\nRedis also carries the distributed lock, Delivery's driver GEO store and the SignalR backplane (`docs/caching.md`), none of which have a fallback outside Development. Losing it is an availability event, not a slower cache."
+      }
+    }
+  ]
+}

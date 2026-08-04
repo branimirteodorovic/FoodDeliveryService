@@ -112,13 +112,85 @@ services:
     ports:
       - 6379:6379
 
+  # Jaeger no longer publishes 4317/4318: the collector below is the OTLP front door now, and it
+  # forwards traces here over the compose network. The UI is unchanged.
   fooddeliveryservice.jaeger:
     image: jaegertracing/all-in-one:latest
     container_name: FoodDeliveryService.Jaeger
     ports:
-      - 4317:4317
-      - 4318:4318
       - 16686:16686
+
+  # The single OTLP endpoint every service exports to (OTEL_EXPORTER_OTLP_ENDPOINT). Fans traces out
+  # to Jaeger and metrics out to Prometheus, so a service knows one address and the backends behind
+  # it can change without an appsettings edit.
+  fooddeliveryservice.otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.157.0
+    container_name: FoodDeliveryService.OtelCollector
+    command: ["--config=/etc/otelcol-contrib/config.yml"]
+    volumes:
+      - ./docker/otel-collector/otel-collector-config.yml:/etc/otelcol-contrib/config.yml:ro
+    depends_on:
+      - fooddeliveryservice.jaeger
+    ports:
+      - 4317:4317   # OTLP/gRPC
+      - 4318:4318   # OTLP/HTTP
+      - 8889:8889   # the Prometheus exposition Prometheus scrapes — curl it to debug a blank panel
+
+  # Probes each host's Milestone C health endpoints from outside the process, which is what lets a
+  # "service is down" alert exist at all: a killed container reports no error rate, it reports nothing.
+  fooddeliveryservice.blackbox:
+    image: prom/blackbox-exporter:v0.25.0
+    container_name: FoodDeliveryService.Blackbox
+    command: ["--config.file=/etc/blackbox/blackbox.yml"]
+    volumes:
+      - ./docker/blackbox/blackbox.yml:/etc/blackbox/blackbox.yml:ro
+    ports:
+      - 9115:9115
+
+  fooddeliveryservice.prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: FoodDeliveryService.Prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      # Lets `curl -X POST localhost:9090/-/reload` pick up an edited rule file without a restart.
+      - --web.enable-lifecycle
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./docker/prometheus/rules:/etc/prometheus/rules:ro
+      # A named volume rather than a bind mount under .containers/: the image runs as nobody and a
+      # bind-mounted host directory is not writable by it on a Linux host.
+      - prometheus-data:/prometheus
+    depends_on:
+      - fooddeliveryservice.otel-collector
+      - fooddeliveryservice.blackbox
+    ports:
+      - 9090:9090
+
+  # Datasources and dashboards are provisioned from ./docker/grafana — nothing is clicked together,
+  # so the container is disposable and holds no state worth keeping.
+  fooddeliveryservice.grafana:
+    image: grafana/grafana:11.4.0
+    container_name: FoodDeliveryService.Grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin # local dev only
+      - GF_AUTH_ANONYMOUS_ENABLED=true # local dev only
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+      - GF_USERS_DEFAULT_THEME=light
+    volumes:
+      # The two provisioning directories this repo owns, mounted individually. Mounting the whole
+      # /etc/grafana/provisioning tree would shadow the image's own empty plugins/ and alerting/
+      # directories and Grafana logs an error for each one it can no longer find.
+      - ./docker/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./docker/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./docker/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - fooddeliveryservice.prometheus
+    ports:
+      # 3000 is the gateway and 3001 its HTTPS port, so Grafana takes 3100 on the host.
+      - 3100:3000
 
   fooddeliveryservice.queue:
     image: rabbitmq:management-alpine
@@ -132,4 +204,8 @@ services:
     ports:
       - 5672:5672
       - 15672:15672
-  
+
+volumes:
+  # Prometheus' TSDB. Local metrics history is disposable — deleting this volume costs nothing but
+  # the last seven days of graphs.
+  prometheus-data:

@@ -1,0 +1,81 @@
+# Prometheus — the metrics store behind the Grafana dashboards and the alert rules.
+#
+# Two kinds of target:
+#   1. the OpenTelemetry Collector, which carries everything the services measure themselves;
+#   2. the blackbox exporter, which probes each host's Milestone C health endpoints from outside.
+#
+# The second exists because of what the first cannot say: a container that has been killed does not
+# report an error rate, it reports nothing at all, and "nothing at all" is indistinguishable from an
+# idle service. probe_success is the signal that makes "kill a service, watch an alert fire" true
+# without traffic having to be flowing at the time.
+#
+# Feature 2.4 — Distributed Telemetry & Observability, Milestone E (TELEMETRY_PHASE2_PLAN.md §6).
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  # Everything the eight hosts emit over OTLP: http.server.*, the app.* RED signal, orders.*,
+  # delivery.assignment.* and cache.hits/misses, each carrying service_name from the OTel resource.
+  - job_name: otel-collector
+    # The collector republishes each service's own job/instance (from service.name and
+    # service.instance.id). Without this they would be renamed exported_job/exported_instance and
+    # every series would claim to come from the collector — true of the scrape, useless on a graph.
+    honor_labels: true
+    static_configs:
+      - targets: [fooddeliveryservice.otel-collector:8889]
+
+  # Liveness: the process answers. Never fails on a dependency, so probe_success = 0 here means the
+  # host itself is gone.
+  - job_name: health-live
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - http://fooddeliveryservice.gateway:8080/health/live
+          - http://fooddeliveryservice.identity:8080/health/live
+          - http://fooddeliveryservice.notifications.api:8080/health/live
+          - http://fooddeliveryservice.orders.api:8080/health/live
+          - http://fooddeliveryservice.restaurants.api:8080/health/live
+          - http://fooddeliveryservice.users.api:8080/health/live
+          - http://fooddeliveryservice.delivery.api:8080/health/live
+          - http://fooddeliveryservice.realtime.api:8080/health/live
+    relabel_configs: &probe_relabel
+      # The scrape goes to the blackbox exporter; the "target" is what the exporter is asked to
+      # probe. This three-step swap is the documented blackbox pattern.
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: fooddeliveryservice.blackbox:9115
+      # Give the series the same service dimension the OTLP metrics carry, so a dashboard can put
+      # "is it up" next to "what is it doing" without a join on instance URLs.
+      - source_labels: [__param_target]
+        regex: 'http://([^:/]+):.*'
+        target_label: service
+        replacement: $1
+
+  # Readiness: every dependency (Postgres, Redis, RabbitMQ, Duende) is reachable. probe_success = 0
+  # here while health-live still succeeds is the interesting case — the pod is up and should be out
+  # of rotation. That distinction is the whole point of Milestone C's split.
+  - job_name: health-ready
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - http://fooddeliveryservice.gateway:8080/health/ready
+          - http://fooddeliveryservice.identity:8080/health/ready
+          - http://fooddeliveryservice.notifications.api:8080/health/ready
+          - http://fooddeliveryservice.orders.api:8080/health/ready
+          - http://fooddeliveryservice.restaurants.api:8080/health/ready
+          - http://fooddeliveryservice.users.api:8080/health/ready
+          - http://fooddeliveryservice.delivery.api:8080/health/ready
+          - http://fooddeliveryservice.realtime.api:8080/health/ready
+    relabel_configs: *probe_relabel

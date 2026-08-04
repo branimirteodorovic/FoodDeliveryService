@@ -1,0 +1,90 @@
+# OpenTelemetry Collector — the single OTLP endpoint every service exports to.
+#
+# Before this file, OTEL_EXPORTER_OTLP_ENDPOINT pointed the eight hosts straight at Jaeger, which
+# accepts traces and silently drops metrics. Milestones A and B had therefore been emitting RED,
+# business and cache measurements into nothing. The collector fans one OTLP stream out per signal, so
+# a service still knows exactly one endpoint and the backends behind it can change without touching
+# an appsettings file (Feature 2.5 repoints the same key at an in-cluster Service).
+#
+# Feature 2.4 — Distributed Telemetry & Observability, Milestone E (TELEMETRY_PHASE2_PLAN.md §6).
+
+receivers:
+  otlp:
+    protocols:
+      # 0.0.0.0 is deliberate and required: the collector binds to localhost by default since v0.110,
+      # which inside a container means "nothing else in the compose network can reach me".
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Must be the first processor in every pipeline — it can only shed load it sees before batching.
+  memory_limiter:
+    check_interval: 5s
+    limit_mib: 512
+    spike_limit_mib: 128
+
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+
+  # The metrics pipeline turns resource attributes into Prometheus labels (see the exporter below),
+  # so anything on the resource that is not worth a label is dropped here. service.name and
+  # service.instance.id are kept: the first is what every dashboard groups by, the second is what
+  # keeps two replicas of one service from colliding into a duplicate series.
+  resource/strip-sdk:
+    attributes:
+      - key: telemetry.sdk.name
+        action: delete
+      - key: telemetry.sdk.language
+        action: delete
+      - key: telemetry.sdk.version
+        action: delete
+
+exporters:
+  # Traces keep going to Jaeger exactly as before — it just stops being the direct OTLP target.
+  otlp/jaeger:
+    endpoint: fooddeliveryservice.jaeger:4317
+    tls:
+      insecure: true
+
+  # Pull-based: the collector exposes the accumulated metrics and Prometheus scrapes it. Instrument
+  # names are translated on the way out (app.request.duration/s -> app_request_duration_seconds,
+  # orders.placed -> orders_placed_total) and tag keys lose their dots (error.type -> error_type).
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    resource_to_telemetry_conversion:
+      # What puts service_name on every series. Without it the service dimension exists only on a
+      # separate target_info metric and no panel here could group by it.
+      enabled: true
+    # A killed service stops sending; its series go stale rather than flat-lining forever. Two
+    # minutes is short enough that "the container is gone" is visible on a dashboard, long enough
+    # that a slow scrape or a restart does not blink the panels.
+    metric_expiration: 2m
+
+  # Logs are wired but idle by design: Serilog -> Seq is the primary log path and the one that
+  # carries the correlation enrichment (Milestone D), so AddHostTelemetry's exportLogsViaOtlp stays
+  # false and nothing feeds this pipeline. Flipping that flag needs somewhere real to land, and Seq
+  # ingests OTLP natively — so the destination exists, ready, rather than being invented later.
+  otlphttp/seq:
+    endpoint: http://fooddeliveryservice.seq:5341/ingest/otlp
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/jaeger]
+
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resource/strip-sdk, batch]
+      exporters: [prometheus]
+
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlphttp/seq]

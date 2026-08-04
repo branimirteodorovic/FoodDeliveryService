@@ -1,0 +1,21 @@
+# Dashboards-as-code: Grafana loads every JSON file under the mounted directory at start-up and
+# re-reads it on the interval below, so editing a file on disk updates the dashboard without an
+# import step and without any state living inside the Grafana container.
+#
+# Feature 2.4 — Distributed Telemetry & Observability, Milestone E (TELEMETRY_PHASE2_PLAN.md §6).
+
+apiVersion: 1
+
+providers:
+  - name: FoodDeliveryService
+    orgId: 1
+    folder: FoodDeliveryService
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    # Edits made in the UI are kept until the file changes — useful while iterating on a panel, and
+    # a reminder that the file, not the browser, is the source of truth.
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

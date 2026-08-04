@@ -26,6 +26,9 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="xunit.v3" />
+    <!-- The Prometheus rule files and the Grafana provisioning files are YAML; ObservabilityAssetTests
+         parses them for real rather than pattern-matching text. -->
+    <PackageReference Include="YamlDotNet" />
   </ItemGroup>
 
   <ItemGroup>
