@@ -1,0 +1,30 @@
+# KinD cluster definition for the local FoodDeliveryService substrate (Feature 2.5, Milestone A).
+#
+# One control-plane + two workers: enough nodes that a Deployment with replicas > 1 (Milestones D/F)
+# actually spreads, while still starting in well under a minute on a laptop.
+#
+# Two ports are published to your machine, and only two — the same two compose publishes, because
+# everything else is internal to the cluster:
+#
+#   localhost:8000   -> the Gateway   (compose's :3000)
+#   localhost:18080  -> Identity      (compose's :18080)
+#
+# Each maps a host port onto a NodePort on the control-plane node; kube-proxy forwards from there to
+# the right pod even when it is running on a worker. Port mappings can only be declared when the
+# cluster is created, so changing them means `kind-down` then `kind-up`.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: fooddeliveryservice
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      # Gateway (Service fooddeliveryservice-gateway, nodePort 30080)
+      - containerPort: 30080
+        hostPort: 8000
+        protocol: TCP
+      # Identity (Service fooddeliveryservice-identity, nodePort 30180)
+      - containerPort: 30180
+        hostPort: 18080
+        protocol: TCP
+  - role: worker
+  - role: worker

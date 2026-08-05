@@ -1,0 +1,81 @@
+# The config every host shares, in two objects.
+#
+# Splitting it this way is what keeps the eight Deployment files short: each one lists only what is
+# genuinely its own (its database, its module settings) and pulls the rest in with `envFrom`. It is
+# also the reason no password appears in a Deployment.
+#
+# Nothing here is a template or a placeholder — these are the working local-cluster values, the same
+# ones docker-compose uses. They are safe to commit because they are only ever valid against a
+# throwaway KinD cluster on your machine. A real environment replaces the Secret's contents (Azure
+# Key Vault, sealed-secrets, `kubectl create secret` from a password manager) without touching a
+# single Deployment, because the *keys* stay the same.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: platform-config
+  namespace: fooddeliveryservice
+  labels:
+    app.kubernetes.io/part-of: fooddeliveryservice
+data:
+  # Not Development. Three behaviours flip with it and all three are intended in-cluster: the Redis
+  # cache/lock in-memory fallback switches off (an unreachable Redis must fail readiness rather than
+  # quietly become a per-pod "distributed" lock), the OpenAPI document is not mapped, and Serilog's
+  # Seq sink — configured only in appsettings.Development.json — is absent, so pods log to console.
+  ASPNETCORE_ENVIRONMENT: Kubernetes
+  # HTTP only: no certificate lives in a pod, so ASPNETCORE_HTTPS_PORTS must stay unset or the host
+  # fails to start. The Dockerfiles' EXPOSE 8081 is inert here.
+  ASPNETCORE_HTTP_PORTS: "8080"
+
+  # JWT validation, identical on all eight hosts (the Gateway validates, then each service validates
+  # again). The first issuer is what Identity actually stamps into a token; the second is there for
+  # tokens fetched from the host through the Identity NodePort, mirroring compose.
+  Authentication__Audience: fooddeliveryservice.api
+  Authentication__TokenValidationParameters__ValidIssuers__0: http://fooddeliveryservice-identity:8080
+  Authentication__TokenValidationParameters__ValidIssuers__1: http://localhost:18080
+  Authentication__MetadataAddress: http://fooddeliveryservice-identity:8080/.well-known/openid-configuration
+  Authentication__RequireHttpsMetadata: "false"
+
+  # The readiness dependency on Identity — the `Duende` health check every module host registers.
+  Duende__HealthUrl: http://fooddeliveryservice-identity:8080/health
+
+  # There is no OpenTelemetry Collector in this cluster. Left enabled, the OTLP exporter retries
+  # against a dead endpoint every few seconds and buries the startup log. The observability stack
+  # stays a docker-compose concern; delete this key and add the collector if you ever want it here.
+  OTEL_SDK_DISABLED: "true"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: platform-secrets
+  namespace: fooddeliveryservice
+  labels:
+    app.kubernetes.io/part-of: fooddeliveryservice
+type: Opaque
+# stringData rather than data: Kubernetes base64-encodes it on the way in, so this file stays
+# readable. Base64 is not encryption either way — the protection is that these values are worthless
+# outside a local cluster.
+stringData:
+  # Shared by all six module hosts.
+  ConnectionStrings__Cache: fooddeliveryservice-redis:6379
+  ConnectionStrings__Queue: amqp://fooddeliveryservice-queue:5672
+
+  # One database per service on the shared server (Hard Rule #5). Each Deployment maps exactly one
+  # of these onto its own ConnectionStrings__Database, so no service can even name another's
+  # database. EF Migrate() creates them on first start.
+  Database__Identity: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_identity;Username=postgres;Password=postgres
+  Database__Users: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_users;Username=postgres;Password=postgres
+  Database__Orders: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_orders;Username=postgres;Password=postgres
+  Database__Restaurants: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_restaurants;Username=postgres;Password=postgres
+  Database__Delivery: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_delivery;Username=postgres;Password=postgres
+  Database__Notifications: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_notifications;Username=postgres;Password=postgres
+  Database__RealTime: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_realtime;Username=postgres;Password=postgres
+
+  # The client-credentials secret Users presents to Identity's api/users provisioning endpoint —
+  # the one sanctioned service-to-service HTTP call in the system. Both sides read the same value,
+  # so it is stored once. Registration fails at that call if it drifts.
+  ConfidentialClientSecret: PzotcrvZRF9BHCKcUxdKfHWlIPECG49k
+
+  # Identity's initial administrator. Must be >= 8 characters and reasonably strong: outside
+  # Development, ASP.NET Identity applies its real password rules, so compose's `admin` would fail
+  # to seed and leave you with no account to log in with.
+  AdminSeed__Password: Admin!23456

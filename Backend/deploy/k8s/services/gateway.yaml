@@ -1,0 +1,199 @@
+# Gateway — the single public entry point. This is the only Service published outside the cluster.
+#
+# It needs a config file rather than plain environment variables, and that is a real finding rather
+# than a preference: `Gateway/appsettings.json` ships an EMPTY ReverseProxy section — every route
+# and cluster lives in `appsettings.Development.json`. Outside Development the Gateway therefore has
+# no routes at all and proxies nothing. Environment variables cannot repair that (there is nothing
+# to override, and expressing seven routes and six clusters as `ReverseProxy__Routes__x__Match__Path`
+# keys would be unreadable), so the ConfigMap below is mounted as `appsettings.Kubernetes.json`,
+# which ASP.NET Core loads automatically because ASPNETCORE_ENVIRONMENT is `Kubernetes`.
+#
+# It is a copy of the Development routing with the destinations re-pointed at Kubernetes Service
+# names. If you add a route prefix to the Gateway, add it in both places.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gateway-appsettings
+  namespace: fooddeliveryservice
+  labels:
+    app.kubernetes.io/name: fooddeliveryservice-gateway
+    app.kubernetes.io/part-of: fooddeliveryservice
+data:
+  appsettings.Kubernetes.json: |
+    {
+      "ReverseProxy": {
+        "Routes": {
+          "fooddeliveryservice-route2": {
+            "ClusterId": "fooddeliveryservice-users-cluster",
+            "AuthorizationPolicy": "anonymous",
+            "Match": { "Path": "users/register" }
+          },
+          "fooddeliveryservice-route3": {
+            "ClusterId": "fooddeliveryservice-users-cluster",
+            "AuthorizationPolicy": "anonymous",
+            "Match": { "Path": "users/accept-invitation" }
+          },
+          "fooddeliveryservice-notifications-route1": {
+            "ClusterId": "fooddeliveryservice-notifications-cluster",
+            "AuthorizationPolicy": "default",
+            "Match": { "Path": "notifications/{**catch-all}" },
+            "Transforms": [ { "PathPattern": "notifications/{**catch-all}" } ]
+          },
+          "fooddeliveryservice-orders-route1": {
+            "ClusterId": "fooddeliveryservice-orders-cluster",
+            "AuthorizationPolicy": "default",
+            "Match": { "Path": "orders/{**catch-all}" },
+            "Transforms": [ { "PathPattern": "orders/{**catch-all}" } ]
+          },
+          "fooddeliveryservice-restaurants-route1": {
+            "ClusterId": "fooddeliveryservice-restaurants-cluster",
+            "AuthorizationPolicy": "default",
+            "Match": { "Path": "restaurants/{**catch-all}" },
+            "Transforms": [ { "PathPattern": "restaurants/{**catch-all}" } ]
+          },
+          "fooddeliveryservice-delivery-route1": {
+            "ClusterId": "fooddeliveryservice-delivery-cluster",
+            "AuthorizationPolicy": "default",
+            "Match": { "Path": "delivery/{**catch-all}" },
+            "Transforms": [ { "PathPattern": "delivery/{**catch-all}" } ]
+          },
+          "fooddeliveryservice-users-route1": {
+            "ClusterId": "fooddeliveryservice-users-cluster",
+            "AuthorizationPolicy": "default",
+            "Match": { "Path": "users/{**catch-all}" },
+            "Transforms": [ { "PathPattern": "users/{**catch-all}" } ]
+          },
+          "fooddeliveryservice-realtime-route1": {
+            "ClusterId": "fooddeliveryservice-realtime-cluster",
+            "AuthorizationPolicy": "default",
+            "Match": { "Path": "hubs/{**catch-all}" },
+            "Transforms": [ { "PathPattern": "hubs/{**catch-all}" } ]
+          }
+        },
+        "Clusters": {
+          "fooddeliveryservice-notifications-cluster": {
+            "Destinations": { "destination1": { "Address": "http://fooddeliveryservice-notifications-api:8080" } }
+          },
+          "fooddeliveryservice-orders-cluster": {
+            "Destinations": { "destination1": { "Address": "http://fooddeliveryservice-orders-api:8080" } }
+          },
+          "fooddeliveryservice-restaurants-cluster": {
+            "Destinations": { "destination1": { "Address": "http://fooddeliveryservice-restaurants-api:8080" } }
+          },
+          "fooddeliveryservice-delivery-cluster": {
+            "Destinations": { "destination1": { "Address": "http://fooddeliveryservice-delivery-api:8080" } }
+          },
+          "fooddeliveryservice-users-cluster": {
+            "Destinations": { "destination1": { "Address": "http://fooddeliveryservice-users-api:8080" } }
+          },
+          "fooddeliveryservice-realtime-cluster": {
+            "Destinations": { "destination1": { "Address": "http://fooddeliveryservice-realtime-api:8080" } }
+          }
+        }
+      }
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fooddeliveryservice-gateway
+  namespace: fooddeliveryservice
+  labels:
+    app.kubernetes.io/name: fooddeliveryservice-gateway
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/part-of: fooddeliveryservice
+spec:
+  # NodePort, not ClusterIP: this is how traffic gets in. The KinD config maps node port 30080 to
+  # localhost:8000, so the Gateway is your compose `:3000` equivalent. Everything else stays
+  # ClusterIP — one public entry point, unchanged from the compose topology.
+  #
+  # A production cluster would put a LoadBalancer or an Ingress here instead; NodePort is the
+  # no-extra-components way to do it locally.
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: fooddeliveryservice-gateway
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      nodePort: 30080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fooddeliveryservice-gateway
+  namespace: fooddeliveryservice
+  labels:
+    app.kubernetes.io/name: fooddeliveryservice-gateway
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/part-of: fooddeliveryservice
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fooddeliveryservice-gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fooddeliveryservice-gateway
+        app.kubernetes.io/component: gateway
+        app.kubernetes.io/part-of: fooddeliveryservice
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1654
+        runAsGroup: 1654
+        fsGroup: 1654
+      containers:
+        - name: gateway
+          image: fooddeliveryservice/gateway:local-dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: platform-config
+          # No database, no Redis, no broker: the Gateway proxies and validates JWTs, nothing else.
+          # Its readiness is its liveness by design — one dead downstream cluster must not take the
+          # single public entry point out of rotation and every other service with it.
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            # subPath mounts the single file. Without it the ConfigMap replaces the whole /app
+            # directory and the application disappears.
+            - name: appsettings
+              mountPath: /app/appsettings.Kubernetes.json
+              subPath: appsettings.Kubernetes.json
+              readOnly: true
+      volumes:
+        - name: appsettings
+          configMap:
+            name: gateway-appsettings

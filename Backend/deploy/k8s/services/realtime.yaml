@@ -1,0 +1,104 @@
+# RealTime — the SignalR host behind hubs/**. Stays at replicas: 1 on purpose: SignalR's
+# negotiate and connect are separate connections that kube-proxy can send to different pods, and
+# the Redis backplane does not fix that. Azure SignalR is the scale path if it ever needs one.
+#
+# Same shape as orders.yaml, which carries the explanatory comments for all of them.
+apiVersion: v1
+kind: Service
+metadata:
+  name: fooddeliveryservice-realtime-api
+  namespace: fooddeliveryservice
+  labels:
+    app.kubernetes.io/name: fooddeliveryservice-realtime-api
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: fooddeliveryservice
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: fooddeliveryservice-realtime-api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fooddeliveryservice-realtime-api
+  namespace: fooddeliveryservice
+  labels:
+    app.kubernetes.io/name: fooddeliveryservice-realtime-api
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: fooddeliveryservice
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fooddeliveryservice-realtime-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fooddeliveryservice-realtime-api
+        app.kubernetes.io/component: api
+        app.kubernetes.io/part-of: fooddeliveryservice
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1654
+        runAsGroup: 1654
+        fsGroup: 1654
+      containers:
+        - name: realtime-api
+          image: fooddeliveryservice/realtime-api:local-dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: platform-config
+          env:
+            - name: ConnectionStrings__Database
+              valueFrom:
+                secretKeyRef:
+                  name: platform-secrets
+                  key: Database__RealTime
+            - name: ConnectionStrings__Cache
+              valueFrom:
+                secretKeyRef:
+                  name: platform-secrets
+                  key: ConnectionStrings__Cache
+            - name: ConnectionStrings__Queue
+              valueFrom:
+                secretKeyRef:
+                  name: platform-secrets
+                  key: ConnectionStrings__Queue
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]

@@ -4,6 +4,8 @@ on:
   pull_request:
   push:
     branches: [development, main]
+  # Lets the slow KinD cluster job be triggered by hand on any branch.
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -89,9 +91,50 @@ jobs:
         with:
           args: -color
 
-      # Milestones A–F of KUBERNETES_PHASE2_PLAN.md append their manifest gates here:
-      #   A: kubeconform -strict over deploy/k8s/**, plus the Orders Deployment policy script
-      #   B: policy check — no secret literal appears as a `value:` in any Deployment
-      #   C: helm lint, helm template | kubeconform -strict, helm-unittest
-      #   D–F: further conftest/helm-unittest assertions
-      # Each of those PRs adds a step to this job rather than a new workflow.
+      # Milestone A gates: the manifests are valid Kubernetes, and they have the shape this platform
+      # decided on. Both are fast and need no cluster.
+      - name: kubeconform (manifest schema)
+        uses: docker://ghcr.io/yannh/kubeconform:v0.6.7
+        with:
+          args: -strict -summary -kubernetes-version 1.31.0 Backend/deploy/k8s
+
+      - name: Manifest policy check
+        run: |
+          python3 -m pip install --quiet pyyaml
+          python3 Backend/deploy/k8s/scripts/policy-check.py Backend/deploy/k8s
+
+  cluster:
+    name: KinD cluster smoke
+    runs-on: ubuntu-latest
+    # Builds eight .NET images and stands up the whole platform, so it takes far longer than the
+    # rest of CI. It runs on pushes to the long-lived branches and on demand, not on every PR —
+    # the two fast gates above already cover the manifests themselves.
+    if: github.event_name != 'pull_request'
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same node topology and port mappings as a developer's local cluster — the config file is the
+      # one source of truth for both.
+      - name: Create KinD cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: fooddeliveryservice
+          config: Backend/deploy/kind/kind-cluster.yaml
+
+      # kind-up detects the cluster the action just created, then builds and loads all eight images
+      # and applies the manifests. Scripts are invoked through bash so a missing exec bit on a
+      # Windows-authored file cannot fail the job.
+      - name: Build images and deploy (kind-up)
+        run: bash Backend/deploy/kind/scripts/kind-up.sh
+
+      - name: Smoke test the deployed platform
+        run: bash Backend/deploy/k8s/scripts/cluster-smoke.sh
+
+      - name: Dump cluster state on failure
+        if: failure()
+        run: |
+          kubectl -n fooddeliveryservice get pods -o wide || true
+          kubectl -n fooddeliveryservice describe pods || true
+          kubectl -n fooddeliveryservice logs -l app.kubernetes.io/name=fooddeliveryservice-orders-api --tail=200 || true
+          kubectl -n fooddeliveryservice logs -l app.kubernetes.io/name=fooddeliveryservice-identity --tail=200 || true

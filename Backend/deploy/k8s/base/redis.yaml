@@ -1,0 +1,119 @@
+# Redis — ONE logical instance, deliberately.
+#
+# It is no longer just a cache: the same instance holds the IDistributedLock keys (Caching 2.3
+# Milestone D), Delivery's live driver GEO set (2.1) and the SignalR backplane (2.2). Clustering or
+# sharding it would break the lock's correctness guarantee, so it stays single (§10 of the plan).
+#
+# Because of that, it does NOT get compose's `redis:latest` with no configuration:
+#   * `maxmemory-policy noeviction` — the lock keys and the driver GEO set carry no TTL and are not
+#     regenerable. Under an eviction policy Redis is free to drop a held lock key, which surfaces as
+#     two callers entering the same critical section: a correctness bug that reads as a race.
+#     Rejecting a write under memory pressure is loud; silently dropping a lock is not.
+#   * appendonly — a restart that loses the GEO set loses every driver position.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fooddeliveryservice-redis-config
+  namespace: fooddeliveryservice
+  labels:
+    app.kubernetes.io/name: fooddeliveryservice-redis
+    app.kubernetes.io/part-of: fooddeliveryservice
+data:
+  redis.conf: |
+    maxmemory 256mb
+    maxmemory-policy noeviction
+    appendonly yes
+    appendfsync everysec
+    save 900 1
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fooddeliveryservice-redis
+  namespace: fooddeliveryservice
+  labels:
+    app.kubernetes.io/name: fooddeliveryservice-redis
+    app.kubernetes.io/component: cache
+    app.kubernetes.io/part-of: fooddeliveryservice
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: fooddeliveryservice-redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: fooddeliveryservice-redis
+  namespace: fooddeliveryservice
+  labels:
+    app.kubernetes.io/name: fooddeliveryservice-redis
+    app.kubernetes.io/component: cache
+    app.kubernetes.io/part-of: fooddeliveryservice
+spec:
+  serviceName: fooddeliveryservice-redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fooddeliveryservice-redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fooddeliveryservice-redis
+        app.kubernetes.io/component: cache
+        app.kubernetes.io/part-of: fooddeliveryservice
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+      containers:
+        - name: redis
+          image: redis:7.4-alpine
+          imagePullPolicy: IfNotPresent
+          command: ["redis-server", "/etc/redis/redis.conf"]
+          ports:
+            - name: redis
+              containerPort: 6379
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: redis
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/redis
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: config
+          configMap:
+            name: fooddeliveryservice-redis-config
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi

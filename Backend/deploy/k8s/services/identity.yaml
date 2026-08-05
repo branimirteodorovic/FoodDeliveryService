@@ -1,0 +1,138 @@
+# Identity (Duende IdentityServer) — issues the JWTs everything else validates.
+#
+# It is also a readiness dependency of all six module hosts: their `Duende` health check probes this
+# host's aggregate /health, so an Identity outage takes all six unready at once. That correlated
+# failure is intended — a service that cannot resolve permissions cannot serve authenticated
+# traffic — and it means Identity must be up before anything else reports Ready.
+apiVersion: v1
+kind: Service
+metadata:
+  name: fooddeliveryservice-identity
+  namespace: fooddeliveryservice
+  labels:
+    app.kubernetes.io/name: fooddeliveryservice-identity
+    app.kubernetes.io/component: identity
+    app.kubernetes.io/part-of: fooddeliveryservice
+spec:
+  # The second and last Service published outside the cluster (KinD maps node port 30180 to
+  # localhost:18080, matching compose). Token issuance is not proxied through the Gateway today, so
+  # a client that needs to log in has to reach Identity directly — the same arrangement compose has.
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: fooddeliveryservice-identity
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      nodePort: 30180
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fooddeliveryservice-identity
+  namespace: fooddeliveryservice
+  labels:
+    app.kubernetes.io/name: fooddeliveryservice-identity
+    app.kubernetes.io/component: identity
+    app.kubernetes.io/part-of: fooddeliveryservice
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fooddeliveryservice-identity
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fooddeliveryservice-identity
+        app.kubernetes.io/component: identity
+        app.kubernetes.io/part-of: fooddeliveryservice
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1654
+        runAsGroup: 1654
+        fsGroup: 1654
+      containers:
+        - name: identity
+          image: fooddeliveryservice/identity:local-dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: platform-config
+          env:
+            - name: ConnectionStrings__Database
+              valueFrom:
+                secretKeyRef:
+                  name: platform-secrets
+                  key: Database__Identity
+            # The issuer stamped into every token. It must match the ValidIssuers entry in
+            # platform-config byte for byte, or every service rejects every token.
+            - name: IdentityServer__IssuerUri
+              value: http://fooddeliveryservice-identity:8080
+            - name: Clients__Confidential__ClientId
+              value: fooddeliveryservice-confidential-client
+            # The same secret Users presents when it provisions credentials — one key, both sides.
+            - name: Clients__Confidential__ClientSecret
+              valueFrom:
+                secretKeyRef:
+                  name: platform-secrets
+                  key: ConfidentialClientSecret
+            - name: Clients__Public__ClientId
+              value: fooddeliveryservice-public-client
+            - name: AdminSeed__Email
+              value: admin@fooddeliveryservice.com
+            # >= 8 characters: outside Development the host applies ASP.NET Identity's real password
+            # rules, so compose's `admin` would fail to seed and leave no account to log in with.
+            - name: AdminSeed__Password
+              valueFrom:
+                secretKeyRef:
+                  name: platform-secrets
+                  key: AdminSeed__Password
+            - name: AdminSeed__FirstName
+              value: System
+            - name: AdminSeed__LastName
+              value: Administrator
+            - name: AdminSeed__IdentityId
+              value: 11111111-1111-1111-1111-111111111111
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            # Duende's automatic key management writes its signing keys to ./keys under the working
+            # directory, which the non-root user cannot create inside the image. An emptyDir makes
+            # startup work; the keys are regenerated on restart, which invalidates previously issued
+            # tokens — fine for a local cluster, not for a real one.
+            - name: keys
+              mountPath: /app/keys
+      volumes:
+        - name: keys
+          emptyDir: {}

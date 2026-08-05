@@ -1,0 +1,128 @@
+# Orders — the reference shape every other module host in this directory follows.
+#
+# Read this one and the other five are the same file with a different name, image and database key.
+# The parts worth understanding are commented here and not repeated elsewhere.
+apiVersion: v1
+kind: Service
+metadata:
+  name: fooddeliveryservice-orders-api
+  namespace: fooddeliveryservice
+  labels:
+    app.kubernetes.io/name: fooddeliveryservice-orders-api
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: fooddeliveryservice
+spec:
+  # ClusterIP: reachable inside the cluster only. All external traffic goes through the Gateway
+  # (Hard Rule #10), which is the one Service published to your machine.
+  #
+  # The name is a DNS-1035 label, so Kubernetes cannot accept the compose hostname
+  # `fooddeliveryservice.orders.api` — dots are not allowed. Hence the dashes, and hence the
+  # Gateway's YARP destinations having to be re-pointed.
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: fooddeliveryservice-orders-api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fooddeliveryservice-orders-api
+  namespace: fooddeliveryservice
+  labels:
+    app.kubernetes.io/name: fooddeliveryservice-orders-api
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: fooddeliveryservice
+spec:
+  # One replica, everywhere in this directory. Every module host runs app.ApplyMigrations() at
+  # startup, so a second pod is two processes racing to migrate the same database. Scaling safely
+  # means gating that behind config first — deliberately out of scope here.
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fooddeliveryservice-orders-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fooddeliveryservice-orders-api
+        app.kubernetes.io/component: api
+        app.kubernetes.io/part-of: fooddeliveryservice
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        # $APP_UID resolves to 1654 in mcr.microsoft.com/dotnet/aspnet:10.0, which is the only
+        # reason a bare `runAsNonRoot: true` passes admission — the kubelet cannot tell whether a
+        # symbolic USER is root. Stating the UID makes the guarantee ours, not the base image's.
+        runAsUser: 1654
+        runAsGroup: 1654
+        fsGroup: 1654
+      containers:
+        - name: orders-api
+          # Pinned tag, never :latest — kind-up builds and loads this exact tag onto every node.
+          image: fooddeliveryservice/orders-api:local-dev
+          # IfNotPresent, because there is no registry to pull from: the image only exists because
+          # `kind load docker-image` put it on the nodes. `Always` would fail every pull.
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          # Everything shared lives in one ConfigMap (environment, ports, JWT validation, Duende
+          # health URL). Only this service's own settings are listed below it.
+          envFrom:
+            - configMapRef:
+                name: platform-config
+          env:
+            # Its OWN database — this is the only key that differs between the module hosts.
+            - name: ConnectionStrings__Database
+              valueFrom:
+                secretKeyRef:
+                  name: platform-secrets
+                  key: Database__Orders
+            - name: ConnectionStrings__Cache
+              valueFrom:
+                secretKeyRef:
+                  name: platform-secrets
+                  key: ConnectionStrings__Cache
+            - name: ConnectionStrings__Queue
+              valueFrom:
+                secretKeyRef:
+                  name: platform-secrets
+                  key: ConnectionStrings__Queue
+          # The three probes bind to the health contract in docs/health-probe-contract.md.
+          # The split is the whole point: /health/live never fails on a dependency, /health/ready
+          # does. A dependency outage therefore takes the pod out of the Service endpoints without
+          # restarting it — restarting a pod does not bring Postgres back.
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            # Up to 5 minutes. On a cold cluster this pod waits for Postgres and then runs EF
+            # migrations before it listens; liveness does not tick until this passes, so a slow
+            # migration cannot be mistaken for a hung process and killed.
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]

@@ -1,0 +1,104 @@
+# PostgreSQL — the single server every service keeps its own database on.
+#
+# POSTGRES_DB=fooddeliveryservice only creates a connection target: each host's EF `Migrate()` at
+# startup creates its own `fooddeliveryservice_{module}` database on this server. This is a
+# dev-cluster stand-in for Milestone H's Azure Database for PostgreSQL, reached through the same
+# `ConnectionStrings__Database` key.
+apiVersion: v1
+kind: Service
+metadata:
+  name: fooddeliveryservice-database
+  namespace: fooddeliveryservice
+  labels:
+    app.kubernetes.io/name: fooddeliveryservice-database
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: fooddeliveryservice
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: fooddeliveryservice-database
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: fooddeliveryservice-database
+  namespace: fooddeliveryservice
+  labels:
+    app.kubernetes.io/name: fooddeliveryservice-database
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: fooddeliveryservice
+spec:
+  serviceName: fooddeliveryservice-database
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fooddeliveryservice-database
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fooddeliveryservice-database
+        app.kubernetes.io/component: database
+        app.kubernetes.io/part-of: fooddeliveryservice
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        # The postgres image's own uid/gid. fsGroup makes the PVC writable by it.
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+      containers:
+        - name: postgres
+          image: postgres:17
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: fooddeliveryservice
+            - name: POSTGRES_USER
+              value: postgres
+            # Local KinD credential only. Milestone B moves this into a Secret and Milestone H
+            # behind the Key Vault CSI provider.
+            - name: POSTGRES_PASSWORD
+              value: postgres
+            # The image refuses to initialise into a non-empty directory, and a PVC mounted at
+            # /var/lib/postgresql/data arrives holding lost+found on some CSI drivers.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-d", "fooddeliveryservice"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi
