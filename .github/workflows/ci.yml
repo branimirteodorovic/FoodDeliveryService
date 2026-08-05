@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [development, main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  SOLUTION: Backend/FoodDeliveryService.Api.slnx
+
+jobs:
+  build-and-test:
+    name: Build & test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('Backend/Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Restore
+        run: dotnet restore "$SOLUTION"
+
+      - name: Build
+        run: dotnet build "$SOLUTION" --configuration Release --no-restore
+
+      # Suites excluded here need the `fooddeliveryservice.identity` host on :18080 for real
+      # Duende JWTs (Users, Orders, Restaurants, Delivery, RealTime integration tests). They are
+      # re-enabled in Milestone G's KinD job, where Identity runs in the cluster.
+      # Notifications' integration suite is purely event-driven, so it runs here on the runner's
+      # Docker via Testcontainers.
+      - name: Test (unit suites + Identity-independent integration suites)
+        run: |
+          set -euo pipefail
+          projects=(
+            "Backend/src/Common/FoodDeliveryService.Common.UnitTests/FoodDeliveryService.Common.UnitTests.csproj"
+            "Backend/src/Modules/Delivery/FoodDeliveryService.Modules.Delivery.UnitTests/FoodDeliveryService.Modules.Delivery.UnitTests.csproj"
+            "Backend/src/Modules/Notifications/FoodDeliveryService.Modules.Notifications.UnitTests/FoodDeliveryService.Modules.Notifications.UnitTests.csproj"
+            "Backend/src/Modules/Orders/FoodDeliveryService.Modules.Orders.UnitTests/FoodDeliveryService.Modules.Orders.UnitTests.csproj"
+            "Backend/src/Modules/RealTime/FoodDeliveryService.Modules.RealTime.UnitTests/FoodDeliveryService.Modules.RealTime.UnitTests.csproj"
+            "Backend/src/Modules/Restaurants/FoodDeliveryService.Modules.Restaurants.UnitTests/FoodDeliveryService.Modules.Restaurants.UnitTests.csproj"
+            "Backend/src/Modules/Users/FoodDeliveryService.Modules.Users.UnitTests/FoodDeliveryService.Modules.Users.UnitTests.csproj"
+            "Backend/src/Modules/Notifications/FoodDeliveryService.Modules.Notifications.IntegrationTests/FoodDeliveryService.Modules.Notifications.IntegrationTests.csproj"
+          )
+          for project in "${projects[@]}"; do
+            name=$(basename "$project" .csproj)
+            echo "::group::$name"
+            dotnet test "$project" --configuration Release --no-build --logger "trx;LogFileName=$name.trx"
+            echo "::endgroup::"
+          done
+
+      - name: Upload test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: '**/TestResults/*.trx'
+          if-no-files-found: ignore
+
+  tools:
+    name: Tooling gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: actionlint
+        uses: docker://rhysd/actionlint:1.7.7
+        with:
+          args: -color
+
+      # Milestones A–F of KUBERNETES_PHASE2_PLAN.md append their manifest gates here:
+      #   A: kubeconform -strict over deploy/k8s/**, plus the Orders Deployment policy script
+      #   B: policy check — no secret literal appears as a `value:` in any Deployment
+      #   C: helm lint, helm template | kubeconform -strict, helm-unittest
+      #   D–F: further conftest/helm-unittest assertions
+      # Each of those PRs adds a step to this job rather than a new workflow.
