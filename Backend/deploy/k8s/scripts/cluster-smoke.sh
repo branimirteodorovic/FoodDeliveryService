@@ -2,7 +2,7 @@
 #
 # Checks that a deployed cluster is actually working. Run it after kind-up.sh.
 #
-#   1. All eight Deployments report Ready.
+#   1. All nine Deployments report Ready.
 #   2. The Gateway answers on the published port, and proxies to a service (the anonymous
 #      users/register route reaches Users rather than 404-ing at the Gateway).
 #   3. Identity serves its discovery document on its published port.
@@ -28,6 +28,7 @@ DEPLOYMENTS=(
   fooddeliveryservice-delivery-api
   fooddeliveryservice-notifications-api
   fooddeliveryservice-realtime-api
+  fooddeliveryservice-frauddetection-api
   fooddeliveryservice-gateway
 )
 

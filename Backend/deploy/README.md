@@ -1,6 +1,6 @@
 # `deploy/` — running the solution on Kubernetes
 
-All eight services (Gateway, Identity, Users, Orders, Restaurants, Delivery, Notifications,
+All nine services (Gateway, Identity, Users, Orders, Restaurants, Delivery, Notifications, FraudDetection,
 RealTime) plus PostgreSQL, Redis and RabbitMQ, deployed to a local Kubernetes cluster with plain
 manifests and `kubectl`. No Helm, no Kustomize, no extra tooling to learn.
 
@@ -29,7 +29,7 @@ Backend/deploy/kind/scripts/kind-up.sh
 Backend\deploy\kind\scripts\kind-up.ps1
 ```
 
-Creates the cluster, builds all eight images from the existing Dockerfiles, loads them onto the
+Creates the cluster, builds all nine images from the existing Dockerfiles, loads them onto the
 nodes, applies everything and waits until each service reports Ready. First run is roughly 10–15
 minutes, nearly all of it image builds; `--no-build` / `-NoBuild` redeploys in seconds using the
 images already on the nodes.

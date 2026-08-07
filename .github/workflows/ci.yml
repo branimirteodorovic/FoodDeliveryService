@@ -49,20 +49,22 @@ jobs:
       # Suites excluded here need the `fooddeliveryservice.identity` host on :18080 for real
       # Duende JWTs (Users, Orders, Restaurants, Delivery, RealTime integration tests). They are
       # re-enabled in Milestone G's KinD job, where Identity runs in the cluster.
-      # Notifications' integration suite is purely event-driven, so it runs here on the runner's
-      # Docker via Testcontainers.
+      # Notifications' and FraudDetection's integration suites are purely event-driven, so they run here on
+      # the runner's Docker via Testcontainers.
       - name: Test (unit suites + Identity-independent integration suites)
         run: |
           set -euo pipefail
           projects=(
             "Backend/src/Common/FoodDeliveryService.Common.UnitTests/FoodDeliveryService.Common.UnitTests.csproj"
             "Backend/src/Modules/Delivery/FoodDeliveryService.Modules.Delivery.UnitTests/FoodDeliveryService.Modules.Delivery.UnitTests.csproj"
+            "Backend/src/Modules/FraudDetection/FoodDeliveryService.Modules.FraudDetection.UnitTests/FoodDeliveryService.Modules.FraudDetection.UnitTests.csproj"
             "Backend/src/Modules/Notifications/FoodDeliveryService.Modules.Notifications.UnitTests/FoodDeliveryService.Modules.Notifications.UnitTests.csproj"
             "Backend/src/Modules/Orders/FoodDeliveryService.Modules.Orders.UnitTests/FoodDeliveryService.Modules.Orders.UnitTests.csproj"
             "Backend/src/Modules/RealTime/FoodDeliveryService.Modules.RealTime.UnitTests/FoodDeliveryService.Modules.RealTime.UnitTests.csproj"
             "Backend/src/Modules/Restaurants/FoodDeliveryService.Modules.Restaurants.UnitTests/FoodDeliveryService.Modules.Restaurants.UnitTests.csproj"
             "Backend/src/Modules/Users/FoodDeliveryService.Modules.Users.UnitTests/FoodDeliveryService.Modules.Users.UnitTests.csproj"
             "Backend/src/Modules/Notifications/FoodDeliveryService.Modules.Notifications.IntegrationTests/FoodDeliveryService.Modules.Notifications.IntegrationTests.csproj"
+            "Backend/src/Modules/FraudDetection/FoodDeliveryService.Modules.FraudDetection.IntegrationTests/FoodDeliveryService.Modules.FraudDetection.IntegrationTests.csproj"
           )
           for project in "${projects[@]}"; do
             name=$(basename "$project" .csproj)

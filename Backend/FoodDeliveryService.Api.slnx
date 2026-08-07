@@ -7,6 +7,7 @@
   <Folder Name="/src/" />
   <Folder Name="/src/API/">
     <Project Path="src/API/FoodDeliveryService.Delivery.Api/FoodDeliveryService.Delivery.Api.csproj" />
+    <Project Path="src/API/FoodDeliveryService.FraudDetection.Api/FoodDeliveryService.FraudDetection.Api.csproj" />
     <Project Path="src/API/FoodDeliveryService.Gateway/FoodDeliveryService.Gateway.csproj" Id="7995658a-fc8a-4975-ba84-f5fce0b77f94" />
     <Project Path="src/API/FoodDeliveryService.Identity/FoodDeliveryService.Identity.csproj" Id="2f9a4c7e-5b3d-4e91-9c26-7a1f8d3b6e04" />
     <Project Path="src/API/FoodDeliveryService.Notifications.Api/FoodDeliveryService.Notifications.Api.csproj" Id="6b21f175-a4c3-4555-aecd-84bd154e9d8c" />
@@ -35,6 +36,17 @@
   <Folder Name="/src/Modules/Delivery/test/">
     <Project Path="src/Modules/Delivery/FoodDeliveryService.Modules.Delivery.IntegrationTests/FoodDeliveryService.Modules.Delivery.IntegrationTests.csproj" />
     <Project Path="src/Modules/Delivery/FoodDeliveryService.Modules.Delivery.UnitTests/FoodDeliveryService.Modules.Delivery.UnitTests.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/FraudDetection/">
+    <Project Path="src/Modules/FraudDetection/FoodDeliveryService.Modules.FraudDetection.Application/FoodDeliveryService.Modules.FraudDetection.Application.csproj" />
+    <Project Path="src/Modules/FraudDetection/FoodDeliveryService.Modules.FraudDetection.Domain/FoodDeliveryService.Modules.FraudDetection.Domain.csproj" />
+    <Project Path="src/Modules/FraudDetection/FoodDeliveryService.Modules.FraudDetection.Infrastructure/FoodDeliveryService.Modules.FraudDetection.Infrastructure.csproj" />
+    <Project Path="src/Modules/FraudDetection/FoodDeliveryService.Modules.FraudDetection.IntegrationEvents/FoodDeliveryService.Modules.FraudDetection.IntegrationEvents.csproj" />
+    <Project Path="src/Modules/FraudDetection/FoodDeliveryService.Modules.FraudDetection.Presentation/FoodDeliveryService.Modules.FraudDetection.Presentation.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/FraudDetection/test/">
+    <Project Path="src/Modules/FraudDetection/FoodDeliveryService.Modules.FraudDetection.IntegrationTests/FoodDeliveryService.Modules.FraudDetection.IntegrationTests.csproj" />
+    <Project Path="src/Modules/FraudDetection/FoodDeliveryService.Modules.FraudDetection.UnitTests/FoodDeliveryService.Modules.FraudDetection.UnitTests.csproj" />
   </Folder>
   <Folder Name="/src/Modules/Notifications/">
     <Project Path="src/Modules/Notifications/FoodDeliveryService.Modules.Notifications.Application/FoodDeliveryService.Modules.Notifications.Application.csproj" Id="e403a499-d77d-4d35-9f6e-81d8d3935bd5" />

@@ -69,6 +69,7 @@ stringData:
   Database__Delivery: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_delivery;Username=postgres;Password=postgres
   Database__Notifications: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_notifications;Username=postgres;Password=postgres
   Database__RealTime: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_realtime;Username=postgres;Password=postgres
+  Database__FraudDetection: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_frauddetection;Username=postgres;Password=postgres
 
   # The client-credentials secret Users presents to Identity's api/users provisioning endpoint —
   # the one sanctioned service-to-service HTTP call in the system. Both sides read the same value,
