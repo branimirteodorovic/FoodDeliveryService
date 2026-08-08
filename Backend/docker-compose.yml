@@ -61,16 +61,6 @@ services:
       - 5600:8080
       - 5601:8081
 
-  fooddeliveryservice.frauddetection.api:
-    image: ${DOCKER_REGISTRY-}fooddeliveryservicefrauddetectionapi
-    container_name: FoodDeliveryService.FraudDetection.Api
-    build:
-      context: .
-      dockerfile: src/API/FoodDeliveryService.FraudDetection.Api/Dockerfile
-    ports:
-      - 5700:8080
-      - 5701:8081
-
   fooddeliveryservice.gateway:
     image: ${DOCKER_REGISTRY-}fooddeliveryservicegateway
     container_name: FoodDeliveryService.Gateway

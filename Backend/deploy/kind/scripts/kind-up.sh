@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Brings the whole solution up on a local Kubernetes cluster: creates a KinD cluster, builds all
-# nine service images from the existing Dockerfiles, loads them onto the nodes, applies the
+# eight service images from the existing Dockerfiles, loads them onto the nodes, applies the
 # manifests and waits for everything to report Ready.
 #
 # The build step is not optional ceremony: KinD nodes have no registry to pull `fooddeliveryservice/*`
@@ -30,7 +30,6 @@ IMAGES=(
   "delivery-api:FoodDeliveryService.Delivery.Api"
   "notifications-api:FoodDeliveryService.Notifications.Api"
   "realtime-api:FoodDeliveryService.RealTime.Api"
-  "frauddetection-api:FoodDeliveryService.FraudDetection.Api"
 )
 
 # Every Deployment, in the order they are waited on.
@@ -42,7 +41,6 @@ DEPLOYMENTS=(
   fooddeliveryservice-delivery-api
   fooddeliveryservice-notifications-api
   fooddeliveryservice-realtime-api
-  fooddeliveryservice-frauddetection-api
   fooddeliveryservice-gateway
 )
 

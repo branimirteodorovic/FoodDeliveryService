@@ -1,9 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-
-  <ItemGroup>
-    <ProjectReference Include="..\..\..\Common\FoodDeliveryService.Common.Application\FoodDeliveryService.Common.Application.csproj" />
-    <ProjectReference Include="..\FoodDeliveryService.Modules.FraudDetection.Domain\FoodDeliveryService.Modules.FraudDetection.Domain.csproj" />
-    <ProjectReference Include="..\FoodDeliveryService.Modules.FraudDetection.IntegrationEvents\FoodDeliveryService.Modules.FraudDetection.IntegrationEvents.csproj" />
-  </ItemGroup>
-
-</Project>

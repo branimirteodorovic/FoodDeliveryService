@@ -63,12 +63,6 @@ data:
             "Match": { "Path": "users/{**catch-all}" },
             "Transforms": [ { "PathPattern": "users/{**catch-all}" } ]
           },
-          "fooddeliveryservice-frauddetection-route1": {
-            "ClusterId": "fooddeliveryservice-frauddetection-cluster",
-            "AuthorizationPolicy": "default",
-            "Match": { "Path": "frauddetection/{**catch-all}" },
-            "Transforms": [ { "PathPattern": "frauddetection/{**catch-all}" } ]
-          },
           "fooddeliveryservice-realtime-route1": {
             "ClusterId": "fooddeliveryservice-realtime-cluster",
             "AuthorizationPolicy": "default",
@@ -91,9 +85,6 @@ data:
           },
           "fooddeliveryservice-users-cluster": {
             "Destinations": { "destination1": { "Address": "http://fooddeliveryservice-users-api:8080" } }
-          },
-          "fooddeliveryservice-frauddetection-cluster": {
-            "Destinations": { "destination1": { "Address": "http://fooddeliveryservice-frauddetection-api:8080" } }
           },
           "fooddeliveryservice-realtime-cluster": {
             "Destinations": { "destination1": { "Address": "http://fooddeliveryservice-realtime-api:8080" } }

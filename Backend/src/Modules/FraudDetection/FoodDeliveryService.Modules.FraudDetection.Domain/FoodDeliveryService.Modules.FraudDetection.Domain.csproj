@@ -1,7 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-
-  <ItemGroup>
-    <ProjectReference Include="..\..\..\Common\FoodDeliveryService.Common.Domain\FoodDeliveryService.Common.Domain.csproj" />
-  </ItemGroup>
-
-</Project>
