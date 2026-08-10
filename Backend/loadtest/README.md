@@ -1,9 +1,9 @@
 # Load testing
 
 The k6 harness for **Feature 3.5 — Load Testing & Scalability Demonstration**
-(`../LOADTESTING_PHASE3_PLAN.md`). This document covers **Milestone A**: the foundation and the smoke
-test. Milestone D expands it into the full runbook (profiles, the breaking-point method, what to
-watch while a run is in flight).
+(`../LOADTESTING_PHASE3_PLAN.md`). This document covers **Milestone A** (the foundation and the smoke
+test) and **Milestone B** (the deterministic seed fixture). Milestone D expands it into the full
+runbook (profiles, the breaking-point method, what to watch while a run is in flight).
 
 ## Run it
 
@@ -35,6 +35,60 @@ Useful variations:
 | `./run.sh --run-id nightly-01` | Names the run — every correlation id carries it |
 | `./run.sh -- --vus 20 --duration 2m` | Everything after `--` goes straight to k6 |
 | `GATEWAY_URL=http://fooddeliveryservice.restaurants.api:8080 ./run.sh` | Bypasses the Gateway, to price the YARP hop |
+
+## Seed the dataset first
+
+`smoke.js` runs against an empty database, but nothing that places an order can. From `Backend/`:
+
+```bash
+dotnet run --project tools/FoodDeliveryService.LoadTest.Seeder
+```
+
+That produces 20 restaurants × 3 categories × 8 items, 50 drivers (clocked on, positioned, in
+Redis' GEO set) and 500 customers — all through the public API — and writes `fixtures/seed.json`,
+which `lib/fixtures.js` reads in init context. The defaults and every switch:
+
+```bash
+dotnet run --project tools/FoodDeliveryService.LoadTest.Seeder -- --help
+```
+
+The tool runs **on the host** and so defaults to `:3000` / `:18080` / `localhost:5432`; the fixture
+it writes is still valid for a k6 run inside the compose network, because both address the same
+database. Point it at the KinD cluster with `--gateway`, `--identity`, `--users-connection`,
+`--admin-password` and `--environment kind`.
+
+Things worth knowing before the first run:
+
+- **It takes minutes, and most of that is two things.** 500 registrations are 500 PBKDF2 hashes on
+  Identity's CPU, and after the last one the seeder *waits* — it places a probe order against every
+  seeded restaurant and refuses to write the fixture until one succeeds. `POST orders` needs the
+  customer and the restaurant + menu replicas to have reached the **Orders** database through the
+  outbox, which ticks every 5 s in batches of 20 per module. A fixture written before that is a
+  fixture of ids the order path cannot resolve, and the symptom is a load run reporting a 100% error
+  rate nobody can explain.
+- **Re-running is safe.** Everything is keyed on the `loadtest-` prefix (emails) and the
+  `LOADTEST-nnnn` tax identification (restaurants), so a second run reuses what exists instead of
+  onboarding a second catalogue. A run interrupted half way resumes: an account that was onboarded
+  but never activated is picked up from its invitation token.
+- **Same seed, same world.** `--random-seed` drives Bogus, and the whole dataset is generated before
+  the first HTTP call, so parallel execution cannot make two runs differ.
+- **It never writes to a database.** One exception, deliberate: reading an invited driver's one-time
+  activation token out of the Users outbox, because outside an email that is the only place it
+  exists. `Delivery.IntegrationTests.BaseIntegrationTest` does exactly the same thing. Inserting rows
+  directly would skip the outbox, so Orders would never receive the restaurant replica and every
+  seeded order would fail with `RestaurantNotFound` — the setup shortcut breaks the thing being
+  measured.
+
+To check a fixture that has been sitting around — the cheap answer to "did somebody run
+`docker compose down -v` since this was written?":
+
+```bash
+dotnet run --project tools/FoodDeliveryService.LoadTest.Seeder -- --verify
+```
+
+`seed.json` is gitignored (it holds throwaway credentials and ids that mean nothing against another
+database); `seed.sample.json` is committed next to it so the shape stays reviewable. After a soak
+run, the reset is `docker compose down -v` followed by a re-seed.
 
 ## What the smoke test is for
 
@@ -83,7 +137,10 @@ loadtest/
 ├── lib/
 │   ├── auth.js           ROPC token acquisition, cached per VU
 │   ├── http.js           tagged request wrappers, correlation id, checks
-│   └── fixtures.js       reads fixtures/seed.json (Milestone B writes it)
+│   └── fixtures.js       reads fixtures/seed.json
+├── fixtures/
+│   ├── seed.json         written by tools/FoodDeliveryService.LoadTest.Seeder — gitignored
+│   └── seed.sample.json  the same shape, committed, so a diff can review the format
 ├── scenarios/            Milestone C
 ├── scripts/run.{sh,ps1}  the runners
 ├── smoke.js
@@ -172,7 +229,6 @@ whose bare name a shell might already own.
 
 | | |
 |---|---|
-| `fixtures/seed.json` | Milestone B — `lib/fixtures.js` already degrades gracefully without it |
 | `scenarios/` | Milestone C — browse, order, track, driver, mixed |
 | profiles, the runbook | Milestone D |
 | Prometheus remote write, the `fds-load` Grafana dashboard, `handleSummary()` | Milestone E (which also replaces the deprecated `--summary-export` the runners use today) |

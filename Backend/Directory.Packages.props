@@ -37,6 +37,10 @@
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.9" />
     <PackageVersion Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.23.0" />
     <PackageVersion Include="Newtonsoft.Json" Version="13.0.4" />
+    <!-- Referenced directly only by tools/…LoadTest.Seeder, which reads the invited driver's
+         activation token straight out of the Users outbox. Every other project gets Npgsql
+         transitively through the EF Core provider below. -->
+    <PackageVersion Include="Npgsql" Version="10.0.3" />
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.2" />
     <PackageVersion Include="Npgsql.OpenTelemetry" Version="10.0.3" />
     <PackageVersion Include="OpenTelemetry.Exporter.InMemory" Version="1.16.0" />

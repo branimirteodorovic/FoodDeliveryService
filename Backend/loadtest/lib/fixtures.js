@@ -42,7 +42,7 @@ export function requireFixture(scenarioName) {
         );
     }
 
-    if (fixture.environment && fixture.environment !== environment.name) {
+    if (fixture.environment && stackOf(fixture.environment) !== stackOf(environment.name)) {
         // Ids are per-database. A fixture seeded against compose is meaningless against KinD, and the
         // failure mode is a run where every request 404s.
         throw new Error(
@@ -50,6 +50,15 @@ export function requireFixture(scenarioName) {
                 `'${environment.name}' — re-seed, or point at the environment it belongs to.`
         );
     }
+}
+
+/**
+ * Which *database* an environment name addresses. `compose` and `compose-host` are the same stack
+ * reached from two places — the seeder runs on the host while the generator runs in the network —
+ * so a fixture written by one is valid for the other. Only `kind` is a different database.
+ */
+function stackOf(name) {
+    return name === 'compose-host' ? 'compose' : name;
 }
 
 /** A random seeded restaurant, or `null` when unseeded. */

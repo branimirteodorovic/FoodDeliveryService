@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>FoodDeliveryService.LoadTest.Seeder</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <!--
+    No ProjectReference, deliberately. This tool is an API client: it drives the same public
+    endpoints a browser would, so it cannot accidentally take a shortcut through domain code and
+    seed a dataset the platform itself could never have produced (the whole point of Milestone B —
+    see LOADTESTING_PHASE3_PLAN.md §3).
+
+    The one exception is Npgsql, which reads the invited driver's one-time activation token out of
+    the Users outbox. That token exists programmatically nowhere else; the integration suites solve
+    it the same way (BaseIntegrationTest.GetActivationTokenAsync).
+  -->
+  <ItemGroup>
+    <PackageReference Include="Bogus" />
+    <PackageReference Include="Dapper" />
+    <PackageReference Include="Npgsql" />
+  </ItemGroup>
+
+</Project>

@@ -15,7 +15,7 @@ import { environment, credentials, runId } from './config/environments.js';
 import { SCOPE_SETUP, sloThresholds } from './config/thresholds.js';
 import { getToken } from './lib/auth.js';
 import { gatewayUrl, get, send } from './lib/http.js';
-import { hasFixture, randomRestaurant } from './lib/fixtures.js';
+import { hasFixture, fixture, randomRestaurant, requireFixture } from './lib/fixtures.js';
 
 export const options = {
     vus: Number(__ENV.VUS || 5),
@@ -67,7 +67,11 @@ export function setup() {
     // One full journey, on the same credential the VUs use, so the permission cache it populates is
     // the one they hit. The login is tagged `setup` too: against a freshly started Identity the first
     // token request took 7.9 s here, which measures Duende's startup, not the cost of a login.
-    journey(getToken(credentials.username, credentials.password, SCOPE_SETUP), SCOPE_SETUP, false);
+    const token = getToken(credentials.username, credentials.password, SCOPE_SETUP);
+
+    checkFixture(token);
+
+    journey(token, SCOPE_SETUP, false);
 
     return { startedOnUtc: new Date().toISOString() };
 }
@@ -75,6 +79,47 @@ export function setup() {
 export default function () {
     // One login per VU — cached in lib/auth.js. See the comment there before "optimising" this.
     journey(getToken(credentials.username, credentials.password));
+}
+
+/**
+ * When Milestone B's seeder has run, prove its fixture is still worth reading before anything is
+ * measured against it: the environment matches, and one seeded restaurant's menu still resolves
+ * through the API.
+ *
+ * Skipped entirely without a fixture — `smoke.js` has to stay runnable against an empty database.
+ * With one, this is the check that turns "every request 404s" into a one-line failure naming the
+ * cause, which is usually that the database was recreated since the fixture was written.
+ */
+function checkFixture(token) {
+    if (!hasFixture) {
+        return;
+    }
+
+    requireFixture('smoke.js');
+
+    const seeded = randomRestaurant();
+
+    get(gatewayUrl(`restaurants/${seeded.restaurantId}/menu`), {
+        name: 'GET /restaurants/:id/menu',
+        token,
+        scope: SCOPE_SETUP,
+        body: {
+            'seeded restaurant still resolves': (json) =>
+                Boolean(json) && json.restaurantId === seeded.restaurantId,
+            'seeded menu items are still on the menu': (json) => {
+                const live = new Set(
+                    (json.categories || []).flatMap((category) => (category.items || []).map((item) => item.id))
+                );
+
+                return seeded.menuItemIds.every((id) => live.has(id));
+            },
+        },
+    });
+
+    console.log(
+        `fixture '${fixture.runId}' · ${fixture.restaurants.length} restaurants · ` +
+            `${fixture.customers.length} customers · ${fixture.drivers.length} drivers`
+    );
 }
 
 /**
