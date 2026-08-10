@@ -18,6 +18,17 @@ export const SCOPE_JOURNEY = 'journey';
 export const SCOPE_AUTH = 'auth';
 export const SCOPE_SETUP = 'setup';
 
+/**
+ * Requests **no real client would ever make** — today, exactly one: `driver.js` polling the
+ * administrator's delivery board to find out which deliveries are currently offered.
+ *
+ * It exists because the platform has no per-driver "my offers" read model (see `scenarios/driver.js`)
+ * — so it is harness scaffolding standing in for a push channel, not a journey. It still loads the
+ * platform, so it stays inside `http_req_failed` and `checks`; it is kept out of the journey latency
+ * SLO because a threshold on it would be a threshold on the workaround.
+ */
+export const SCOPE_DISPATCH = 'dispatch';
+
 // Where these numbers stand today. They are budgets, not measurements — Milestone D's baseline run
 // is what turns them into numbers with evidence behind them. For scale, `smoke.js` at 5 VUs against
 // a warm compose stack (generator co-located, 30 s) measures:

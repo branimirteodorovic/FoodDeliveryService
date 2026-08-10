@@ -2,8 +2,9 @@
 
 The k6 harness for **Feature 3.5 — Load Testing & Scalability Demonstration**
 (`../LOADTESTING_PHASE3_PLAN.md`). This document covers **Milestone A** (the foundation and the smoke
-test) and **Milestone B** (the deterministic seed fixture). Milestone D expands it into the full
-runbook (profiles, the breaking-point method, what to watch while a run is in flight).
+test), **Milestone B** (the deterministic seed fixture) and **Milestone C** (the journey scripts).
+Milestone D expands it into the full runbook (profiles, the breaking-point method, what to watch
+while a run is in flight).
 
 ## Run it
 
@@ -127,21 +128,131 @@ bottleneck shortlist — so they are **measured, not hidden**: the warm-up appea
 `{scope:setup}`. It is simply not what the journey SLO is about. Process cold start is a deployment
 property; the thresholds are about what a user experiences against a running system.
 
+## The journeys
+
+Five scripts under `scenarios/`. Each runs standalone at low volume as its own smoke check, and each
+exports its journey so `mixed.js` can compose them — the journey logic lives in one place and only
+the *amount* of it differs.
+
+```bash
+./run.sh scenarios/mixed.js            # everything at once — the Milestone C gate
+./run.sh scenarios/browse.js           # or any one journey on its own
+```
+
+| Script | Who | What it does | Why it is in the mix |
+|---|---|---|---|
+| `browse.js` | customer | list → detail → menu, with think time | 70% of customer traffic, and the experiment that decides Milestone F's caching question — of its three requests only the **list** has no `ICachedQuery` |
+| `order.js` | customer | browse, then `POST /orders` with 1–4 lines | the write path; ~1% of iterations replay the previous `Idempotency-Key` on purpose |
+| `track.js` | customer | poll `GET /orders/{id}` + the delivery every 3–5 s | worst read amplification per order, and the journey that keeps Redis busiest |
+| `restaurant.js` | manager | dashboard poll → one lifecycle step per order | **without it nothing leaves `Pending`** and two thirds of the platform is never exercised |
+| `driver.js` | driver | position report → claim an offer → picked-up → delivered | **without it nothing reaches `Delivered`** |
+| `mixed.js` | — | all five, weighted | the only shape that measures the platform rather than one endpoint of it |
+
+### Arrival rate, not virtual users
+
+The three customer journeys run under `constant-arrival-rate`. A `constant-vus` closed loop issues
+its next request only after the previous one returns, so as the system slows the offered load falls
+with it — throughput plateaus, latency looks merely elevated, and the run reports a system coping.
+That is backwards: real customers do not slow down because the site is slow. Arrival rate is what
+lets Milestone D's ramp find a knee at all.
+
+The two operator scenarios are `constant-vus`, correctly: a kitchen has a fixed number of staff and a
+city a fixed number of drivers. They are supply, not demand.
+
+### Knobs
+
+| | Default | |
+|---|---|---|
+| `RATE` | `2` | total customer arrivals per second, split browse 70% / order 20% / track 8% |
+| `DURATION` | `5m` | |
+| `KITCHEN_VUS` | one per seeded restaurant | fewer leaves the restaurants it does not cover stuck in `Pending` all run |
+| `DRIVER_VUS` | `8` | see *the offer-board workaround* below before raising it |
+| `ORDER_REPLAY_RATE` | `0.01` | share of orders that deliberately replay the previous idempotency key |
+
+### The one way to accidentally lie in this feature
+
+`PlaceOrderCommandHandler` looks up `Idempotency-Key` **first** and returns the existing order id if
+it hits — before the customer, the restaurant replica, the pricing or the insert. A script that
+reuses one key stops creating orders after its first iteration and starts measuring a single indexed
+`SELECT`. Throughput rises, latency collapses, the summary looks spectacular, and none of it
+happened.
+
+So `order.js` mints a fresh key per placement, and its `orders_placed` counter exists to be compared
+against the platform's own `orders_placed_total` after a run. If they disagree, the script is
+measuring HTTP responses that never became orders.
+
+The dedupe path is real behaviour worth measuring — a mobile client retrying over a flaky connection
+— so ~1% of iterations replay the previous key deliberately, tagged `placement:replay`, and checked
+for the property that matters: the replay must return the **same** order id.
+
+### The offer-board workaround, and what it found
+
+**A driver cannot discover over REST that they have been offered a delivery.** Verified against the
+code: `GET /delivery/deliveries` filters on `driver_id`, which is `NULL` until a driver *accepts*;
+`offered_driver_id` appears in no response DTO; `DeliveryAccess.EnsureCanView` admits the customer,
+the *assigned* driver and administrators, not the offered one; and `DeliveryOfferedIntegrationEvent`
+exists but nothing consumes it yet. The offer reaches a real driver app through SignalR, which this
+feature puts out of scope (§12).
+
+`driver.js` therefore polls the **administrator's** delivery board for `Offered` deliveries and
+attempts one per tick, oldest first. The domain rejects every driver but the offered one, so exactly
+one claim wins. The cost is roughly *P/2* wasted claims per delivery for a pool of *P* — bounded
+(each VU tries a delivery once), counted (`driver_claims_missed`, `driver_claim_hit_rate` ≈ 1/*P*),
+tagged `scope: dispatch` so it stays out of the journey SLO, and the reason the driver pool is
+deliberately small. The honest fix is a "my offers" read model or the SignalR push, and it belongs in
+the Delivery feature, not in a load test.
+
+Building it surfaced two platform findings worth carrying into Milestone F:
+
+1. **The available-driver pool is polluted by anyone who stops reporting.**
+   `delivery:drivers:available` is a Redis GEO set with no per-member TTL, and freshness lives in a
+   separate 60 s key — but `GEOSEARCH` applies `count: CandidateLimit` (10) **before** the freshness
+   filter. With 50 seeded drivers and 8 driven, the ten nearest members are almost all stale, the
+   filter discards them, and the offer routine sees *no candidates at all*. Measured: 48 deliveries
+   `Unassigned` against 37 delivered, **34 of them never offered to anyone**. In production every
+   driver who closes the app leaves a permanent member, and once those outnumber `CandidateLimit`
+   near a restaurant, orders there stop being assignable. `driver.js` works around it by clocking
+   off the seeded drivers the run is not driving (going offline `ZREM`s the member): the same run
+   then produced **55 delivered against 7 unassigned**.
+2. **`Unassigned` is terminal and fires on a momentary shortage.** When every currently-available
+   candidate has been tried — including when the list is empty because they are all busy — the
+   delivery is parked for a human immediately. There is no "wait and retry" state, so a transient
+   dip in driver supply strands an order permanently. This is why `DRIVER_VUS` has to be sized
+   against `RATE` and not chosen in the abstract.
+
+### Reading a mixed run
+
+Cross-check the client's view against the platform's own counters — that is the whole point of
+running against an instrumented system:
+
+| k6 says | The platform must agree |
+|---|---|
+| `orders_placed` | `orders_placed_total` advanced by the same amount |
+| `deliveries_completed` | `orders_state_transition_total{to="Delivered"}` moved |
+| `driver_claims_won` | `delivery_assignment_outcome_total{outcome="offered"}` moved |
+| `track_delivery_visible` near zero | the kitchen side is not running — the lifecycle is half-driven |
+
 ## Layout
 
 ```
 loadtest/
 ├── config/
 │   ├── environments.js   compose | compose-host | kind → gateway + identity URLs, credentials, run id
-│   └── thresholds.js     the shared SLO block
+│   └── thresholds.js     the shared SLO block and the scope tags
 ├── lib/
 │   ├── auth.js           ROPC token acquisition, cached per VU
-│   ├── http.js           tagged request wrappers, correlation id, checks
-│   └── fixtures.js       reads fixtures/seed.json
+│   ├── http.js           tagged request wrappers, correlation id, checks, expected statuses
+│   ├── fixtures.js       reads fixtures/seed.json; the VU → identity round-robin
+│   ├── actors.js         who a VU is: its customer, driver or manager, and its token
+│   ├── domain.js         the wire format — status enums, payload builders
+│   └── metrics.js        the per-journey custom metrics
 ├── fixtures/
 │   ├── seed.json         written by tools/FoodDeliveryService.LoadTest.Seeder — gitignored
 │   └── seed.sample.json  the same shape, committed, so a diff can review the format
-├── scenarios/            Milestone C
+├── scenarios/
+│   ├── browse.js  order.js  track.js     the three customer journeys
+│   ├── restaurant.js  driver.js          the supply side that closes the lifecycle
+│   └── mixed.js                          all five, weighted
 ├── scripts/run.{sh,ps1}  the runners
 ├── smoke.js
 └── results/              run artifacts, gitignored except results/published/
@@ -158,7 +269,7 @@ loadtest/
 `compose` is the default because it removes Docker's host port-forwarding from the measurement, and
 because it is the only mode in which the service DNS names the rest of the stack uses resolve.
 
-## Four things the harness enforces, and why
+## Five things the harness enforces, and why
 
 **One login per VU, not one per iteration.** ASP.NET Identity hashes passwords with PBKDF2 and
 deliberately burns CPU doing it. A script that logs in every iteration turns the exercise into a
@@ -189,6 +300,20 @@ During the Milestone F bottleneck hunt that is worth more than any dashboard.
 against a `2xx` carrying a `ProblemDetails` body. A load test that counts an application failure as a
 success reports beautiful numbers for a broken system.
 
+**Expected non-2xx outcomes are declared, not tolerated.** Two journeys legitimately receive a 4xx:
+`track.js` polls a delivery that does not exist until the restaurant marks the order ready (`404`),
+and `driver.js` claims offers it may not have been given (`400`). Passing `status: [200, 404]` to the
+wrapper both records the check correctly and hands k6 a `responseCallback`, so `http_req_failed` keeps
+meaning *"the platform answered something nobody asked for"*. The alternative — loosening the error
+threshold until the expected failures fit under it — would blind the run to the real ones.
+
+**Pacing belongs inside an operator journey, not in its caller.** `restaurant.js` and `driver.js` run
+under `constant-vus`, an open loop with nothing to pace them, so a journey that returns immediately
+simply starts again. Measured, with the sleep left in the standalone `default` and omitted from the
+composed path: 20 kitchen VUs and 8 driver VUs alone produced **221 requests per second**, forty
+times the customer traffic they exist to support, and every percentile in that run described the
+polling loop instead of the journeys.
+
 ## Thresholds
 
 `config/thresholds.js`, applied by every script:
@@ -199,6 +324,27 @@ success reports beautiful numbers for a broken system.
 | `http_req_duration{scope:journey}` | `p(95)<500`, `p(99)<1500` |
 | `http_req_duration{scope:auth}` | `p(95)<2000` |
 | `checks` | `rate>0.99` |
+
+Scenarios add their own on top, which is the point of the custom metrics: in a mixed run the global
+`http_req_duration` is dominated by browse at 70% of the traffic, so it stays green while the write
+path degrades.
+
+| Metric | Gate | Where |
+|---|---|---|
+| `order_placement_duration` | `p(95)<1000` | `order.js`, `mixed.js` |
+| `order_placement_failures` | `rate<0.01` | `order.js`, `mixed.js` |
+| `order_idempotency_replay_correct` | `rate>0.99` | `order.js`, `mixed.js` — a replay that returns a *different* order id means the dedupe is broken and retries are creating duplicate orders |
+| `kitchen_transition_success` | `rate>0.95` | `restaurant.js`, `mixed.js` |
+| `driver_claim_hit_rate` | `rate>0` | `mixed.js` only — zero means nothing reached `Delivered` and the run measured browsing with extra steps |
+
+`mixed.js` raises the login budget to `p(95)<4000` for itself, and the arithmetic is worth stating
+rather than hiding: the run starts ~58 VUs and each one's first iteration acquires a token, so
+Identity is handed roughly sixty PBKDF2 verifications inside the first second or two. Measured p95
+2.87 s, median 1.09 s, against 643 ms for smoke.js's five concurrent logins and ~150 ms for one. It is
+a **startup transient that scales with the VU count**, not the steady-state cost of signing in. It is
+raised rather than excluded because token issuance being the most expensive endpoint in the system is
+a real capacity fact (Milestone F #6); Milestone D replaces the guess with numbers measured from a
+ramp whose VUs arrive gradually.
 
 These are a starting SLO — chosen, not measured. Milestone D's baseline run is what turns them into
 numbers with evidence behind them, and adds per-profile overrides (`ramp` uses `abortOnFail`, so a run
@@ -225,10 +371,27 @@ every Windows machine. A bare `__ENV.USERNAME` logs in as whoever is at the keyb
 fails, and the summary reports a 100% error rate that looks like a platform fault. Prefix anything
 whose bare name a shell might already own.
 
+## What a mixed run looks like today
+
+5 minutes, `RATE=2`, 20 kitchens, 8 drivers, compose stack with the generator co-located, empty
+warm caches. Not a capacity measurement — the Milestone C gate:
+
+| | |
+|---|---|
+| requests | 8,465 (25/s) · `http_req_failed` **0.00%** · 24,528 checks, **all passing** |
+| journey | p95 **30 ms** · p90 21 ms · median 8 ms |
+| `POST /orders` | p95 **75 ms** · 123 orders placed, 0 failures |
+| login (`{scope:auth}`) | p95 3.7 s — the startup burst described above, not steady state |
+| lifecycle | 373 kitchen transitions at 100% · 86 offers claimed · **84 deliveries completed** |
+| platform agrees | 71 orders `Delivered`, 84 deliveries `Delivered` in the same window |
+
+The gap between 123 orders placed and 84 delivered is the run's tail, not a fault: orders placed in
+the last minute are still in flight when it stops. 35 deliveries ended `Unassigned` — see finding 2
+above; that number is a direct function of `DRIVER_VUS` against `RATE`.
+
 ## Not yet built
 
 | | |
 |---|---|
-| `scenarios/` | Milestone C — browse, order, track, driver, mixed |
-| profiles, the runbook | Milestone D |
+| profiles (baseline, ramp, spike, soak), the runbook | Milestone D |
 | Prometheus remote write, the `fds-load` Grafana dashboard, `handleSummary()` | Milestone E (which also replaces the deprecated `--summary-export` the runners use today) |

@@ -7,7 +7,7 @@
 // database nobody has seeded — that is what lets the harness be reviewed and merged before the
 // seeder exists, and it stays useful afterwards as the "is the stack even up?" check.
 
-import { environment } from '../config/environments.js';
+import { environment, runId } from '../config/environments.js';
 
 const FIXTURE_PATH = '../fixtures/seed.json';
 
@@ -61,6 +61,18 @@ function stackOf(name) {
     return name === 'compose-host' ? 'compose' : name;
 }
 
+/**
+ * One line in `setup()` naming the run and the world it is about to drive. Every scenario prints it
+ * — a summary six weeks later is worth much less if nobody can tell which fixture produced it.
+ */
+export function announce(scenario, extra = '') {
+    console.log(
+        `${scenario} · run '${runId}' · env '${environment.name}' · fixture '${fixture.runId}' · ` +
+            `${fixture.restaurants.length} restaurants · ${fixture.customers.length} customers · ` +
+            `${fixture.drivers.length} drivers${extra ? ` · ${extra}` : ''}`
+    );
+}
+
 /** A random seeded restaurant, or `null` when unseeded. */
 export function randomRestaurant() {
     return pick(fixture.restaurants);
@@ -71,13 +83,74 @@ export function randomCustomer() {
     return pick(fixture.customers);
 }
 
-/** A driver credential assigned round-robin by VU, so two VUs never drive the same driver. */
-export function driverForVu(vuId) {
-    if (fixture.drivers.length === 0) {
+/** The seeded restaurant with this id, or `null` — how a browse result becomes an order payload. */
+export function restaurantById(restaurantId) {
+    return fixture.restaurants.find((restaurant) => restaurant.restaurantId === restaurantId) || null;
+}
+
+/**
+ * A driver credential assigned round-robin by VU, so two VUs never drive the same driver.
+ *
+ * The same round-robin serves customers and managers below, and the rule it depends on is worth
+ * stating once: k6 VU ids are unique **across the whole test**, so two VUs in one scenario always
+ * land on different entries — *provided the scenario's VU count does not exceed the pool*. Past
+ * that, two VUs share an identity, and for a driver that means two iterations racing each other's
+ * offers. `scenarios/*.js` check this in `setup()` rather than leaving it to be discovered in the
+ * results.
+ *
+ * `poolSize` bounds the mapping to the **first N** seeded drivers rather than spreading over all of
+ * them. That is what makes the on-duty roster knowable in `setup()`, which runs before any VU exists
+ * and therefore cannot ask a VU which driver it will be — see `onDutyDrivers` below and
+ * `scenarios/driver.js` for what the roster is for.
+ */
+export function driverForVu(vuId, poolSize) {
+    return roundRobin(onDutyDrivers(poolSize), vuId);
+}
+
+/** The drivers a run of `poolSize` VUs will actually drive: the first `poolSize` seeded ones. */
+export function onDutyDrivers(poolSize) {
+    return fixture.drivers.slice(0, poolSize || fixture.drivers.length);
+}
+
+/** The seeded drivers such a run will *not* drive. */
+export function offDutyDrivers(poolSize) {
+    return fixture.drivers.slice(poolSize || fixture.drivers.length);
+}
+
+/**
+ * A customer credential assigned round-robin by VU — **stable for the VU's whole life**, which is
+ * the point. Picking a random customer per iteration would mean a fresh ROPC login per iteration
+ * (`lib/auth.js` caches per account per VU), and the run would degenerate into the PBKDF2 benchmark
+ * that whole file exists to prevent.
+ */
+export function customerForVu(vuId) {
+    return roundRobin(fixture.customers, vuId);
+}
+
+/**
+ * A seeded restaurant's manager, round-robin by VU — the actor `scenarios/restaurant.js` runs as.
+ * Returns the restaurant too, because a manager's whole world is that one restaurant.
+ */
+export function managerForVu(vuId) {
+    const restaurant = roundRobin(fixture.restaurants, vuId);
+
+    if (!restaurant) {
         return null;
     }
 
-    return fixture.drivers[(vuId - 1) % fixture.drivers.length];
+    return {
+        email: restaurant.managerEmail,
+        password: restaurant.managerPassword,
+        restaurant,
+    };
+}
+
+function roundRobin(items, vuId) {
+    if (!items || items.length === 0) {
+        return null;
+    }
+
+    return items[(vuId - 1) % items.length];
 }
 
 function pick(items) {

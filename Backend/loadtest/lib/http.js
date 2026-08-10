@@ -73,7 +73,11 @@ export function gatewayUrl(path) {
  * @param {object} options
  * @param {string} options.name   REQUIRED. The bounded tag value this request is recorded under.
  * @param {string} [options.token] bearer token.
- * @param {number} [options.status] expected status code, default 200.
+ * @param {number|number[]} [options.status] expected status code(s), default 200. An array declares
+ *        an outcome the journey genuinely expects — `track.js` polling a delivery that does not
+ *        exist yet is a `404` by design, `driver.js` claiming an offer somebody else was given is a
+ *        `400`. Declared statuses are excluded from `http_req_failed` (see `responseCallback`
+ *        below); the **first** entry is the primary one that body checks are evaluated on.
  * @param {Object<string, function(any, object): boolean>} [options.body]
  *        body-shape checks, keyed by description. The predicate receives the parsed JSON (or `null`
  *        if the body was not JSON) and the raw response.
@@ -104,6 +108,8 @@ export function send(method, url, payload, options = {}) {
         );
     }
 
+    const expected = Array.isArray(status) ? status : [status];
+
     const params = {
         tags: { name, scope, ...tags },
         headers: {
@@ -111,6 +117,15 @@ export function send(method, url, payload, options = {}) {
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
             ...headers,
         },
+
+        // `http_req_failed` is k6's built-in error rate and the harness's primary threshold. Left
+        // alone it marks every non-2xx/3xx response as a failure, which would make the two journeys
+        // that legitimately expect a 4xx unrunnable: `track.js` polls a delivery that does not exist
+        // until the restaurant marks the order ready, and `driver.js` claims offers it may not have
+        // been given. Declaring them here keeps `http_req_failed` meaning "the platform answered
+        // something nobody asked for" — the failure rate stays trustworthy precisely because the
+        // expected outcomes are named rather than tolerated by loosening the threshold.
+        responseCallback: http.expectedStatuses(...expected),
     };
 
     const response = http.request(method, url, payload, params);
@@ -129,19 +144,28 @@ export function send(method, url, payload, options = {}) {
     };
 
     const checks = {
-        [`${name} → ${status}`]: (r) => r.status === status,
+        [`${name} → ${expected.join('/')}`]: (r) => expected.includes(r.status),
 
         // A `200 OK` carrying a ProblemDetails body is an application failure that `http_req_failed`
         // happily counts as a success. `ApiResults.Problem` shouldn't produce one, and this check is
-        // how we find out the day something does.
+        // how we find out the day something does. Only a *successful* status is suspicious here — a
+        // declared 4xx is supposed to carry one.
         [`${name} → not a problem document`]: (r) =>
-            r.status !== status ||
+            r.status < 200 ||
+            r.status >= 300 ||
             !String(r.headers['Content-Type'] || '').includes(PROBLEM_CONTENT_TYPE),
     };
 
     for (const [description, predicate] of Object.entries(body)) {
-        // Body shape is only meaningful on the expected status — a 500's body is not the contract.
-        checks[`${name} → ${description}`] = (r) => r.status === status && predicate(json(), r);
+        // Body shape is only meaningful on the primary expected status — a 500's body is not the
+        // contract, and neither is the ProblemDetails of a declared 404. Any other status passes
+        // this check rather than failing it, for two reasons: `track.js`'s delivery poll is *mostly*
+        // a correct 404 before the restaurant marks the order ready, and failing its body check
+        // there sank the whole run's `checks` rate below the 99% threshold (measured: 228 of 621
+        // polls); and even for a genuine failure, the status check above has already fired — letting
+        // every body predicate fire as well multiplies one bad response into N failed checks and
+        // makes the rate a function of how thoroughly a request happens to be checked.
+        checks[`${name} → ${description}`] = (r) => r.status !== expected[0] || predicate(json(), r);
     }
 
     const ok = check(response, checks, { name, scope });
