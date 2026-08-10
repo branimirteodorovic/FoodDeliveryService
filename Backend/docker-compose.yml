@@ -192,6 +192,34 @@ services:
       # 3000 is the gateway and 3001 its HTTPS port, so Grafana takes 3100 on the host.
       - 3100:3000
 
+  # The load generator (Feature 3.5). Behind a compose profile, so `docker-compose up -d` is
+  # byte-for-byte unchanged for everyone who is not running a load test; it only starts when asked:
+  #
+  #   docker compose --profile loadtest run --rm fooddeliveryservice.k6 run /loadtest/smoke.js
+  #
+  # (or `loadtest/scripts/run.{sh,ps1}`, which fills in the run id and the output flags).
+  #
+  # Running it in the network rather than on the host is the point: the Gateway is reached at its
+  # container address, so Docker's host port-forwarding is not part of the measurement.
+  #
+  # CAVEAT, and it applies to every number this produces: the generator shares one host's CPU with
+  # the eight services, Postgres, Redis, RabbitMQ, Prometheus, Grafana, Jaeger and Seq. Above roughly
+  # half the host's cores the results describe that contest, not the platform.
+  fooddeliveryservice.k6:
+    image: grafana/k6:latest
+    container_name: FoodDeliveryService.K6
+    profiles: [loadtest]
+    environment:
+      - K6_NO_USAGE_REPORT=true
+    volumes:
+      # Read-only: a load script has no business editing the repo it was mounted from.
+      - ./loadtest:/loadtest:ro
+      # …except results, which is a separate writable mount so summaries survive the container.
+      - ./loadtest/results:/loadtest/results
+    depends_on:
+      - fooddeliveryservice.gateway
+      - fooddeliveryservice.identity
+
   fooddeliveryservice.queue:
     image: rabbitmq:management-alpine
     container_name: FoodDeliveryService.Queue

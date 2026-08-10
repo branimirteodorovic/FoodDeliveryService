@@ -1,0 +1,5 @@
+# seed.json holds generated credentials and ids for one database. It is reproducible by re-running
+# the seeder (Milestone B), and committing it would put throwaway passwords in git history.
+#
+# `seed.sample.json` is committed alongside it so the shape stays reviewable.
+seed.json
