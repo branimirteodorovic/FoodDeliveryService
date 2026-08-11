@@ -17,6 +17,7 @@
 
 import { sleep } from 'k6';
 import { runId } from '../config/environments.js';
+import { OUTPUT_OPTIONS, summaryFor } from '../config/output.js';
 import { sloThresholds } from '../config/thresholds.js';
 import { customerForThisVu, tokenFor } from '../lib/actors.js';
 import { pickRandom, thinkTime } from '../lib/domain.js';
@@ -35,7 +36,11 @@ export const options = {
     duration: __ENV.DURATION || '1m',
     thresholds: sloThresholds(),
     tags: { testid: `browse-${runId}` },
+    ...OUTPUT_OPTIONS,
 };
+
+/** Writes `results/…summary.{json,md}` and the terminal report. See `config/output.js`. */
+export const handleSummary = summaryFor('scenarios/browse.js');
 
 export function setup() {
     requireFixture('browse.js');

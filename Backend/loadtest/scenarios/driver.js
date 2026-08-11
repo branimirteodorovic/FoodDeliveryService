@@ -50,6 +50,7 @@
 
 import { sleep } from 'k6';
 import { runId } from '../config/environments.js';
+import { OUTPUT_OPTIONS, summaryFor } from '../config/output.js';
 import { MIX, driverPoolFor, profile } from '../config/profiles.js';
 import { SCOPE_DISPATCH, SCOPE_SETUP, sloThresholds } from '../config/thresholds.js';
 import { dispatchToken, driverForThisVu, tokenFor } from '../lib/actors.js';
@@ -143,7 +144,11 @@ export const options = {
     // threshold would fail it for correctly finding an idle system.
     thresholds: sloThresholds(),
     tags: { testid: `driver-${runId}` },
+    ...OUTPUT_OPTIONS,
 };
+
+/** Writes `results/…summary.{json,md}` and the terminal report. See `config/output.js`. */
+export const handleSummary = summaryFor('scenarios/driver.js');
 
 export function setup() {
     requireFixture('driver.js');

@@ -30,6 +30,7 @@
 // `-e RATE=` scales any of them without changing its shape, which is what a different machine needs.
 
 import { runId } from '../config/environments.js';
+import { OUTPUT_OPTIONS, summaryFor } from '../config/output.js';
 import {
     FULFILMENT_CEILING,
     MIX,
@@ -107,7 +108,20 @@ export const options = {
 
     // The driver roster logs in as every seeded driver once; k6's 60 s default is not enough.
     setupTimeout: __ENV.SETUP_TIMEOUT || '5m',
+
+    // The bounded label set and the trend statistics the summary carries (`config/output.js`). They
+    // matter most here: this is the script the profiles drive, so it is the one whose series reach
+    // Prometheus and whose per-phase percentiles identify the knee.
+    ...OUTPUT_OPTIONS,
 };
+
+/**
+ * The run's durable record — `results/…summary.json` and `…summary.md`, plus the terminal report.
+ *
+ * Prometheus keeps seven days on a volume `docker-compose.yml` calls disposable, so anything
+ * Milestone H quotes has to have been written here at run time. See `config/output.js`.
+ */
+export const handleSummary = summaryFor('scenarios/mixed.js', { profiled: true });
 
 export function setup() {
     requireFixture('mixed.js');

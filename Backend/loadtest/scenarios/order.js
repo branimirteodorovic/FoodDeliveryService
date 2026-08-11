@@ -26,6 +26,7 @@
 import { sleep } from 'k6';
 import exec from 'k6/execution';
 import { runId } from '../config/environments.js';
+import { OUTPUT_OPTIONS, summaryFor } from '../config/output.js';
 import { sloThresholds } from '../config/thresholds.js';
 import { customerForThisVu, tokenFor } from '../lib/actors.js';
 import { deliveryAddressFor, pickSome, thinkTime } from '../lib/domain.js';
@@ -68,7 +69,11 @@ export const options = {
         order_idempotency_replay_correct: ['rate>0.99'],
     },
     tags: { testid: `order-${runId}` },
+    ...OUTPUT_OPTIONS,
 };
+
+/** Writes `results/…summary.{json,md}` and the terminal report. See `config/output.js`. */
+export const handleSummary = summaryFor('scenarios/order.js');
 
 export function setup() {
     requireFixture('order.js');

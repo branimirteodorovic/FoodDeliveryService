@@ -129,3 +129,49 @@ groups:
           description: >-
             The handler pipeline itself is slow, so the cause is inside the application — a query, a
             lock wait or an outbound call — rather than in the host or the proxy.
+
+  # ---------------------------------------------------------------------------------------------
+  # Under load (Feature 3.5, Milestone E). These fire only while a k6 run is streaming into this
+  # Prometheus, which is what makes them useful: the rules above are tuned to survive an idle night
+  # and are correspondingly slow and forgiving, and a load test is neither. Gating on `k6_vus`
+  # buys a tighter threshold and a shorter window without making the general alerts noisy.
+  #
+  # It also answers a question a portfolio stack cannot otherwise answer — do these alerts work
+  # under real conditions, or only when a container is killed by hand?
+  # ---------------------------------------------------------------------------------------------
+  - name: fooddeliveryservice-loadtest
+    interval: 15s
+    rules:
+      - alert: PlatformDegradedUnderLoad
+        # 1%, not 5%: it is the same number the harness's own `http_req_failed` threshold uses, so
+        # this firing and the run failing are the same event seen from the two ends.
+        expr: |
+          100 * sum(rate(http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[2m]))
+          / sum(rate(http_server_request_duration_seconds_count[2m])) > 1
+          and on () sum(k6_vus) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ printf "%.1f" $value }}% of requests are 5xx while a load test is running'
+          description: >-
+            The platform is past the point where it can serve the offered load. Read it next to the
+            fds-load dashboard's client-against-server panel: if the client p95 has separated from
+            the server p95, the queue is in front of the application and the run has found the knee.
+
+      - alert: LoadGeneratorSaturated
+        # Not a platform alert at all, and that is the point of having it: dropped iterations mean
+        # k6 could not find a free VU, so the offered load is no longer the load in the profile and
+        # every number after this moment describes the generator. Milestone D's method says read
+        # this before blaming the platform; this makes it impossible to miss.
+        expr: sum(rate(k6_dropped_iterations_total[2m])) > 0.1
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'The load generator is dropping {{ printf "%.2f" $value }} iterations/s'
+          description: >-
+            k6 could not start iterations at the profile's arrival rate. Raise the VU allocation
+            (`secondsPerIteration` in scenarios/mixed.js) or run the generator off-host — until then
+            the offered load is below the profile and the results understate both throughput and
+            saturation.

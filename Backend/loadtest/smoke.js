@@ -12,6 +12,7 @@
 
 import { sleep } from 'k6';
 import { environment, credentials, runId } from './config/environments.js';
+import { OUTPUT_OPTIONS, summaryFor } from './config/output.js';
 import { SCOPE_SETUP, sloThresholds } from './config/thresholds.js';
 import { getToken } from './lib/auth.js';
 import { gatewayUrl, get, send } from './lib/http.js';
@@ -23,7 +24,12 @@ export const options = {
     thresholds: sloThresholds(),
     // Tags every metric the run emits, so Milestone E's Prometheus series can be filtered to one run.
     tags: { testid: `smoke-${runId}` },
+    // The bounded label set and the summary's trend statistics — `config/output.js`.
+    ...OUTPUT_OPTIONS,
 };
+
+/** Writes `results/…summary.{json,md}` and the terminal report. See `config/output.js`. */
+export const handleSummary = summaryFor('smoke.js');
 
 /**
  * Preflight, then warm the platform. `setup()` runs to completion before any VU starts, which is

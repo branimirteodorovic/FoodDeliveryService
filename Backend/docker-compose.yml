@@ -168,6 +168,13 @@ services:
       - --storage.tsdb.retention.time=7d
       # Lets `curl -X POST localhost:9090/-/reload` pick up an edited rule file without a restart.
       - --web.enable-lifecycle
+      # Accepts the k6 load generator's remote writes (Feature 3.5, Milestone E). Prometheus rejects
+      # them outright without this flag — k6 logs a write error per flush and the `fds-load`
+      # dashboard stays empty, which reads exactly like "the load test did not run".
+      #
+      # It opens a write endpoint on a port that is already published to the host, so it belongs in a
+      # local stack and nowhere else. Everything scraped stays scraped; this only adds a way in.
+      - --web.enable-remote-write-receiver
     volumes:
       - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./docker/prometheus/rules:/etc/prometheus/rules:ro
@@ -223,6 +230,17 @@ services:
     profiles: [loadtest]
     environment:
       - K6_NO_USAGE_REPORT=true
+      # Where a run goes when it is asked to stream (Milestone E). These are inert on their own —
+      # they take effect only when k6 is started with `-o experimental-prometheus-rw`, which
+      # `loadtest/scripts/run.{sh,ps1} --prometheus` adds. Kept here rather than in the runner
+      # because this is the file that owns the Prometheus service name.
+      - K6_PROMETHEUS_RW_SERVER_URL=http://fooddeliveryservice.prometheus:9090/api/v1/write
+      # Trends arrive as one gauge per statistic, so this list *is* the set of series the dashboard
+      # can query: k6_http_req_duration_p95, _p99, _avg, _max.
+      - K6_PROMETHEUS_RW_TREND_STATS=p(95),p(99),avg,max
+      # Marks the run's series stale when it ends, instead of leaving Grafana drawing the last value
+      # flat across the hours afterwards — which looks like a load test nobody stopped.
+      - K6_PROMETHEUS_RW_STALE_MARKERS=true
     volumes:
       # Read-only: a load script has no business editing the repo it was mounted from.
       - ./loadtest:/loadtest:ro

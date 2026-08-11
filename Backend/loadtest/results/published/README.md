@@ -4,7 +4,15 @@ The summaries the repo's documentation quotes. Everything else under `results/` 
 are here because a published number with no artifact behind it is an assertion, not evidence, and
 because Prometheus keeps seven days on a volume that is explicitly disposable (Milestone E).
 
-Each file is k6's `--summary-export` JSON for one run of `scenarios/mixed.js`.
+Each file here is k6's `--summary-export` JSON for one run of `scenarios/mixed.js`.
+
+**Runs from Milestone E onwards have a different shape and one more file.** `handleSummary()`
+(`config/output.js`) replaced the deprecated `--summary-export`, so a new `.summary.json` is k6's full
+summary object — the statistics moved one level down, into `metrics[name].values` — and it arrives
+with a `.summary.md` beside it holding the same run as a table, plus a `.platform.json` of the
+server-side Prometheus series when the run was started with `--prometheus`. The five files below
+predate that and keep the flat shape; they are not being regenerated, because a published artifact
+that gets rewritten is not evidence of anything.
 
 | File | Profile | What it is |
 |---|---|---|
@@ -38,3 +46,8 @@ The interesting keys are `metrics["http_req_duration{scope:journey}"]` (the jour
 `metrics["http_req_duration{scope:journey,phase:sNN}"]` (per step, staged profiles only) and
 `metrics.http_req_failed`. `checks` carries the body-shape assertions — a run with a healthy latency
 profile and a sagging check rate is a platform returning fast wrong answers.
+
+In these five files the statistics sit directly on the metric (`metrics["…"]["p(95)"]`). In anything
+written after Milestone E they sit under `.values` (`metrics["…"].values["p(95)"]`), the metric also
+carries its `type` and its `thresholds`, and there is a `.summary.md` next to it that needs no key
+paths at all.

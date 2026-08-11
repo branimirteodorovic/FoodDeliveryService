@@ -1,0 +1,530 @@
+{
+  "uid": "fds-load",
+  "title": "FoodDeliveryService — Load test",
+  "description": "A k6 run (Feature 3.5) next to the platform's own metrics. The top half is what the load generator experienced, pushed in by remote write while the run is in flight; the bottom half is what the services reported about the same seconds. Both halves are needed: k6 says that it slowed down, only the platform says where. Series appear only while a run is streaming — loadtest/scripts/run.{sh,ps1} --prometheus.",
+  "tags": ["fooddeliveryservice", "load", "k6"],
+  "timezone": "browser",
+  "editable": true,
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "testid",
+        "label": "Run",
+        "description": "The `testid` tag every script sets from its profile and run id — mixed-ramp-20260811T101500Z. Selecting one is how a baseline is compared with the ramp that followed it while both are still in the retention window.",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "fooddelivery-prometheus"
+        },
+        "definition": "label_values(k6_vus, testid)",
+        "query": {
+          "qryType": 1,
+          "query": "label_values(k6_vus, testid)",
+          "refId": "testid"
+        },
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "refresh": 2,
+        "sort": 2,
+        "current": {
+          "selected": false,
+          "text": ["All"],
+          "value": ["$__all"]
+        },
+        "options": []
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Client — what the load generator measured",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "VUs",
+      "description": "Virtual users k6 currently holds. Under an arrival-rate executor this is an output, not a setting: it rises on its own as iterations take longer, and a VU count climbing while the arrival rate is flat is the platform slowing down.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fooddelivery-prometheus"
+      },
+      "gridPos": { "h": 5, "w": 4, "x": 0, "y": 1 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "decimals": 0 },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "sum(k6_vus{testid=~\"$testid\"})",
+          "legendFormat": "vus",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Requests / s (client)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fooddelivery-prometheus"
+      },
+      "gridPos": { "h": 5, "w": 5, "x": 4, "y": 1 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "decimals": 1 },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "sum(rate(k6_http_reqs_total{testid=~\"$testid\"}[$__rate_interval]))",
+          "legendFormat": "requests",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Unexpected responses",
+      "description": "Computed from the request counter and its expected_response tag rather than from k6_http_req_failed_rate, so it is weighted by how many requests each endpoint actually made. The two journeys that legitimately receive a 4xx declare it (lib/http.js), so this stays the platform answering something nobody asked for. `or vector(0)` is not decoration: with no unexpected responses the numerator matches no series at all, the division yields nothing, and a healthy run would read 'No data' — which is exactly what a broken panel reads.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fooddelivery-prometheus"
+      },
+      "gridPos": { "h": 5, "w": 5, "x": 9, "y": 1 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "100 * (sum(rate(k6_http_reqs_total{testid=~\"$testid\",expected_response=\"false\"}[$__rate_interval])) or vector(0)) / sum(rate(k6_http_reqs_total{testid=~\"$testid\"}[$__rate_interval]))",
+          "legendFormat": "unexpected",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Checks passing",
+      "description": "An unweighted average across the check series — one per check name — so it is an indicator, not the number. The authoritative check rate is in the run's summary. A latency profile that looks healthy while this sags is a platform returning fast wrong answers.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fooddelivery-prometheus"
+      },
+      "gridPos": { "h": 5, "w": 5, "x": 14, "y": 1 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 99 },
+              { "color": "green", "value": 99.9 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "100 * avg(k6_checks_rate{testid=~\"$testid\"})",
+          "legendFormat": "checks",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Dropped iterations / s",
+      "description": "The generator, not the platform: k6 could not find a free VU in time. A few at a step change are normal; a rising count through a ramp means the offered load is no longer the load in the profile, and the run is measuring k6.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fooddelivery-prometheus"
+      },
+      "gridPos": { "h": 5, "w": 5, "x": 19, "y": 1 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 0.1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "colorMode": "background",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "sum(rate(k6_dropped_iterations_total{testid=~\"$testid\"}[$__rate_interval]))",
+          "legendFormat": "dropped",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Client p95 by endpoint",
+      "description": "The `name` tag lib/http.js insists on — GET /restaurants/:id, not the URL. Login is excluded: it is tagged scope:auth and its PBKDF2 cost would sit an order of magnitude above every journey line and flatten them.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fooddelivery-prometheus"
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 6 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0,
+          "custom": { "drawStyle": "line", "fillOpacity": 0, "lineWidth": 1, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "max by (name) (k6_http_req_duration_p95{testid=~\"$testid\",scope=\"journey\"})",
+          "legendFormat": "{{name}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Client p95 against server p95 — where the queue is",
+      "description": "The panel this dashboard exists for. The client line includes everything in front of the application: the Gateway's accept queue, Kestrel's, the thread pool, and the network. When the gap between the two opens, the wait is not inside a handler — adding an index or a cache will not move it, and the fix is admission control (Milestone G) or more replicas.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fooddelivery-prometheus"
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 6 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "max(k6_http_req_duration_p95{testid=~\"$testid\",scope=\"journey\"}) / 1000",
+          "legendFormat": "client p95 (k6, at the generator)",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket[$__rate_interval])))",
+          "legendFormat": "server p95 (transport, all hosts)",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "row",
+      "title": "Server — what the platform did with it",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 15 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Application p95 by service",
+      "description": "RequestMetricsBehavior, so this is the handler pipeline alone — no middleware, no model binding, no response write. The service whose line lifts first at a ramp step is the one to open the RED dashboard for.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fooddelivery-prometheus"
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": { "drawStyle": "line", "fillOpacity": 0, "lineWidth": 1, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(app_request_duration_seconds_bucket[$__rate_interval])))",
+          "legendFormat": "{{service_name}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "5xx / s by service",
+      "description": "k6's error rate says a run failed; this says which host produced it. A run whose client error rate rises with nothing here is timing out in front of the application rather than being refused by it.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fooddelivery-prometheus"
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0,
+          "custom": { "drawStyle": "line", "fillOpacity": 20, "lineWidth": 1, "showPoints": "never", "stacking": { "mode": "normal", "group": "A" } }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "sum by (service_name) (rate(http_server_request_duration_seconds_count{http_response_status_code=~\"5..\"}[$__rate_interval]))",
+          "legendFormat": "{{service_name}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Orders / s — what k6 was told against what exists",
+      "description": "The cross-check the whole harness is built to allow. k6 counts responses that returned an order id; orders_placed_total is recorded from OrderPlacedDomainEventHandler, after the row is committed and its outbox message dispatched. A persistent gap means the run is measuring HTTP responses that never became orders — the single easiest way to publish a fictional throughput number.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fooddelivery-prometheus"
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0,
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "sum(rate(k6_orders_placed_total{testid=~\"$testid\"}[$__rate_interval]))",
+          "legendFormat": "k6 — responses carrying an order id",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "editorMode": "code",
+          "expr": "sum(rate(orders_placed_total[$__rate_interval]))",
+          "legendFormat": "platform — orders that exist",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Delivery assignment outcome / s",
+      "description": "The supply side keeping up, or not. lock_contended climbing with the order rate is Milestone F #7; no_driver or an offered line that flatlines while orders keep rising is the event pipeline falling behind (F #2) or the GEO candidate limit (Milestone C, finding 1).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fooddelivery-prometheus"
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0,
+          "custom": { "drawStyle": "line", "fillOpacity": 20, "lineWidth": 1, "showPoints": "never", "stacking": { "mode": "normal", "group": "A" } }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "sum by (outcome) (rate(delivery_assignment_outcome_total[$__rate_interval]))",
+          "legendFormat": "{{outcome}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Cache hit rate under load",
+      "description": "A ramp introduces new users and new pages faster than the caches fill, so this falling as load rises is expected — the question is how far. The browse list query is deliberately uncached (Milestone F #3), so a browse-heavy mix has a hit rate ceiling built into it.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fooddelivery-prometheus"
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": { "drawStyle": "line", "fillOpacity": 0, "lineWidth": 1, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "min"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "100 * sum by (cache_key_prefix) (rate(cache_hits_total[$__rate_interval])) / (sum by (cache_key_prefix) (rate(cache_hits_total[$__rate_interval])) + sum by (cache_key_prefix) (rate(cache_misses_total[$__rate_interval])))",
+          "legendFormat": "{{cache_key_prefix}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "POST /orders p95 — client against handler",
+      "description": "The write path at both ends, and the panel Milestone F's before/after is read on. The handler line is the PlaceOrderCommand pipeline; everything between the two is queueing, the Gateway hop and serialization.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fooddelivery-prometheus"
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "max(k6_order_placement_duration_p95{testid=~\"$testid\"}) / 1000",
+          "legendFormat": "client p95 (k6)",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(app_request_duration_seconds_bucket{request=~\"PlaceOrder.*\"}[$__rate_interval])))",
+          "legendFormat": "handler p95 (PlaceOrderCommand)",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "type": "text",
+      "title": "What these panels cannot tell you",
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 40 },
+      "options": {
+        "mode": "markdown",
+        "content": "**The k6 half is empty unless a run is streaming.** Remote write is opt-in — `loadtest/scripts/run.{sh,ps1} --prometheus` — because the generator and Prometheus compete for the same host CPU as the system under test, and every published number so far was measured without it. An empty top half with a busy bottom half means somebody is generating load without `--prometheus`, not that the run failed.\n\n**This view expires.** Prometheus keeps **7 days** on a volume `docker-compose.yml` calls disposable. The durable record of a run is written at run time by `handleSummary()` — `loadtest/results/{script}-{profile}-{runId}.summary.{json,md}`, plus `.platform.json` for the server-side series behind these panels. Anything quoted in `README.md` or `docs/load-testing.md` comes from there, never from here.\n\n**The `url` label does not exist**, deliberately. `config/output.js` restricts k6's system tags, so an endpoint is identified by its route template (`GET /restaurants/:id`) and one ramp does not create a time series per restaurant id.\n\n**Nothing here knows what the host was doing.** The generator shares one machine's cores with eight services, Postgres, Redis, RabbitMQ, Jaeger, Seq, this Prometheus and Grafana. Above roughly half those cores, every line above describes that contest. Record the environment next to any number taken from this dashboard — `loadtest/README.md` → *Before every run*."
+      }
+    }
+  ]
+}

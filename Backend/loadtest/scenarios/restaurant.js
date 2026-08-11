@@ -32,6 +32,7 @@
 
 import { sleep } from 'k6';
 import { runId } from '../config/environments.js';
+import { OUTPUT_OPTIONS, summaryFor } from '../config/output.js';
 import { sloThresholds } from '../config/thresholds.js';
 import { managerForThisVu, tokenFor } from '../lib/actors.js';
 import { ORDER_STATUS, isStatus, thinkTime } from '../lib/domain.js';
@@ -66,7 +67,11 @@ export const options = {
         kitchen_transition_success: ['rate>0.95'],
     },
     tags: { testid: `restaurant-${runId}` },
+    ...OUTPUT_OPTIONS,
 };
+
+/** Writes `results/…summary.{json,md}` and the terminal report. See `config/output.js`. */
+export const handleSummary = summaryFor('scenarios/restaurant.js');
 
 export function setup() {
     requireFixture('restaurant.js');

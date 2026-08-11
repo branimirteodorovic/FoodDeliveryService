@@ -22,6 +22,7 @@
 
 import { sleep } from 'k6';
 import { runId } from '../config/environments.js';
+import { OUTPUT_OPTIONS, summaryFor } from '../config/output.js';
 import { sloThresholds } from '../config/thresholds.js';
 import { customerForThisVu, tokenFor } from '../lib/actors.js';
 import {
@@ -61,7 +62,11 @@ export const options = {
     // at when a mixed run's lifecycle looks stalled.
     thresholds: sloThresholds(),
     tags: { testid: `track-${runId}` },
+    ...OUTPUT_OPTIONS,
 };
+
+/** Writes `results/…summary.{json,md}` and the terminal report. See `config/output.js`. */
+export const handleSummary = summaryFor('scenarios/track.js');
 
 export function setup() {
     requireFixture('track.js');

@@ -3,12 +3,14 @@
 The k6 harness for **Feature 3.5 — Load Testing & Scalability Demonstration**
 (`../LOADTESTING_PHASE3_PLAN.md`), and the runbook for using it. It covers **Milestone A** (the
 foundation and the smoke test), **Milestone B** (the deterministic seed fixture), **Milestone C** (the
-journey scripts) and **Milestone D** (the load profiles, the breaking-point method, and what to watch
-while a run is in flight).
+journey scripts), **Milestone D** (the load profiles, the breaking-point method, and what to watch
+while a run is in flight) and **Milestone E** (the run in Grafana while it happens, and on disk
+afterwards).
 
 If you are here to run a test rather than to read about one, the order is:
 [seed](#seed-the-dataset-first) → [check the environment](#before-every-run) →
-[pick a profile](#the-four-profiles) → [read the result](#reading-a-ramp).
+[pick a profile](#the-four-profiles) → [read the result](#reading-a-ramp) →
+[keep the evidence](#where-a-runs-results-go).
 
 ## Run it
 
@@ -36,6 +38,7 @@ Useful variations:
 | Command | What it does |
 |---|---|
 | `./run.sh scenarios/mixed.js --profile ramp` | Runs a [load profile](#the-four-profiles) — the shape of the run |
+| `./run.sh scenarios/mixed.js --profile ramp --prometheus` | Also [streams the run into Grafana](#where-a-runs-results-go) and captures the platform's series afterwards |
 | `./run.sh --local` | Uses the `k6` binary on PATH against the published ports (`:3000`/`:18080`) |
 | `./run.sh --env kind` | Targets the Feature 2.5 KinD cluster (Gateway `:8000`) |
 | `./run.sh --run-id nightly-01` | Names the run — every correlation id carries it |
@@ -409,13 +412,76 @@ A spike reads the same way, with named phases instead of numbered ones — `warm
 `post` — and the pass condition is **`post`**, not `peak`. Anything can survive sixty seconds; the
 question is whether the queue drained afterwards.
 
+## Where a run's results go
+
+Two destinations, answering different questions. Both are Milestone E.
+
+### Live: Grafana, next to the platform's own metrics
+
+```bash
+./run.sh scenarios/mixed.js --profile ramp --prometheus
+```
+
+k6 streams into the **existing** Prometheus (Feature 2.4) over remote write, and the provisioned
+`fds-load` dashboard draws it next to the services' own numbers: <http://localhost:3100/d/fds-load>.
+The `Run` variable at the top filters to one `testid`, so a baseline and the ramp that followed it
+can be compared while both are still in the retention window.
+
+The panel worth the whole dashboard is **client p95 against server p95**. The client line contains
+everything in front of the application — accept queues, the thread pool, the network; the server line
+is what the hosts measured about themselves. While they track each other, the time is being spent
+inside handlers and a cache or an index can move it. When they separate, the request is *waiting to
+be served*, and the answer is admission control or another replica.
+
+Three things to know before reading it:
+
+- **It is off by default, and that is a measurement decision.** Streaming means Prometheus and Grafana
+  are up and competing for the same host cores as the system under test — the reference numbers in
+  this file were all measured with both stopped. Turn it on when the question is *where*, leave it off
+  when the question is *how fast*, and never compare numbers across the two.
+- **It expires.** Prometheus keeps **7 days**, on a volume `docker-compose.yml` calls disposable.
+- **The `url` label does not exist.** `config/output.js` restricts k6's system tags to a bounded set,
+  so an endpoint is identified by its route template. Without that, one ramp writes a time series per
+  restaurant id into the platform's own metrics store.
+
+`--prometheus` also, after the run, pulls the server-side series the dashboard draws out of Prometheus
+into `results/…platform.json`, because that half of the evidence otherwise expires with the graphs.
+Grafana **PNG** export is not automated: it needs the `grafana-image-renderer` plugin, which this
+stack deliberately does not install. Use Grafana's own share menu and put the images in
+`docs/assets/loadtest/`.
+
+### Durable: `results/`, written at the moment the numbers exist
+
+Every run — streamed or not — writes three files named `{script}-{profile}-{runId}`:
+
+| File | What it is |
+|---|---|
+| `.summary.json` | k6's full summary object: every metric, every sub-metric, every threshold |
+| `.summary.md` | the same run as a table — the thing that gets pasted into a PR or `docs/load-testing.md` |
+| `.platform.json` | the server-side Prometheus series for the run's window (`--prometheus` only) |
+
+`results/` is gitignored apart from `results/published/`, which holds the specific runs the
+repository's documentation quotes. A published number with no artifact behind it is an assertion.
+
+**`handleSummary()` replaces k6's default end-of-test summary**, and that is the point rather than a
+side effect: the default prints every metric k6 holds, alphabetically, and buries the four lines that
+decide whether a run is usable. What is printed instead is the traffic, the journey percentiles, the
+business counters, the per-phase table and every threshold with its measured value — in the format
+[*Reading a ramp*](#reading-a-ramp) above describes. The deprecated `--summary-export` is gone with it.
+
+One thing the summary cannot record, and the markdown says so in its own header: **the environment**.
+Host CPU/RAM, replica count and whether the generator was co-located are invisible to k6, and they are
+half of what a capacity number means. Write them down next to it — [*Before every
+run*](#before-every-run) has the block.
+
 ## What to watch while it runs
 
-k6's terminal tells you *that* something slowed down. These tell you *where*. Nothing here needs
-Prometheus, which Milestone E adds.
+k6's terminal tells you *that* something slowed down. These tell you *where*. Everything except the
+first row needs nothing but the stack itself.
 
 | Where | What | Meaning |
 |---|---|---|
+| Grafana (`:3100`), `fds-load` — **only with `--prometheus`** | the run and the platform's response to it, on one screen | start here; the client-against-server panel says whether the wait is inside the application or in front of it |
 | Seq (`:8081`), `CorrelationId like 'loadtest-<run-id>-%'` | one synthetic request's whole fan-out, including the legs that happen seconds later in another service | the single most useful view during a bottleneck hunt |
 | `docker stats` | which container is at its ceiling | Identity pinned at a trivial request rate is Milestone F #6; Postgres pinned is #1 |
 | `rabbitmqctl list_queues name messages` | queue depth climbing | the event pipeline is behind — the `_error` queues are the ones to look at first |
@@ -505,7 +571,8 @@ and no samples behind them: the trivially-passing empty phase, in the wild.
 ### What saturated
 
 Step 4 of the method, from `docker stats` sampled every 15 s through the failing step (the platform's
-own telemetry is Milestone E's job; this is the version that needs nothing):
+own telemetry now has a dashboard — [*Where a run's results go*](#where-a-runs-results-go) — but this
+is the version that needs nothing):
 
 | | at 20/s | at 26/s, just before the abort |
 |---|---|---|
@@ -596,6 +663,7 @@ so it is worth the two hours before quoting any capacity number as sustainable.
 loadtest/
 ├── config/
 │   ├── environments.js   compose | compose-host | kind → gateway + identity URLs, credentials, run id
+│   ├── output.js         handleSummary — the terminal report and the durable artifacts; the tag allow-list
 │   ├── profiles.js       baseline | ramp | spike | soak — stages, phases, per-phase thresholds
 │   └── thresholds.js     the shared SLO block and the scope tags
 ├── lib/
@@ -614,8 +682,14 @@ loadtest/
 │   └── mixed.js                          all five, weighted
 ├── scripts/run.{sh,ps1}  the runners
 ├── smoke.js
-└── results/              run artifacts, gitignored except results/published/
+└── results/              summary.json + summary.md + platform.json per run
+                          gitignored except results/published/
 ```
+
+The Grafana dashboard and the remote-write receiver live with the rest of the observability stack, not
+here: `../docker/grafana/dashboards/load.json` and the Prometheus `command:` in `../docker-compose.yml`.
+`Common.UnitTests/Observability/ObservabilityAssetTests` is what keeps them honest — it pins the
+dashboard uid set and rejects any panel querying a metric nothing produces.
 
 ## Environments
 
@@ -775,5 +849,6 @@ above; that number is a direct function of `DRIVER_VUS` against `RATE`.
 
 | | |
 |---|---|
-| Prometheus remote write, the `fds-load` Grafana dashboard, `handleSummary()` | Milestone E (which also replaces the deprecated `--summary-export` the runners use today) |
 | the measured fixes behind the knee | Milestone F — the shortlist is in `../LOADTESTING_PHASE3_PLAN.md` §7 |
+| rate limiting at the Gateway, so a ramp plateaus instead of collapsing | Milestone G |
+| `docs/load-testing.md` and the README evidence | Milestone H |
