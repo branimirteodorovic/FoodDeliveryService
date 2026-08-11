@@ -78,7 +78,10 @@ for name in LOADTEST_USERNAME LOADTEST_PASSWORD GATEWAY_URL IDENTITY_URL; do
   fi
 done
 
-summary="results/${script##*/}-${run_id}.summary.json"
+# The profile is part of the artifact's name, not just its contents: `results/` fills up with runs
+# whose only difference is the shape of the load, and a baseline that cannot be told from the ramp
+# next to it without opening both is an artifact nobody trusts.
+summary="results/${script##*/}-${profile:-noprofile}-${run_id}.summary.json"
 
 echo "==> run '$run_id' · script '$script' · env '$env_name'${profile:+ · profile '$profile'}"
 

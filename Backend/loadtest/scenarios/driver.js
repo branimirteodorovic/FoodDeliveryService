@@ -50,6 +50,7 @@
 
 import { sleep } from 'k6';
 import { runId } from '../config/environments.js';
+import { MIX, driverPoolFor, profile } from '../config/profiles.js';
 import { SCOPE_DISPATCH, SCOPE_SETUP, sloThresholds } from '../config/thresholds.js';
 import { dispatchToken, driverForThisVu, tokenFor } from '../lib/actors.js';
 import { DELIVERY_STATUS, DRIVER_STATUS, isStatus, jitter, thinkTime } from '../lib/domain.js';
@@ -112,11 +113,24 @@ let carrying = null;
  * `driver` stanza in `mixed.js`, and which fixture entries count as on duty — because the roster has
  * to be knowable in `setup()`, before any VU exists to ask.
  *
- * Small on purpose (see the claim-waste note above), and it must be small *relative to the order
- * rate*, not in absolute terms: too few drivers and deliveries exhaust their candidates and park
- * `Unassigned`.
+ * Sized from the **profile's peak order rate** (`config/profiles.js`), not chosen in the abstract:
+ * too few drivers and deliveries exhaust their candidate list and park `Unassigned`, which is
+ * terminal; too many and the claim waste above grows linearly while buying almost nothing. The
+ * profile applies both bounds. `-e DRIVER_VUS=` still wins, for the runs that are about this number.
  */
-export const DRIVER_POOL = Number(__ENV.DRIVER_VUS || __ENV.VUS || 8);
+const REQUESTED_DRIVER_POOL = Number(
+    __ENV.DRIVER_VUS || __ENV.VUS || driverPoolFor(profile.peakRate * MIX.order)
+);
+
+/**
+ * Clamped to what has actually been seeded. A profile whose peak asks for more drivers than exist
+ * would otherwise abort in `setup()` — and "the ramp does not run against the standard fixture" is a
+ * worse answer than "the ramp runs with the drivers there are, and says so".
+ */
+export const DRIVER_POOL = Math.max(
+    1,
+    Math.min(REQUESTED_DRIVER_POOL, fixture.drivers.length || REQUESTED_DRIVER_POOL)
+);
 
 export const options = {
     vus: DRIVER_POOL,
@@ -177,6 +191,17 @@ export function prepareRoster() {
     const onDuty = onDutyDrivers(DRIVER_POOL);
     const offDuty = offDutyDrivers(DRIVER_POOL);
 
+    if (REQUESTED_DRIVER_POOL > DRIVER_POOL) {
+        // Warned here rather than in init context, which k6 executes once per VU — a ramp would print
+        // this several hundred times.
+        console.warn(
+            `driver.js: profile '${profile.name}' wants ${REQUESTED_DRIVER_POOL} drivers for its ` +
+                `peak but the fixture has ${fixture.drivers.length}. Running with ` +
+                `${DRIVER_POOL}; the fulfilment half of this run is supply-limited. Re-seed with ` +
+                '`--drivers <n>` to lift it.'
+        );
+    }
+
     if (onDuty.length < DRIVER_POOL) {
         // Two VUs on one driver race each other: both claim, one gets `NotAssignedDriver`, and the
         // failure looks like the platform's rather than the harness's.
@@ -194,6 +219,20 @@ export function prepareRoster() {
     let available = 0;
 
     for (const driver of onDuty) {
+        // Before anything else: finish whatever this driver was carrying when a previous run ended.
+        // Milestone D runs four profiles back to back, and k6 stops a run mid-iteration by design —
+        // so every run leaves a few drivers holding an `Assigned` or `PickedUp` delivery, and a
+        // `Busy` driver is `Busy` until that delivery completes. Nothing else in the platform will
+        // ever complete it: the customer is not driving, the offer has already been accepted, and
+        // `ProcessExpiredOffersJob` only re-offers deliveries that were never claimed.
+        //
+        // Left alone, that compounds — the second run strands two more, and by the fourth the whole
+        // on-duty roster is `Busy`, `setup()` aborts, and the only documented way out is
+        // `docker compose down -v` plus a three-minute re-seed. Draining is what the driver would
+        // have done, costs two calls per stuck delivery, and is tagged `setup` so it never lands in
+        // a journey percentile.
+        drain(driver);
+
         setAvailability(driver, true);
 
         if (isAvailable(driver)) {
@@ -208,11 +247,57 @@ export function prepareRoster() {
 
     if (available === 0) {
         throw new Error(
-            'driver.js: no on-duty driver is Available — every one of them is Busy or Offline. A ' +
-                'driver left Busy by an interrupted run is stuck until its delivery completes; ' +
-                'reset with `docker compose down -v` and re-seed, or raise DRIVER_VUS past them.'
+            'driver.js: no on-duty driver is Available — every one of them is Busy or Offline, ' +
+                'and the drain above did not free them. A delivery stuck in a state the driver ' +
+                'cannot advance will do that; check `delivery.deliveries` for this roster, or ' +
+                'reset with `docker compose down -v` and re-seed.'
         );
     }
+}
+
+/**
+ * Carry every delivery this driver is still holding through to `Delivered`.
+ *
+ * `GET /delivery/deliveries` filters on `driver_id` for a non-administrator (`@IsAdmin OR
+ * d.driver_id = @UserId`), so this is the one board a driver *can* read: their own accepted work.
+ * Only the two live states are drained — an `Offered` delivery is not this driver's yet, and a
+ * terminal one needs nothing.
+ */
+function drain(driver) {
+    const token = tokenFor(driver, SCOPE_SETUP);
+
+    const board = get(gatewayUrl('delivery/deliveries?page=1&pageSize=20'), {
+        name: 'GET /delivery/deliveries (drain)',
+        token,
+        scope: SCOPE_SETUP,
+        body: { 'body is an array': (json) => Array.isArray(json) },
+    });
+
+    if (!Array.isArray(board.json)) {
+        return;
+    }
+
+    for (const delivery of board.json) {
+        if (isStatus(delivery.status, DELIVERY_STATUS, 'Assigned')) {
+            step(delivery.id, 'picked-up', token);
+        }
+
+        if (isStatus(delivery.status, DELIVERY_STATUS, 'Assigned', 'PickedUp')) {
+            step(delivery.id, 'delivered', token);
+
+            console.log(`driver.js: drained ${delivery.id}, left behind by an earlier run`);
+        }
+    }
+}
+
+/** One transition during the drain. Best effort — a delivery cancelled underneath it is a 400. */
+function step(deliveryId, path, token) {
+    send('POST', gatewayUrl(`delivery/deliveries/${deliveryId}/${path}`), null, {
+        name: `POST /delivery/deliveries/:id/${path}`,
+        token,
+        scope: SCOPE_SETUP,
+        status: [204, 400],
+    });
 }
 
 /**

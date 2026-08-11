@@ -1,10 +1,14 @@
 # Load testing
 
 The k6 harness for **Feature 3.5 — Load Testing & Scalability Demonstration**
-(`../LOADTESTING_PHASE3_PLAN.md`). This document covers **Milestone A** (the foundation and the smoke
-test), **Milestone B** (the deterministic seed fixture) and **Milestone C** (the journey scripts).
-Milestone D expands it into the full runbook (profiles, the breaking-point method, what to watch
+(`../LOADTESTING_PHASE3_PLAN.md`), and the runbook for using it. It covers **Milestone A** (the
+foundation and the smoke test), **Milestone B** (the deterministic seed fixture), **Milestone C** (the
+journey scripts) and **Milestone D** (the load profiles, the breaking-point method, and what to watch
 while a run is in flight).
+
+If you are here to run a test rather than to read about one, the order is:
+[seed](#seed-the-dataset-first) → [check the environment](#before-every-run) →
+[pick a profile](#the-four-profiles) → [read the result](#reading-a-ramp).
 
 ## Run it
 
@@ -31,6 +35,7 @@ Useful variations:
 
 | Command | What it does |
 |---|---|
+| `./run.sh scenarios/mixed.js --profile ramp` | Runs a [load profile](#the-four-profiles) — the shape of the run |
 | `./run.sh --local` | Uses the `k6` binary on PATH against the published ports (`:3000`/`:18080`) |
 | `./run.sh --env kind` | Targets the Feature 2.5 KinD cluster (Gateway `:8000`) |
 | `./run.sh --run-id nightly-01` | Names the run — every correlation id carries it |
@@ -232,12 +237,366 @@ running against an instrumented system:
 | `driver_claims_won` | `delivery_assignment_outcome_total{outcome="offered"}` moved |
 | `track_delivery_visible` near zero | the kitchen side is not running — the lifecycle is half-driven |
 
+## The four profiles
+
+A profile is the *shape* of a run: how much load, for how long, climbing how fast, and what counts as
+a pass. They live in `config/profiles.js` as **data**, which is the whole point — adding a test type
+is a config entry, not a new script, and two runs of the same profile are comparable by construction.
+
+| `--profile` | Shape (at the default `RATE=2`) | Wall clock | The question it answers |
+|---|---|---|---|
+| `baseline` *(default)* | 2/s, constant | 5 min | What does an unloaded system cost per request? **Everything else is read against this.** |
+| `ramp` | 2 → 32/s in 8 steps, 90 s each | ~15 min | **Where is the knee?** The number this whole feature exists to produce. |
+| `spike` | 2/s → 20/s for 60 s → 2/s | ~8 min | Does it recover, and how long does the queue take to drain? |
+| `soak` | 4/s, constant | 2 h | Do memory, connections or the outbox backlog grow without bound? |
+
+```bash
+./run.sh scenarios/mixed.js --profile baseline
+```
+
+```bash
+./run.sh scenarios/mixed.js --profile ramp
+```
+
+```bash
+./run.sh scenarios/mixed.js --profile spike
+```
+
+Every profile is expressed as multiples of one number, so `-e RATE=` moves a whole profile up or down
+without changing its shape — which is exactly what a bigger machine needs:
+
+```bash
+./run.sh scenarios/mixed.js --profile ramp -- -e RATE=5
+```
+
+| Knob | Default | |
+|---|---|---|
+| `RATE` | `2` | customer arrivals per second at 1× |
+| `RAMP_STEPS` | `1,2,4,6,8,10,13,16` | the ramp's multipliers — chosen to span the [measured knee](#where-the-knee-is), with runway past it; narrow it to bisect |
+| `RAMP_HOLD` | `90s` | per step. **60 s is a hard floor** — the outbox ticks every 5 s and a shorter step measures a transient |
+| `WARM_HOLD` | `60s` | the ungated first phase of a staged run (below) |
+| `SOAK_DURATION` | `2h` | |
+| `DRIVER_VUS` / `KITCHEN_VUS` | sized from the profile's peak | `0` drops that scenario entirely — see *the fulfilment ceiling* |
+
+The profile decides the executors, the stages, the duration, the driver pool and the thresholds.
+`scenarios/mixed.js` decides the *mix* — which journeys, in what proportion (browse 70% / order 20% /
+track 8%), with what supply behind them. A profile applied to a single journey script does nothing,
+and that script says so in its own output rather than producing a flat run named after a ramp.
+
+### Phases, and why the first minute is not gated
+
+A staged profile (`ramp`, `spike`) tags every request with the phase it happened in and declares a
+threshold **per phase** — journey p95, error rate and login p95, each with its own budget. That is
+what makes the plan's saturation rule mechanical instead of a debate about a graph: the first phase
+whose `p(95)` line goes red *is* the knee, and it is printed in the terminal with no Prometheus
+involved.
+
+The first phase is always `warm`: 60 s at the baseline rate, gated at nothing that can realistically
+fail. It is there because the first spike run failed on the wrong thing — its `pre` phase, two minutes
+at the *baseline* rate, recorded journey p95 **938 ms** with a 14.9 s maximum, while the 10× peak that
+followed it managed 194 ms. No property of the platform explains that ordering. What `pre` had
+measured was the run's own ignition: k6 building VUs, forty-odd operator VUs acquiring PBKDF2 tokens
+inside a second or two, and every fixture identity's first authenticated request paying for a cold
+Redis permission cache behind `CustomClaimsTransformation`. On a ramp the same transient would have
+put the first red step at step one, every time.
+
+`warm` is measured and printed like every other phase — it is real load and its numbers are worth
+reading, that first-login cost being Milestone F #4's evidence. It is simply not allowed to be the
+phase a knee gets attributed to. With it in place, the spike's `pre` phase reproduces the baseline
+number to within 6% (32.6 ms against 31.0 ms), which is the check that says the warm-up is long enough.
+
+## Before every run
+
+Three things, in this order. All of them have burned a run in this repo.
+
+**1. Is the stack up, and is anything else eating it?**
+
+```bash
+docker stats --no-stream
+```
+
+The generator, eight .NET services, Postgres, Redis, RabbitMQ, Jaeger, Seq and the collector share one
+host. Anything above a few percent CPU before the run starts is coming out of the measurement.
+
+The specific one that will get you: **Jaeger's `all-in-one` keeps spans in memory**. Measured here,
+after a few profile runs it held 3.5 GB of the host's 7.6 GB and 2.2 of its 8 cores, and the next run
+recorded journey p95 **6.1 s** where the same profile had measured 31 ms an hour earlier — nothing
+about the platform had changed, the tracing backend had eaten the machine. `docker-compose.yml` now
+caps it (`MEMORY_MAX_TRACES=20000`); if you are running against a stack that predates that, recreate
+it before trusting a number:
+
+```bash
+docker compose up -d fooddeliveryservice.jaeger
+```
+
+**2. Is the fixture still valid?** Ids are per-database, and `docker compose down -v` invalidates all
+of them:
+
+```bash
+dotnet run --project tools/FoodDeliveryService.LoadTest.Seeder -- --verify
+```
+
+**3. Is the queue empty?** A backlog left by the previous run is load this run did not offer and will
+be blamed for:
+
+```bash
+docker exec FoodDeliveryService.Queue rabbitmqctl list_queues name messages
+```
+
+Then record the environment next to whatever number the run produces. Without it the number is an
+anecdote:
+
+```
+compose · 8 vCPU / 7.6 GB to Docker · generator co-located · 1 replica per service
+services up: gateway identity users orders restaurants delivery notifications + postgres redis
+             rabbitmq seq jaeger otel-collector
+fixture: 20 restaurants × 24 items · 500 customers · 50 drivers
+```
+
+## The breaking-point method
+
+The part that makes a result defensible. Follow it in order; skipping step 1 is what turns a capacity
+number into an anecdote.
+
+1. **Fix the environment and record it with the run** — compose or KinD, replica count, host CPU/RAM,
+   whether the generator is co-located, which services are actually up. Use the block above.
+2. **Ramp the arrival rate in steps**, each held long enough for the caches and the outbox to reach
+   steady state — **at least 60 s**, given a 5 s outbox tick. `--profile ramp` does this; `RAMP_HOLD`
+   is the knob and 90 s is the default.
+3. **Declare saturation at the first step where** journey p95 exceeds the SLO **or** `http_req_failed`
+   exceeds 1% **or** a queue/backlog metric grows monotonically across the whole step. The first two
+   are per-phase thresholds in the summary. The third is not something k6 can see — it comes from the
+   platform, and *What to watch while it runs* below is where to look.
+4. **Identify the saturated component from the platform's own telemetry, not from k6.** k6 says *that*
+   it slowed down; only the platform says *where*. RED per service
+   (`app_request_duration_seconds` p95), `cache_hits_total` against misses,
+   `delivery_assignment_outcome_total{outcome="lock_contended"}`, RabbitMQ queue depth, the
+   `outbox_messages` backlog, Postgres connection count.
+5. **Record the number, the component, and one Jaeger trace of a slow request at that step.** The
+   trace is the artifact that makes the claim checkable — and it is why Jaeger's retention has to
+   survive the run.
+
+Then, and only then, change **one** thing and re-run the *same* profile in the *same* environment.
+That is Milestone F's method, and this is the run it compares against.
+
+## Reading a ramp
+
+```
+http_req_duration{scope:journey,phase:s04}
+✓ 'p(95)<500' p(95)=180.11ms
+http_req_duration{scope:journey,phase:s05}
+✗ 'p(95)<500' p(95)=642.03ms
+```
+
+The knee is between `s04` and `s05`; the phase timetable printed at the top of the run says what
+arrival rate each of those was. Four things to check before quoting it:
+
+- **A phase with no data passes trivially.** An empty sub-metric has `p(95)=0`, so a run that aborted
+  at `s05` shows `s06`–`s08` green with nothing behind them. Read the sample count next to the line,
+  not just the tick.
+- **`dropped_iterations` is the generator, not the platform** — k6 could not find a free VU in time.
+  A few are normal at a step change; a rising count through a ramp means the profile out-ran the VU
+  allocation and the offered load is no longer the load in the profile.
+- **The run-wide thresholds are a stop condition, not the measurement.** `ramp` sets `abortOnFail` on
+  the cumulative error rate and journey p95, which mixes every step so far and therefore trips some
+  way *past* the step that broke. Deliberate division of labour: per-phase finds the knee, cumulative
+  ends the run.
+- **The step tag covers the hold, not the climb.** Traffic during a ramp-in is tagged `phase:tr` and
+  gated by nothing, so each step's numbers describe a plateau rather than a plateau plus the climb
+  onto it.
+
+A spike reads the same way, with named phases instead of numbered ones — `warm`, `pre`, `peak`,
+`post` — and the pass condition is **`post`**, not `peak`. Anything can survive sixty seconds; the
+question is whether the queue drained afterwards.
+
+## What to watch while it runs
+
+k6's terminal tells you *that* something slowed down. These tell you *where*. Nothing here needs
+Prometheus, which Milestone E adds.
+
+| Where | What | Meaning |
+|---|---|---|
+| Seq (`:8081`), `CorrelationId like 'loadtest-<run-id>-%'` | one synthetic request's whole fan-out, including the legs that happen seconds later in another service | the single most useful view during a bottleneck hunt |
+| `docker stats` | which container is at its ceiling | Identity pinned at a trivial request rate is Milestone F #6; Postgres pinned is #1 |
+| `rabbitmqctl list_queues name messages` | queue depth climbing | the event pipeline is behind — the `_error` queues are the ones to look at first |
+| `SELECT count(*) FROM outbox_messages WHERE processed_on_utc IS NULL` per service database | backlog growing monotonically across a whole step | **Milestone F #2**, the predicted real ceiling: `MessageProcessor` moves ~4 events/s per module |
+| `SELECT count(*) FROM pg_stat_activity` | approaching 100 | Milestone F #1 — the default `max_connections` against six hosts with unbounded pools |
+| Jaeger (`:16686`) | one slow trace from the failing step | step 5 of the method |
+
+## What good looks like
+
+Measured on the reference environment below, `--profile baseline`, twice, back to back:
+
+| | baseline-01 | baseline-02 | agreement |
+|---|---|---|---|
+| journey p95 | 31.26 ms | 30.69 ms | **1.8%** |
+| journey p99 | 77.32 ms | 75.97 ms | 1.7% |
+| `POST /orders` p95 | 59.22 ms | 59.46 ms | 0.4% |
+| requests | 8,211 (24.4/s) | 7,989 (23.7/s) | 2.7% |
+| `http_req_failed` | 0.00% | 0.01% | |
+| checks | 24,037, 100% | 23,369, 99.99% | |
+| orders placed | 121 | 131 | 8% |
+| deliveries completed | 113 | 103 | 9% |
+| login p95 | 2.92 s | 2.04 s | 30% |
+
+> compose · 8 vCPU / 7.6 GB to Docker · generator co-located · 1 replica per service · Notifications,
+> RealTime, FraudDetection, Prometheus and Grafana not running · fixture 20 restaurants × 24 items,
+> 500 customers, 50 drivers
+
+**The tolerance, stated so a future run can be called noise or not:**
+
+| | Agree within | Why |
+|---|---|---|
+| journey p95/p99, `POST /orders` p95 | **±5%** | the run's headline numbers; anything wider and the harness is measuring the host |
+| request throughput | ±5% | |
+| orders placed, deliveries completed | ±10% | ~120 samples per run — Poisson noise alone is several percent |
+| login p95 | **not comparable** | dominated by the ignition burst, which is a function of VU count and host scheduling, not of the platform. Read it per phase on a staged profile instead |
+
+If two consecutive baselines fall outside that, stop: the harness is measuring noise and nothing after
+this milestone is trustworthy. Start with `docker stats` — it has been the answer both times so far.
+
+A cross-check that costs nothing: the `spike` profile's `pre` phase runs at the baseline rate, and it
+measured **32.61 ms** against the baseline's 31.26/30.69 ms. Two different profiles, an hour apart,
+agreeing to within 6%.
+
+## Where the knee is
+
+Two runs found it, and the first one is here because how it *failed to* is the more instructive half.
+
+`--profile ramp` with `RAMP_STEPS=1,2,3,4,5,6,8,10` — the original default — on the reference
+environment: eight steps of 90 s, 1,633 orders placed, 69,336 requests over fifteen minutes.
+
+| Step | Customers/s | Requests/s (approx) | journey p95 | errors |
+|---|---|---|---|---|
+| `warm` | 2 | | 75.25 ms | 0.00% |
+| `s01` | 2 | 25 | 56.76 ms | 0.00% |
+| `s02` | 4 | 50 | 37.50 ms | 0.00% |
+| `s03` | 6 | 75 | 44.79 ms | 0.00% |
+| `s04` | 8 | 100 | 101.52 ms | 0.00% |
+| `s05` | 10 | 125 | 212.22 ms | 0.02% |
+| `s06` | 12 | 150 | 77.36 ms | 0.00% |
+| `s07` | 16 | 200 | 313.08 ms | 0.04% |
+| `s08` | 20 | 250 | **282.55 ms** | 0.08% |
+
+Every step passed — 20 customers/s sits at 56% of the journey SLO with an error rate two orders of
+magnitude under the gate. What the curve shows is a *bend*: p95 grows 5× while the offered rate grows
+10×, and an error rate begins to exist at all. That is the approach to saturation, not saturation.
+
+Note `s06`, at 77 ms between `s05`'s 212 ms and `s07`'s 313 ms. A single non-monotonic step is host
+scheduling and GC, not a discovery. **Two adjacent steps make a trend; one does not** — which is why
+the method bisects with `RAMP_STEPS` instead of quoting a step.
+
+So the range was extended, starting from the last step of the previous run so the two tables join:
+
+```bash
+./run.sh scenarios/mixed.js --profile ramp -- -e RAMP_STEPS=10,13,16,20,25
+```
+
+| Step | Customers/s | journey p95 | errors | `POST /orders` p95 | placement failures |
+|---|---|---|---|---|---|
+| `s01` | 20 | 229.95 ms | 0.00% | | |
+| `s02` | **26** | **1.85 s** | **3.83%** | 4.89 s | 10.02% |
+
+**The knee is between 20 and 26 customers/s** — roughly 250 to 320 requests per second — on the
+reference environment. `s02` crosses both saturation criteria at once, the run aborted there instead
+of spending six more minutes recording a collapse, and `s03`–`s05` are in the summary with `p(95)=0`
+and no samples behind them: the trivially-passing empty phase, in the wild.
+
+### What saturated
+
+Step 4 of the method, from `docker stats` sampled every 15 s through the failing step (the platform's
+own telemetry is Milestone E's job; this is the version that needs nothing):
+
+| | at 20/s | at 26/s, just before the abort |
+|---|---|---|
+| Identity | 100% | **228%** |
+| Postgres | 52% | **187%** |
+| Orders.Api | 66% | 130% |
+| Delivery.Api | 64% | 66% |
+| Gateway | 59% | 49% |
+| k6 (the generator) | 72% | 56% |
+| **total, of 800%** | ~460% | **~780%** |
+
+The host ran out of cores, and **the single largest consumer at the knee was password hashing.**
+Identity took 2.3 of the 8 cores to issue tokens while the entire application path — Gateway, Orders,
+Restaurants, Delivery — used about 3. That is Milestone F #6 exactly, and it comes with a caveat that
+has to travel with the number:
+
+> **An arrival-rate ramp conflates "a customer arrives" with "a customer signs in."** Every new VU
+> logs in once, so a rising arrival rate is also a rising rate of PBKDF2 verifications — the most
+> expensive operation in the system by an order of magnitude. A real population is mostly returning
+> users holding valid tokens. The knee above is therefore a *lower* bound on the platform's capacity,
+> and closing that gap is a harness question (a warm token pool) before it is a platform one.
+
+The generator itself stayed at 56–72% of a core throughout, so the knee is not k6 running out of road
+— but it is one machine's eight cores shared between the load and the thing being loaded, and the
+number does not transfer. Record the environment with it, every time.
+
+**The default `RAMP_STEPS` now spans this**: `1,2,4,6,8,10,13,16` puts the knee at step six or seven
+with runway either side, so a stock `--profile ramp` on this hardware finds it instead of reporting
+that everything was fine. On a bigger machine, raise `RATE` or extend the steps — the cumulative
+`abortOnFail` is what keeps the extra ones cheap when they turn out to be unnecessary.
+
+## The fulfilment ceiling — a limit of the harness, not the platform
+
+Above roughly **0.9 orders per second** — `RATE=4.5` at a 20% order share — deliveries begin to strand
+in `Unassigned` no matter how many drivers run, and that is the harness's fault rather than the
+platform's.
+
+The cause is the offer-board workaround (see above): with no way for a driver to discover an offer
+over REST, a pool of *P* drivers wastes about *P/2* claims per delivery, so a pool ticking every
+~2.25 s completes about `(P / 2.25) / (P / 2 + 3)` deliveries per second — 0.51/s at 8 drivers,
+0.71/s at 24, and **asymptotically 0.89/s however many drivers run**, because the waste grows with the
+pool. `config/profiles.js` therefore caps the pool at 24 and `mixed.js` warns whenever a profile's
+peak crosses the line.
+
+Past it, read the placement and read-path numbers and treat the fulfilment ones as a floor — or take
+the supply side out of the picture entirely and say so, which is the honest way to run a ramp whose
+question is about the read path:
+
+```bash
+./run.sh scenarios/mixed.js --profile ramp -- -e KITCHEN_VUS=0 -e DRIVER_VUS=0
+```
+
+The real fix is a "my offers" read model or the SignalR push, in the Delivery feature.
+
+## Soak hygiene
+
+A 2-hour soak at `RATE=4` places on the order of **6,000 orders** and writes several times that many
+outbox, inbox and audit rows across seven databases. Two consequences.
+
+**Reset between soaks.** Everything the seeder creates is keyed on the `loadtest-` prefix (emails) and
+`LOADTEST-nnnn` (restaurant tax ids), which is what makes cleanup possible at all — but the orders,
+deliveries and outbox rows a *run* produces carry no such marker. The supported reset is the blunt one,
+from `Backend/`:
+
+```bash
+docker compose down -v && docker compose up -d
+```
+
+then re-seed (~3 min) and re-verify. A soak started against a database that has already been soaked is
+measuring table growth from the previous run as well as its own, which is the one thing a soak is
+supposed to be able to attribute.
+
+**Watch these three across the two hours**, because a soak that only reports latency has answered the
+wrong question:
+
+- unprocessed `outbox_messages` per service — flat is the pass, monotonic is Milestone F #2;
+- each service's container memory (`docker stats`) — and Jaeger's, which is capped now but is the
+  first thing to check if the host starts swapping;
+- `pg_stat_activity` count — Milestone F #1 predicts this climbs toward the default `max_connections`
+  of 100.
+
+A soak is run **by hand, once**, and never by CI. It is also the only profile that will notice a leak,
+so it is worth the two hours before quoting any capacity number as sustainable.
+
 ## Layout
 
 ```
 loadtest/
 ├── config/
 │   ├── environments.js   compose | compose-host | kind → gateway + identity URLs, credentials, run id
+│   ├── profiles.js       baseline | ramp | spike | soak — stages, phases, per-phase thresholds
 │   └── thresholds.js     the shared SLO block and the scope tags
 ├── lib/
 │   ├── auth.js           ROPC token acquisition, cached per VU
@@ -337,18 +696,37 @@ path degrades.
 | `kitchen_transition_success` | `rate>0.95` | `restaurant.js`, `mixed.js` |
 | `driver_claim_hit_rate` | `rate>0` | `mixed.js` only — zero means nothing reached `Delivered` and the run measured browsing with extra steps |
 
-`mixed.js` raises the login budget to `p(95)<4000` for itself, and the arithmetic is worth stating
-rather than hiding: the run starts ~58 VUs and each one's first iteration acquires a token, so
-Identity is handed roughly sixty PBKDF2 verifications inside the first second or two. Measured p95
-2.87 s, median 1.09 s, against 643 ms for smoke.js's five concurrent logins and ~150 ms for one. It is
-a **startup transient that scales with the VU count**, not the steady-state cost of signing in. It is
-raised rather than excluded because token issuance being the most expensive endpoint in the system is
-a real capacity fact (Milestone F #6); Milestone D replaces the guess with numbers measured from a
-ramp whose VUs arrive gradually.
+On top of that, each profile applies its own overrides, and the staged ones replace the run-wide login
+budget with one **per phase**:
 
-These are a starting SLO — chosen, not measured. Milestone D's baseline run is what turns them into
-numbers with evidence behind them, and adds per-profile overrides (`ramp` uses `abortOnFail`, so a run
-that has clearly fallen over stops at the knee instead of spending ten minutes recording zeros).
+| Profile | Journey p95 | Errors | Login p95 | Aborts |
+|---|---|---|---|---|
+| `baseline`, `soak` | 500 ms, strict | 1% | 4 s run-wide | no |
+| `ramp` | 500 ms **per step** | 1% per step | 8 s per step | yes — cumulative p95 and error rate |
+| `spike` | 500 ms in `pre`/`post`, 5 s in `peak` | 5% | 4 s in `pre`/`post`, 15 s in `peak` | no |
+
+`baseline` is strict partly *because it runs for five minutes*. Shortened with `-e DURATION=60s` it
+fails on login alone — measured 5.57 s — because the ignition burst is then most of the run with
+nothing to dilute it. Use the short form to check that a change did not break the harness, never to
+produce a number.
+
+The login budget is 4 s rather than the shared 2 s because a mixed run starts ~50 VUs and each one's
+first iteration acquires a token, so Identity is handed dozens of PBKDF2 verifications inside a second
+or two. Measured: p95 2.87 s, median 1.09 s, against 643 ms for smoke.js's five concurrent logins and
+~150 ms for one. It is a **startup transient that scales with the VU count**, not the steady-state cost
+of signing in — and it is budgeted rather than excluded because token issuance being the most expensive
+endpoint in the system is a real capacity fact (Milestone F #6).
+
+The staged profiles drop the run-wide login threshold entirely: a cumulative percentile on a staged run
+is fixed by that same ignition burst and says nothing about any later phase, and a 20-second budget
+nothing can cross is worse than no budget because it looks like one. They gate login per phase instead,
+which is what lets a spike assert that the token endpoint *recovered* — measured at 10×: 2.81 s at the
+peak, back to a phase with no new logins at all afterwards.
+
+The shared numbers are a starting SLO — chosen, not measured — but they now have a measurement behind
+them: the reference baseline runs at journey p95 **31 ms** against the 500 ms budget, so the gate has
+an order of magnitude of headroom and will not fail on ordinary host noise. See
+[what good looks like](#what-good-looks-like).
 
 ## Read this before quoting a number
 
@@ -357,6 +735,10 @@ Redis, RabbitMQ, Prometheus, Grafana, Jaeger and Seq all run on one machine. Abo
 host's cores, the results describe that contest and not the platform. Every published number has to
 carry the environment it came from — host CPU/RAM, replica count, compose or KinD, generator
 co-located or not. Milestone H's `docs/load-testing.md` is where that record lives.
+
+This is not a theoretical caveat. The same profile measured journey p95 **31 ms** and, two hours
+later on the same machine, **6.1 s** — because Jaeger's in-memory span store had grown to 3.5 GB and
+2.2 cores in between. [*Before every run*](#before-every-run) exists because of that afternoon.
 
 ## Credentials
 
@@ -393,5 +775,5 @@ above; that number is a direct function of `DRIVER_VUS` against `RATE`.
 
 | | |
 |---|---|
-| profiles (baseline, ramp, spike, soak), the runbook | Milestone D |
 | Prometheus remote write, the `fds-load` Grafana dashboard, `handleSummary()` | Milestone E (which also replaces the deprecated `--summary-export` the runners use today) |
+| the measured fixes behind the knee | Milestone F — the shortlist is in `../LOADTESTING_PHASE3_PLAN.md` §7 |

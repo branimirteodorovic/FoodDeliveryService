@@ -2,7 +2,10 @@
 // is what makes a run something CI or a reviewer can trust rather than a wall of numbers someone has
 // to interpret.
 //
-// Milestone D adds per-profile overrides on top of this shared block.
+// This is the *shared* block. `config/profiles.js` layers two things on top of it: per-profile
+// overrides (a spike is allowed to degrade at its peak, a soak is not allowed to degrade at all) and,
+// for staged profiles, one threshold **per phase** — which is what turns "where is the knee?" into a
+// line in the terminal rather than an argument about a graph.
 
 /**
  * Journey latency is measured *separately from login*, via the `scope` tag `lib/http.js` and
@@ -45,8 +48,14 @@ const DEFAULTS = {
     authP95: 2000,
     errorRate: 0.01,
     checkRate: 0.99,
-    // Milestone D's ramp profile sets this: past the knee a run has already answered its question,
-    // and ten more minutes of recording zeros adds nothing.
+    // The `ramp` profile sets this: past the knee a run has already answered its question, and ten
+    // more minutes of recording timeouts adds nothing. It applies to the two run-wide criteria the
+    // plan's saturation rule names — the error rate and journey p95 — and to nothing else, because
+    // aborting a ramp on a login percentile would end it for a reason that is not the platform's.
+    //
+    // Note what a *cumulative* threshold means on a staged run: it mixes every step so far, so it
+    // trips some way past the step that actually broke. That is the intended division of labour —
+    // the per-phase thresholds in `config/profiles.js` identify the knee, this one stops the run.
     abortOnFail: false,
     delayAbortEval: '30s',
 };
@@ -54,26 +63,27 @@ const DEFAULTS = {
 /**
  * The shared SLO block, as a k6 `thresholds` object.
  *
- * @param {object} [overrides] any of the DEFAULTS above.
+ * @param {object} [overrides] any of the DEFAULTS above. `config/profiles.js` supplies a profile's.
  */
 export function sloThresholds(overrides = {}) {
     const o = { ...DEFAULTS, ...overrides };
 
-    const errorRate = {
-        threshold: `rate<${o.errorRate}`,
-        abortOnFail: o.abortOnFail,
-        delayAbortEval: o.delayAbortEval,
-    };
+    const abort = { abortOnFail: o.abortOnFail, delayAbortEval: o.delayAbortEval };
 
     return {
         // Every request in the run, including setup: a broken preflight must not look like a pass.
-        http_req_failed: [errorRate],
+        http_req_failed: [{ threshold: `rate<${o.errorRate}`, ...abort }],
 
         [`http_req_duration{scope:${SCOPE_JOURNEY}}`]: [
-            `p(95)<${o.journeyP95}`,
+            { threshold: `p(95)<${o.journeyP95}`, ...abort },
             `p(99)<${o.journeyP99}`,
         ],
-        [`http_req_duration{scope:${SCOPE_AUTH}}`]: [`p(95)<${o.authP95}`],
+        // `authP95: null` drops the run-wide login gate, and only the staged profiles do it: their
+        // cumulative login percentile is fixed by the ignition burst in the first thirty seconds and
+        // says nothing about any later phase, so `config/profiles.js` gates login **per phase**
+        // instead. Dropped rather than loosened — a 20-second budget nothing can ever cross is worse
+        // than no budget, because it looks like one.
+        ...(o.authP95 ? { [`http_req_duration{scope:${SCOPE_AUTH}}`]: [`p(95)<${o.authP95}`] } : {}),
 
         // A `200 OK` carrying a ProblemDetails body is still an application failure. `http_req_failed`
         // counts status codes and would call it a success; the checks in `lib/http.js` look at the

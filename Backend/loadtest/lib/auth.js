@@ -12,6 +12,7 @@ import http from 'k6/http';
 import { fail } from 'k6';
 import exec from 'k6/execution';
 import { PUBLIC_CLIENT_ID, SCOPE, environment } from '../config/environments.js';
+import { phaseTag } from '../config/profiles.js';
 import { SCOPE_AUTH } from '../config/thresholds.js';
 
 /**
@@ -54,8 +55,11 @@ export function getToken(username, password, scope = SCOPE_AUTH) {
         },
         {
             // Its own tag *and* its own threshold (config/thresholds.js): login cost stays a visible
-            // line instead of being smeared into the journey percentiles.
-            tags: { name: 'POST /connect/token', scope },
+            // line instead of being smeared into the journey percentiles. The phase tag is empty
+            // unless a staged profile is running, and it is here for one reason: without it
+            // `http_req_failed{phase:…}` would cover every request in a step *except* the logins,
+            // and a step whose failures were all 5xx tokens would read as clean.
+            tags: { name: 'POST /connect/token', scope, ...phaseTag() },
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         }
     );

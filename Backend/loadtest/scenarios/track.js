@@ -142,7 +142,14 @@ function findSomethingToTrack(token) {
         body: { 'body is an array': (json) => Array.isArray(json) },
     });
 
-    const inFlight = (orders.json || []).filter(
+    // `Array.isArray`, not `|| []`. A failing request answers with a ProblemDetails *object*, which is
+    // truthy — so `||` does not catch it and `.filter` throws `Object has no member 'filter'`. That is
+    // not hypothetical: it is what this line did at the ramp's knee, aborting the iteration of the one
+    // journey whose numbers were most interesting at exactly the moment they mattered. A saturated
+    // platform is precisely when every response shape assumption in a script gets tested.
+    const list = Array.isArray(orders.json) ? orders.json : [];
+
+    const inFlight = list.filter(
         (order) => !isStatus(order.status, ORDER_STATUS, ...TERMINAL_ORDER_STATUSES)
     );
 
@@ -153,7 +160,7 @@ function findSomethingToTrack(token) {
     // Nothing in flight. Place one — and pick the restaurant from the fixture rather than browsing,
     // because this journey's cost is the polling, and prefixing it with a full browse would smear
     // browse latency into the tracking numbers.
-    const previous = pickRandom(orders.json);
+    const previous = pickRandom(list);
     const restaurant = (previous && restaurantById(previous.restaurantId)) || randomRestaurant();
 
     if (!restaurant || restaurant.menuItemIds.length === 0) {

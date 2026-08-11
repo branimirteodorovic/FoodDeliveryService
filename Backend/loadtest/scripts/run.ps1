@@ -80,7 +80,11 @@ foreach ($name in 'LOADTEST_USERNAME', 'LOADTEST_PASSWORD', 'GATEWAY_URL', 'IDEN
     if ($value) { $k6Env += @('-e', "$name=$value") }
 }
 
-$summary = "results/$(Split-Path -Leaf $Script)-$RunId.summary.json"
+# The profile is part of the artifact's name, not just its contents: `results/` fills up with runs
+# whose only difference is the shape of the load, and a baseline that cannot be told from the ramp
+# next to it without opening both is an artifact nobody trusts.
+$profileTag = if ($Profile) { $Profile } else { 'noprofile' }
+$summary = "results/$(Split-Path -Leaf $Script)-$profileTag-$RunId.summary.json"
 $resultsDir = Join-Path $loadtestDir 'results'
 if (-not (Test-Path $resultsDir)) { New-Item -ItemType Directory -Path $resultsDir | Out-Null }
 

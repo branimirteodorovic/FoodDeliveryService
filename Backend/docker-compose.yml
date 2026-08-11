@@ -117,6 +117,18 @@ services:
   fooddeliveryservice.jaeger:
     image: jaegertracing/all-in-one:latest
     container_name: FoodDeliveryService.Jaeger
+    environment:
+      # all-in-one stores spans in memory and, left unbounded, keeps every one of them. That is
+      # harmless while a human clicks around and ruinous under a load test: measured during Feature
+      # 3.5 Milestone D, after a few profile runs Jaeger held 3.5 GB of the host's 7.6 GB and burned
+      # 2.2 of its 8 cores, and the *next* run recorded journey p95 6.1 s against the 31 ms the same
+      # profile had measured an hour earlier. Nothing about the platform had changed — the tracing
+      # backend had simply eaten the machine it shares with the system under test.
+      #
+      # 20k traces is a few minutes of a busy run, which is all a trace store on the same host is for:
+      # pulling up one slow request from the step that just broke. Anything older belongs in a Jaeger
+      # with real storage, on a machine that is not also running the thing being measured.
+      - MEMORY_MAX_TRACES=20000
     ports:
       - 16686:16686
 

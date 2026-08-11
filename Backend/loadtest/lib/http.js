@@ -6,6 +6,7 @@ import http from 'k6/http';
 import { check } from 'k6';
 import exec from 'k6/execution';
 import { environment, runId } from '../config/environments.js';
+import { phaseTag } from '../config/profiles.js';
 import { SCOPE_JOURNEY } from '../config/thresholds.js';
 
 /** Matches `CorrelationHeaders.CorrelationId` in `Common.Presentation/Correlation`. */
@@ -110,8 +111,13 @@ export function send(method, url, payload, options = {}) {
 
     const expected = Array.isArray(status) ? status : [status];
 
+    // Empty unless a staged profile is running (`config/profiles.js`). One label, resolved once per
+    // request, that lets a ramp's summary carry a p95 and an error rate *per step* — which is how the
+    // knee is identified — and lets a spike assert that it recovered rather than merely survived.
+    const phase = phaseTag();
+
     const params = {
-        tags: { name, scope, ...tags },
+        tags: { name, scope, ...phase, ...tags },
         headers: {
             [CORRELATION_HEADER]: correlationId(),
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -168,7 +174,7 @@ export function send(method, url, payload, options = {}) {
         checks[`${name} → ${description}`] = (r) => r.status !== expected[0] || predicate(json(), r);
     }
 
-    const ok = check(response, checks, { name, scope });
+    const ok = check(response, checks, { name, scope, ...phase });
 
     return { response, ok, get json() { return json(); } };
 }

@@ -71,6 +71,17 @@ export function announce(scenario, extra = '') {
             `${fixture.restaurants.length} restaurants · ${fixture.customers.length} customers · ` +
             `${fixture.drivers.length} drivers${extra ? ` · ${extra}` : ''}`
     );
+
+    if (__ENV.PROFILE && scenario !== 'mixed.js') {
+        // A profile shapes the *mix* — its stages and per-phase thresholds only mean anything applied
+        // to all five journeys at once. A single journey run with `--profile ramp` keeps its own
+        // `vus`/`duration` and silently produces a flat run named after a ramp, which is the kind of
+        // artifact that gets quoted a month later by someone who was not here.
+        console.warn(
+            `${scenario}: PROFILE='${__ENV.PROFILE}' is ignored outside scenarios/mixed.js — this ` +
+                'run uses this script\'s own VUS/DURATION. Use `--vus`/`--duration`, or run mixed.js.'
+        );
+    }
 }
 
 /** A random seeded restaurant, or `null` when unseeded. */
