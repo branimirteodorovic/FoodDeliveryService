@@ -3,6 +3,7 @@ using System;
 using FoodDeliveryService.Modules.RealTime.Infrastructure.Database;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace FoodDeliveryService.Modules.RealTime.Infrastructure.Database.Migrations
 {
     [DbContext(typeof(RealTimeDbContext))]
-    partial class RealTimeDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260811134609_Add_Message_Dispatch_Index")]
+    partial class Add_Message_Dispatch_Index
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

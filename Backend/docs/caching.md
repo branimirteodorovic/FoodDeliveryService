@@ -34,7 +34,21 @@ zone redundancy, not the cheapest one that fits the working set.
 Keys are never concatenated at a call site: `CacheKeys.Create(area, entity, id)` builds them, and each
 module keeps its own convention class (`RestaurantCacheKeys`, `DeliveryLocks`) so the read side and
 the write side cannot drift onto different strings. Anything not listed above is **not cached** —
-notably `GetRestaurants` (paged + filtered; too many key permutations for the hit rate).
+notably `GetRestaurants`, the paged browse list, which Feature 2.3 skipped on the reasoning that its
+key permutations were too many to earn a hit rate.
+
+**That decision was re-opened and re-closed with measurements in Feature 3.5 Milestone F**, and
+the numbers are worth keeping because they nearly went the other way. A first reading of the load
+test's per-request telemetry indicted the list badly: 970 calls at **242 ms** average against 26 ms
+for `GetRestaurant` and 30 ms for `GetMenu` at the same call volume, which looks exactly like the cost
+of being the only browse read that reaches Postgres. It was not. The same run was logging 678
+`53300: sorry, too many clients already`, and the list query was simply the one Restaurants read
+holding a connection while the pool starved. With the connection pools bounded and nothing else
+changed, the three reads cost **26.3 ms, 23.4 ms and 24.2 ms** — a 12% gap, not a 9× one. Caching the
+list would have bought ~2.9 ms per call in exchange for a cached surface that **cannot be evicted
+exactly** (an `ORDER BY name` page key is invalidated by any insert or rename, across every page of
+every page size, and `ICacheService` removes one key at a time on purpose). The change was written,
+measured, and reverted; `load-testing.md` has the full log.
 
 Defaults for anything that does not pass an explicit TTL live in the `Caching` configuration section
 (`CachingSettings`): `DefaultExpiration` 2 min, `JitterPercentage` 0.10. The jitter is ±10% per entry

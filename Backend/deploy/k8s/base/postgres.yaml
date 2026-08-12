@@ -54,6 +54,12 @@ spec:
         - name: postgres
           image: postgres:17
           imagePullPolicy: IfNotPresent
+          # The image's default is max_connections=100 and this one server holds all seven
+          # databases. The bounded worst case from config.yaml's `Maximum Pool Size` values is 140,
+          # so 100 is below what a fully-loaded stack asks for — measured in compose as 192
+          # `53300: sorry, too many clients already` inside a single ramp (Feature 3.5 Milestone F).
+          # 200 leaves the arithmetic 60 connections of slack for psql, the seeder and a job pod.
+          args: ["-c", "max_connections=200"]
           ports:
             - name: postgres
               containerPort: 5432

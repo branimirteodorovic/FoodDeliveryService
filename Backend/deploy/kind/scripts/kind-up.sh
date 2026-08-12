@@ -78,6 +78,12 @@ if [ "$build" = true ]; then
 fi
 
 echo "==> applying namespace, config and backing services"
+# The namespace goes on its own, first. `kubectl apply -f <dir>` walks the directory in **lexical
+# order**, and `config.yaml` sorts before `namespace.yaml` — so on a genuinely fresh cluster the
+# ConfigMap and the Secret are submitted into a namespace that does not exist yet and are rejected
+# with `namespaces "fooddeliveryservice" not found`, while everything else applies cleanly. The
+# script then fails, or worse, a second run "fixes" it because the namespace survives from the first.
+kubectl apply -f "$deploy_dir/k8s/base/namespace.yaml"
 kubectl apply -f "$deploy_dir/k8s/base/"
 
 echo "==> waiting for Postgres, Redis and RabbitMQ"

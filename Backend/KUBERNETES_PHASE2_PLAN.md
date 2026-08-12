@@ -159,13 +159,16 @@ Three separate hazards, all cheap to fix, all invisible until a second pod exist
    `Database:RunMigrationsOnStartup` (default `true` so compose and the integration suites are
    unchanged, `false` in-cluster) and run migrations once from a one-shot `Job` before the new pods
    roll. Prefer one shared extension over seven copies.
-2. **`FOR UPDATE` without `SKIP LOCKED`.** `ProcessOutboxJob` and `ProcessInboxJob` select a batch
-   `FOR UPDATE` and then dispatch the *entire batch* — handler plus MassTransit publish — inside
-   that transaction. Quartz's `[DisallowConcurrentExecution]` is per-scheduler, i.e. **per pod**.
-   Correctness holds (under READ COMMITTED, Postgres re-evaluates the `WHERE` after the lock is
-   released, so nothing is dispatched twice), but replica two blocks on replica one for a whole
-   batch. Adding `SKIP LOCKED` — one word, six modules — makes replicas take disjoint batches.
-   Without it, scaling out makes outbox latency *worse*.
+2. ~~**`FOR UPDATE` without `SKIP LOCKED`.**~~ **Fixed 2026-08-11 by `LOADTESTING_PHASE3_PLAN.md`
+   Milestone F**, which had to touch all eleven of those queries anyway to index the dispatch
+   predicate. All of them now read `FOR UPDATE SKIP LOCKED`, so replicas take disjoint batches
+   instead of blocking on each other for a whole batch. No single-replica effect was measured and
+   none was expected — `[DisallowConcurrentExecution]` already serializes the job within a pod — so
+   this is banked as a prerequisite, not as a speed-up. **Also fixed in the same change and relevant
+   here:** the same milestone bounded every service's Npgsql pool (`Maximum Pool Size`), which is a
+   *per-pod* bound — two Orders replicas are 40 connections, not 20 — so a replica count above 1 has
+   to revisit `deploy/k8s/base/config.yaml` and Postgres' `max_connections` together. Hazards 1 and
+   3 are untouched and still block replicas > 1.
 3. **Delivery's expired-offer counter double-counts.** `ProcessExpiredOffersJob` takes no
    distributed lock, so every replica scans the same expired offers.
    `DeliveryAssignmentDiagnostics.RecordExpiredOffer()` fires at *detection*, before the command, so

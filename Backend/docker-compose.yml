@@ -74,6 +74,24 @@ services:
   fooddeliveryservice.database:
     image: postgres:17
     container_name: FoodDeliveryService.Database
+    # postgres:17 ships max_connections=100, and one server holds every service's database. Measured
+    # during Feature 3.5 Milestone F: at 20 customers/second the before run logged 192 occurrences of
+    # `Npgsql.PostgresException 53300: sorry, too many clients already` in Orders alone, with
+    # pg_stat_activity sampled at 88 backends of which 80 were *idle* — the pools were hoarding
+    # connections, not using them.
+    #
+    # The real fix is on the client side: every service's connection string now carries an explicit
+    # `Maximum Pool Size` (10 per module host, 20 for Identity). Each module host builds two pools
+    # from that string — the shared NpgsqlDataSource for Dapper and the outbox/inbox jobs, and EF
+    # Core's own — so its worst case is 20, six module hosts are 120, Identity adds 20, and the
+    # bounded total is 140. This raises the server's ceiling to 200 so that total has real headroom
+    # and a psql session or the seeder can still get in when everything is at its limit.
+    #
+    # Both halves are needed. Raising the ceiling alone just moves an unbounded pool's collision
+    # further out; bounding the pools alone leaves no room for the tenth service this repo will add.
+    command:
+      - -c
+      - max_connections=200
     environment:
       - POSTGRES_DB=fooddeliveryservice
       - POSTGRES_USER=postgres

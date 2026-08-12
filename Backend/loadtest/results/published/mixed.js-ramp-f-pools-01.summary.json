@@ -1,0 +1,1183 @@
+{
+  "root_group": {
+    "id": "d41d8cd98f00b204e9800998ecf8427e",
+    "groups": [
+      {
+        "checks": [
+          {
+            "name": "PATCH /delivery/drivers/me/availability → 204/400",
+            "path": "::setup::PATCH /delivery/drivers/me/availability → 204/400",
+            "id": "905c8905a9e232ff680ca38bd25600af",
+            "passes": 50,
+            "fails": 0
+          },
+          {
+            "passes": 50,
+            "fails": 0,
+            "name": "PATCH /delivery/drivers/me/availability → not a problem document",
+            "path": "::setup::PATCH /delivery/drivers/me/availability → not a problem document",
+            "id": "731b23a82bbe733b1f6e796cfd7d669d"
+          },
+          {
+            "name": "GET /delivery/deliveries (drain) → 200",
+            "path": "::setup::GET /delivery/deliveries (drain) → 200",
+            "id": "312fbf4b55f9c719f14368712ca92de5",
+            "passes": 24,
+            "fails": 0
+          },
+          {
+            "id": "c91e1067459898c702aaca9d769ae753",
+            "passes": 24,
+            "fails": 0,
+            "name": "GET /delivery/deliveries (drain) → not a problem document",
+            "path": "::setup::GET /delivery/deliveries (drain) → not a problem document"
+          },
+          {
+            "fails": 0,
+            "name": "GET /delivery/deliveries (drain) → body is an array",
+            "path": "::setup::GET /delivery/deliveries (drain) → body is an array",
+            "id": "cdbc788847aeaafc8a9583942e13b52e",
+            "passes": 24
+          },
+          {
+            "path": "::setup::GET /delivery/drivers/me → 200",
+            "id": "6a7f67faaf6287cd8872c0b0dfe742d3",
+            "passes": 24,
+            "fails": 0,
+            "name": "GET /delivery/drivers/me → 200"
+          },
+          {
+            "name": "GET /delivery/drivers/me → not a problem document",
+            "path": "::setup::GET /delivery/drivers/me → not a problem document",
+            "id": "c40049c49198fda9a12d0966c8dae605",
+            "passes": 24,
+            "fails": 0
+          },
+          {
+            "name": "POST /delivery/deliveries/:id/delivered → 204/400",
+            "path": "::setup::POST /delivery/deliveries/:id/delivered → 204/400",
+            "id": "ab74d7b9981abd99dd05cc30e8e98435",
+            "passes": 2,
+            "fails": 0
+          },
+          {
+            "name": "POST /delivery/deliveries/:id/delivered → not a problem document",
+            "path": "::setup::POST /delivery/deliveries/:id/delivered → not a problem document",
+            "id": "cdca9735d5f32b43ca84c93af503a0f0",
+            "passes": 2,
+            "fails": 0
+          },
+          {
+            "id": "e1e1989a3d89a501f77afef9126a1f73",
+            "passes": 1,
+            "fails": 0,
+            "name": "POST /delivery/deliveries/:id/picked-up → 204/400",
+            "path": "::setup::POST /delivery/deliveries/:id/picked-up → 204/400"
+          },
+          {
+            "id": "0347556067c5fdc07272c2a9b8ced3c8",
+            "passes": 1,
+            "fails": 0,
+            "name": "POST /delivery/deliveries/:id/picked-up → not a problem document",
+            "path": "::setup::POST /delivery/deliveries/:id/picked-up → not a problem document"
+          }
+        ],
+        "name": "setup",
+        "path": "::setup",
+        "id": "5c0f8025f7e0b6654089e5b00e950f1a",
+        "groups": []
+      }
+    ],
+    "checks": [
+      {
+        "fails": 0,
+        "name": "POST /delivery/drivers/me/location → 204",
+        "path": "::POST /delivery/drivers/me/location → 204",
+        "id": "72fa5aa700e687f09b6f32ea198ad8d9",
+        "passes": 1157
+      },
+      {
+        "path": "::POST /delivery/drivers/me/location → not a problem document",
+        "id": "d2bad3f21b780861281f65dac58e47d4",
+        "passes": 1157,
+        "fails": 0,
+        "name": "POST /delivery/drivers/me/location → not a problem document"
+      },
+      {
+        "name": "GET /restaurants → 200",
+        "path": "::GET /restaurants → 200",
+        "id": "ce72979866a14c8e602d806240934765",
+        "passes": 974,
+        "fails": 0
+      },
+      {
+        "path": "::GET /restaurants → not a problem document",
+        "id": "fcf443519b3c7ed1ae651477622edb48",
+        "passes": 974,
+        "fails": 0,
+        "name": "GET /restaurants → not a problem document"
+      },
+      {
+        "passes": 974,
+        "fails": 0,
+        "name": "GET /restaurants → body is an array",
+        "path": "::GET /restaurants → body is an array",
+        "id": "87d7999cb3d087699a158e38be5bf972"
+      },
+      {
+        "path": "::GET /restaurants/:id → 200",
+        "id": "97076fc94b2b05b16e2525a3972007c5",
+        "passes": 940,
+        "fails": 0,
+        "name": "GET /restaurants/:id → 200"
+      },
+      {
+        "name": "GET /restaurants/:id → not a problem document",
+        "path": "::GET /restaurants/:id → not a problem document",
+        "id": "87343316e86c679c042ce2790911117b",
+        "passes": 940,
+        "fails": 0
+      },
+      {
+        "passes": 940,
+        "fails": 0,
+        "name": "GET /restaurants/:id → has the requested id",
+        "path": "::GET /restaurants/:id → has the requested id",
+        "id": "d4a96a90913970e5ad35206c4d813e4e"
+      },
+      {
+        "name": "GET /restaurants/:id → has a name",
+        "path": "::GET /restaurants/:id → has a name",
+        "id": "a210c0dc158d1c12353dfb410c2312bc",
+        "passes": 940,
+        "fails": 0
+      },
+      {
+        "fails": 0,
+        "name": "GET /delivery/deliveries (offer board) → 200",
+        "path": "::GET /delivery/deliveries (offer board) → 200",
+        "id": "189b60aeafa7ddcbdfaa6c64ba3d7d37",
+        "passes": 1068
+      },
+      {
+        "name": "GET /delivery/deliveries (offer board) → not a problem document",
+        "path": "::GET /delivery/deliveries (offer board) → not a problem document",
+        "id": "861ae55c1dd94522c574db8ed9f6f621",
+        "passes": 1068,
+        "fails": 0
+      },
+      {
+        "name": "GET /delivery/deliveries (offer board) → body is an array",
+        "path": "::GET /delivery/deliveries (offer board) → body is an array",
+        "id": "830d7fe0517d2e04016f674851107edd",
+        "passes": 1068,
+        "fails": 0
+      },
+      {
+        "name": "GET /restaurants/:id/menu → 200",
+        "path": "::GET /restaurants/:id/menu → 200",
+        "id": "abbba1bd63823171580f3737ca7cf781",
+        "passes": 900,
+        "fails": 0
+      },
+      {
+        "name": "GET /restaurants/:id/menu → not a problem document",
+        "path": "::GET /restaurants/:id/menu → not a problem document",
+        "id": "f14e7b41b9efdf972173615bd01dc8f5",
+        "passes": 900,
+        "fails": 0
+      },
+      {
+        "passes": 900,
+        "fails": 0,
+        "name": "GET /restaurants/:id/menu → is the requested restaurant's menu",
+        "path": "::GET /restaurants/:id/menu → is the requested restaurant's menu",
+        "id": "d26ae743f6c03270ab4a54bc778c2040"
+      },
+      {
+        "passes": 900,
+        "fails": 0,
+        "name": "GET /restaurants/:id/menu → carries categories",
+        "path": "::GET /restaurants/:id/menu → carries categories",
+        "id": "1fabd368c96c93bbefd3257617e50013"
+      },
+      {
+        "name": "GET /orders (kitchen) → 200",
+        "path": "::GET /orders (kitchen) → 200",
+        "id": "3a1b8ea9543d91b0734522d5105f8755",
+        "passes": 606,
+        "fails": 0
+      },
+      {
+        "name": "GET /orders (kitchen) → not a problem document",
+        "path": "::GET /orders (kitchen) → not a problem document",
+        "id": "3d70c0a96745757235ad9078a6c14a82",
+        "passes": 606,
+        "fails": 0
+      },
+      {
+        "name": "GET /orders (kitchen) → body is an array",
+        "path": "::GET /orders (kitchen) → body is an array",
+        "id": "c3fed2b9c83a90c7227afbe53a53feed",
+        "passes": 606,
+        "fails": 0
+      },
+      {
+        "name": "GET /orders → 200",
+        "path": "::GET /orders → 200",
+        "id": "43fd17a0e8ea016a043cb6c89ac4c6a6",
+        "passes": 67,
+        "fails": 0
+      },
+      {
+        "name": "GET /orders → not a problem document",
+        "path": "::GET /orders → not a problem document",
+        "id": "5c55993e9ef347271b5c01c35bec1c11",
+        "passes": 67,
+        "fails": 0
+      },
+      {
+        "name": "GET /orders → body is an array",
+        "path": "::GET /orders → body is an array",
+        "id": "4a5358e92c91d8ef7024684bb4c0567a",
+        "passes": 67,
+        "fails": 0
+      },
+      {
+        "name": "GET /orders/:id → 200",
+        "path": "::GET /orders/:id → 200",
+        "id": "160350f0bd4b2b76c55151ad69d014d0",
+        "passes": 608,
+        "fails": 0
+      },
+      {
+        "name": "GET /orders/:id → not a problem document",
+        "path": "::GET /orders/:id → not a problem document",
+        "id": "cec573cec95479d61961bc2e4272c9d1",
+        "passes": 608,
+        "fails": 0
+      },
+      {
+        "name": "GET /orders/:id → has the requested id",
+        "path": "::GET /orders/:id → has the requested id",
+        "id": "d511bcbb706d36018d2a8ae9a8bd3f6e",
+        "passes": 608,
+        "fails": 0
+      },
+      {
+        "name": "GET /orders/:id → carries a status",
+        "path": "::GET /orders/:id → carries a status",
+        "id": "7a9fdf11b47396f744685625fa421efb",
+        "passes": 608,
+        "fails": 0
+      },
+      {
+        "name": "GET /delivery/orders/:orderId/delivery → 200/404",
+        "path": "::GET /delivery/orders/:orderId/delivery → 200/404",
+        "id": "7140225159287b11d2c15f0da76c96b0",
+        "passes": 606,
+        "fails": 0
+      },
+      {
+        "name": "GET /delivery/orders/:orderId/delivery → not a problem document",
+        "path": "::GET /delivery/orders/:orderId/delivery → not a problem document",
+        "id": "17920cdf2d71066fe4e0d53bbe34ebd2",
+        "passes": 606,
+        "fails": 0
+      },
+      {
+        "name": "GET /delivery/orders/:orderId/delivery → is this order's delivery",
+        "path": "::GET /delivery/orders/:orderId/delivery → is this order's delivery",
+        "id": "9a043daa539a8b3bec2a10e3a3e58258",
+        "passes": 606,
+        "fails": 0
+      },
+      {
+        "id": "ef431a3187e06ae00fa5270275b63c7e",
+        "passes": 181,
+        "fails": 5,
+        "name": "POST /orders/:id/ready → 204",
+        "path": "::POST /orders/:id/ready → 204"
+      },
+      {
+        "fails": 0,
+        "name": "POST /orders/:id/ready → not a problem document",
+        "path": "::POST /orders/:id/ready → not a problem document",
+        "id": "47b22de80cf6478bab286171a726eec9",
+        "passes": 186
+      },
+      {
+        "name": "POST /orders/:id/accept → 204",
+        "path": "::POST /orders/:id/accept → 204",
+        "id": "b8740bbdfbecd603b854691eb23ecfd0",
+        "passes": 164,
+        "fails": 4
+      },
+      {
+        "fails": 0,
+        "name": "POST /orders/:id/accept → not a problem document",
+        "path": "::POST /orders/:id/accept → not a problem document",
+        "id": "8e62a273e641605e6627557bcf720d96",
+        "passes": 168
+      },
+      {
+        "fails": 6,
+        "name": "POST /orders/:id/preparing → 204",
+        "path": "::POST /orders/:id/preparing → 204",
+        "id": "c3948fa1b1e4f84c923d118e767d92d2",
+        "passes": 171
+      },
+      {
+        "id": "a0c1a6211df04051dac089e2af668056",
+        "passes": 177,
+        "fails": 0,
+        "name": "POST /orders/:id/preparing → not a problem document",
+        "path": "::POST /orders/:id/preparing → not a problem document"
+      },
+      {
+        "name": "POST /orders → 200",
+        "path": "::POST /orders → 200",
+        "id": "35971bb71070a6126dcf90f5e53bfc14",
+        "passes": 192,
+        "fails": 0
+      },
+      {
+        "id": "5836f4c71d222333c8d3fdd3c30621ed",
+        "passes": 192,
+        "fails": 0,
+        "name": "POST /orders → not a problem document",
+        "path": "::POST /orders → not a problem document"
+      },
+      {
+        "name": "POST /orders → returns an order id",
+        "path": "::POST /orders → returns an order id",
+        "id": "26ec8285cac3482e00ed8b2c784daddf",
+        "passes": 192,
+        "fails": 0
+      },
+      {
+        "fails": 0,
+        "name": "POST /delivery/deliveries/:id/accept → 204/400",
+        "path": "::POST /delivery/deliveries/:id/accept → 204/400",
+        "id": "014905a2957200778e7896205cd2f9bb",
+        "passes": 970
+      },
+      {
+        "fails": 0,
+        "name": "POST /delivery/deliveries/:id/accept → not a problem document",
+        "path": "::POST /delivery/deliveries/:id/accept → not a problem document",
+        "id": "001d89036b5171031914b5fc85b72bd3",
+        "passes": 970
+      },
+      {
+        "path": "::POST /delivery/deliveries/:id/picked-up → 204",
+        "id": "d90ec937a2499500e6df9f9ed5491fc2",
+        "passes": 44,
+        "fails": 0,
+        "name": "POST /delivery/deliveries/:id/picked-up → 204"
+      },
+      {
+        "name": "POST /delivery/deliveries/:id/picked-up → not a problem document",
+        "path": "::POST /delivery/deliveries/:id/picked-up → not a problem document",
+        "id": "67e4bcde9d99d727f5a5eae30e17b066",
+        "passes": 44,
+        "fails": 0
+      },
+      {
+        "path": "::POST /delivery/deliveries/:id/delivered → 204",
+        "id": "2961e1b6b13a05be4f368505681911cb",
+        "passes": 44,
+        "fails": 0,
+        "name": "POST /delivery/deliveries/:id/delivered → 204"
+      },
+      {
+        "id": "d6da0493fd188a42f5e8842909c0895f",
+        "passes": 44,
+        "fails": 0,
+        "name": "POST /delivery/deliveries/:id/delivered → not a problem document",
+        "path": "::POST /delivery/deliveries/:id/delivered → not a problem document"
+      }
+    ],
+    "name": "",
+    "path": ""
+  },
+  "options": {
+    "summaryTimeUnit": "",
+    "noColor": false,
+    "summaryTrendStats": [
+      "avg",
+      "min",
+      "med",
+      "p(90)",
+      "p(95)",
+      "p(99)",
+      "max",
+      "count"
+    ]
+  },
+  "state": {
+    "isStdOutTTY": false,
+    "isStdErrTTY": false,
+    "testRunDurationMs": 181979.041736
+  },
+  "metrics": {
+    "order_placement_failures": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "rate": 0,
+        "passes": 0,
+        "fails": 192
+      },
+      "thresholds": {
+        "rate<0.01": {
+          "ok": true
+        }
+      }
+    },
+    "http_req_duration{scope:journey,phase:s02}": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "avg": 0,
+        "min": 0,
+        "med": 0,
+        "p(90)": 0,
+        "p(95)": 0,
+        "p(99)": 0,
+        "max": 0,
+        "count": 0
+      },
+      "thresholds": {
+        "p(95)<500": {
+          "ok": true
+        }
+      }
+    },
+    "http_req_duration": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "min": 8.414382,
+        "med": 151.73381,
+        "p(90)": 478.69929620000005,
+        "p(95)": 732.9640507999999,
+        "p(99)": 5495.356721459945,
+        "max": 14934.095606,
+        "count": 9087,
+        "avg": 319.35271137349974
+      }
+    },
+    "http_req_duration{scope:auth,phase:s02}": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "avg": 0,
+        "min": 0,
+        "med": 0,
+        "p(90)": 0,
+        "p(95)": 0,
+        "p(99)": 0,
+        "max": 0,
+        "count": 0
+      },
+      "thresholds": {
+        "p(95)<8000": {
+          "ok": true
+        }
+      }
+    },
+    "http_req_failed{phase:warm}": {
+      "thresholds": {
+        "rate<0.05": {
+          "ok": true
+        }
+      },
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "rate": 0.0024875621890547263,
+        "passes": 5,
+        "fails": 2005
+      }
+    },
+    "http_req_sending": {
+      "contains": "time",
+      "values": {
+        "p(99)": 10.514064919999994,
+        "max": 218.299269,
+        "count": 9087,
+        "avg": 0.5491674472323129,
+        "min": 0.019302,
+        "med": 0.053217,
+        "p(90)": 0.21084040000000046,
+        "p(95)": 0.5190257999999985
+      },
+      "type": "trend"
+    },
+    "http_req_duration{scope:auth,phase:s05}": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(99)": 0,
+        "max": 0,
+        "count": 0,
+        "avg": 0,
+        "min": 0,
+        "med": 0,
+        "p(90)": 0,
+        "p(95)": 0
+      },
+      "thresholds": {
+        "p(95)<8000": {
+          "ok": true
+        }
+      }
+    },
+    "http_req_duration{scope:auth,phase:s03}": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(95)": 0,
+        "p(99)": 0,
+        "max": 0,
+        "count": 0,
+        "avg": 0,
+        "min": 0,
+        "med": 0,
+        "p(90)": 0
+      },
+      "thresholds": {
+        "p(95)<8000": {
+          "ok": true
+        }
+      }
+    },
+    "http_req_receiving": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "med": 0.162855,
+        "p(90)": 2.8769770000000037,
+        "p(95)": 11.635843799999988,
+        "p(99)": 68.31044501999996,
+        "max": 377.950305,
+        "count": 9087,
+        "avg": 3.001248273797725,
+        "min": -1.3501
+      }
+    },
+    "http_req_failed{phase:s04}": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "rate": 0,
+        "passes": 0,
+        "fails": 0
+      },
+      "thresholds": {
+        "rate<0.01": {
+          "ok": true
+        }
+      }
+    },
+    "http_req_failed{phase:s05}": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "rate": 0,
+        "passes": 0,
+        "fails": 0
+      },
+      "thresholds": {
+        "rate<0.01": {
+          "ok": true
+        }
+      }
+    },
+    "browse_empty": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "rate": 0,
+        "passes": 0,
+        "fails": 941
+      }
+    },
+    "driver_claims_won": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 47,
+        "rate": 0.25827149957292156
+      }
+    },
+    "deliveries_completed": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 44,
+        "rate": 0.24178608470656487
+      }
+    },
+    "driver_claim_hit_rate": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "rate": 0.04845360824742268,
+        "passes": 47,
+        "fails": 923
+      },
+      "thresholds": {
+        "rate>0": {
+          "ok": true
+        }
+      }
+    },
+    "http_req_duration{scope:auth,phase:s01}": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "avg": 1667.3613848771934,
+        "min": 401.966998,
+        "med": 1544.322028,
+        "p(90)": 2706.6608856000003,
+        "p(95)": 2822.8314435999996,
+        "p(99)": 3103.8758211600007,
+        "max": 3436.937446,
+        "count": 114
+      },
+      "thresholds": {
+        "p(95)<8000": {
+          "ok": true
+        }
+      }
+    },
+    "http_req_duration{scope:auth,phase:warm}": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(99)": 10103.3969001,
+        "max": 14934.095606,
+        "count": 111,
+        "avg": 6126.006414306306,
+        "min": 687.745844,
+        "med": 6340.732497,
+        "p(90)": 9121.606831,
+        "p(95)": 9323.015470999999
+      },
+      "thresholds": {
+        "p(95)<20000": {
+          "ok": true
+        }
+      }
+    },
+    "checks": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "rate": 0.9994241621559369,
+        "passes": 26034,
+        "fails": 15
+      },
+      "thresholds": {
+        "rate>0.99": {
+          "ok": true
+        }
+      }
+    },
+    "delivery_fulfilment_duration": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(99)": 7230.76,
+        "max": 7389,
+        "count": 44,
+        "avg": 5618.386363636364,
+        "min": 4248,
+        "med": 5556.5,
+        "p(90)": 6553,
+        "p(95)": 6827.6
+      }
+    },
+    "dropped_iterations": {
+      "values": {
+        "count": 149,
+        "rate": 0.8187756050290492
+      },
+      "type": "counter",
+      "contains": "default"
+    },
+    "data_received": {
+      "contains": "data",
+      "values": {
+        "count": 34513582,
+        "rate": 189656.9059313403
+      },
+      "type": "counter"
+    },
+    "track_reached_terminal": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "fails": 21,
+        "rate": 0.045454545454545456,
+        "passes": 1
+      }
+    },
+    "track_delivery_visible": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "rate": 0.9620462046204621,
+        "passes": 583,
+        "fails": 23
+      }
+    },
+    "order_placement_duration": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(99)": 5713.091461120002,
+        "max": 6314.877017,
+        "count": 192,
+        "avg": 507.40990686458343,
+        "min": 49.53484,
+        "med": 385.0497815,
+        "p(90)": 785.8597422,
+        "p(95)": 919.3664080499992
+      },
+      "thresholds": {
+        "p(95)<1000": {
+          "ok": true
+        }
+      }
+    },
+    "driver_location_reports": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 1157,
+        "rate": 6.357875000124899
+      }
+    },
+    "http_req_failed{phase:s01}": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "rate": 0.0014104372355430183,
+        "passes": 9,
+        "fails": 6372
+      },
+      "thresholds": {
+        "rate<0.01": {
+          "ok": true
+        }
+      }
+    },
+    "browse_duration": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(95)": 6094.1,
+        "p(99)": 6531.05,
+        "max": 6980,
+        "count": 900,
+        "avg": 4559.432222222223,
+        "min": 2218,
+        "med": 4557.5,
+        "p(90)": 5785.5
+      }
+    },
+    "kitchen_transition_success": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "rate": 0.9717514124293786,
+        "passes": 516,
+        "fails": 15
+      },
+      "thresholds": {
+        "rate>0.95": {
+          "ok": true
+        }
+      }
+    },
+    "driver_claims_missed": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 923,
+        "rate": 5.072012640549077
+      }
+    },
+    "http_req_failed{phase:s02}": {
+      "thresholds": {
+        "rate<0.01": {
+          "ok": true
+        }
+      },
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "rate": 0,
+        "passes": 0,
+        "fails": 0
+      }
+    },
+    "order_idempotency_replay_correct": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "fails": 0,
+        "rate": 0,
+        "passes": 0
+      },
+      "thresholds": {
+        "rate>0.99": {
+          "ok": true
+        }
+      }
+    },
+    "http_req_waiting": {
+      "values": {
+        "max": 14933.63975,
+        "count": 9087,
+        "avg": 315.8022956524701,
+        "min": 8.014731,
+        "med": 148.680318,
+        "p(90)": 473.0649062000004,
+        "p(95)": 723.3155013999993,
+        "p(99)": 5495.114695119945
+      },
+      "type": "trend",
+      "contains": "time"
+    },
+    "iterations": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 2613,
+        "rate": 14.358796348596682
+      }
+    },
+    "kitchen_pending_backlog": {
+      "type": "trend",
+      "contains": "default",
+      "values": {
+        "p(99)": 2,
+        "max": 4,
+        "count": 606,
+        "avg": 0.27887788778877887,
+        "min": 0,
+        "med": 0,
+        "p(90)": 1,
+        "p(95)": 1
+      }
+    },
+    "kitchen_transitions": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 531,
+        "rate": 2.917918431345135
+      }
+    },
+    "http_req_duration{scope:journey,phase:warm}": {
+      "thresholds": {
+        "p(95)<5000": {
+          "ok": true
+        }
+      },
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "count": 1528,
+        "avg": 363.89678933704266,
+        "min": 8.414382,
+        "med": 123.604828,
+        "p(90)": 489.60717439999985,
+        "p(95)": 1036.1212727499965,
+        "p(99)": 7880.741354710002,
+        "max": 11021.913871
+      }
+    },
+    "http_req_failed{phase:s03}": {
+      "values": {
+        "rate": 0,
+        "passes": 0,
+        "fails": 0
+      },
+      "thresholds": {
+        "rate<0.01": {
+          "ok": true
+        }
+      },
+      "type": "rate",
+      "contains": "default"
+    },
+    "data_sent": {
+      "type": "counter",
+      "contains": "data",
+      "values": {
+        "count": 10508342,
+        "rate": 57744.79247585349
+      }
+    },
+    "http_req_blocked": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "avg": 0.6000147300539209,
+        "min": 0.005501,
+        "med": 0.013802,
+        "p(90)": 0.03781,
+        "p(95)": 0.454541699999995,
+        "p(99)": 14.799601459999982,
+        "max": 289.438127,
+        "count": 9087
+      }
+    },
+    "http_req_connecting": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(90)": 0,
+        "p(95)": 0,
+        "p(99)": 11.573100819999985,
+        "max": 289.004417,
+        "count": 9087,
+        "avg": 0.474766178276659,
+        "min": 0,
+        "med": 0
+      }
+    },
+    "http_req_duration{scope:journey,phase:s03}": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "min": 0,
+        "med": 0,
+        "p(90)": 0,
+        "p(95)": 0,
+        "p(99)": 0,
+        "max": 0,
+        "count": 0,
+        "avg": 0
+      },
+      "thresholds": {
+        "p(95)<500": {
+          "ok": true
+        }
+      }
+    },
+    "vus": {
+      "type": "gauge",
+      "contains": "default",
+      "values": {
+        "value": 203,
+        "min": 0,
+        "max": 203
+      }
+    },
+    "http_req_tls_handshaking": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(99)": 0,
+        "max": 0,
+        "count": 9087,
+        "avg": 0,
+        "min": 0,
+        "med": 0,
+        "p(90)": 0,
+        "p(95)": 0
+      }
+    },
+    "http_req_duration{expected_response:true}": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(90)": 478.5858009000003,
+        "p(95)": 732.9393822999999,
+        "p(99)": 5509.408052309911,
+        "max": 14934.095606,
+        "count": 9072,
+        "avg": 319.41281619201857,
+        "min": 8.414382,
+        "med": 151.7022545
+      }
+    },
+    "browse_to_order_conversion": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "rate": 1,
+        "passes": 192,
+        "fails": 0
+      }
+    },
+    "http_req_failed": {
+      "contains": "default",
+      "values": {
+        "rate": 0.001650709805216243,
+        "passes": 15,
+        "fails": 9072
+      },
+      "thresholds": {
+        "rate<0.01": {
+          "ok": true
+        }
+      },
+      "type": "rate"
+    },
+    "http_reqs": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 9087,
+        "rate": 49.93432163019443
+      }
+    },
+    "vus_max": {
+      "type": "gauge",
+      "contains": "default",
+      "values": {
+        "max": 207,
+        "value": 207,
+        "min": 88
+      }
+    },
+    "track_polls": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 610,
+        "rate": 3.3520343561591948
+      }
+    },
+    "http_req_duration{scope:journey,phase:s04}": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "min": 0,
+        "med": 0,
+        "p(90)": 0,
+        "p(95)": 0,
+        "p(99)": 0,
+        "max": 0,
+        "count": 0,
+        "avg": 0
+      },
+      "thresholds": {
+        "p(95)<500": {
+          "ok": true
+        }
+      }
+    },
+    "http_req_duration{scope:journey,phase:s01}": {
+      "contains": "time",
+      "values": {
+        "min": 8.66888,
+        "med": 162.242688,
+        "p(90)": 449.94221880000003,
+        "p(95)": 572.1182452999999,
+        "p(99)": 847.8971929399975,
+        "max": 1339.905568,
+        "count": 5603,
+        "avg": 213.19976917918987
+      },
+      "thresholds": {
+        "p(95)<500": {
+          "ok": false
+        }
+      },
+      "type": "trend"
+    },
+    "http_req_duration{scope:journey}": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(95)": 585.5194302,
+        "p(99)": 1153.8563265999965,
+        "max": 11021.913871,
+        "count": 7639,
+        "avg": 240.12493931745,
+        "min": 8.414382,
+        "med": 153.857932,
+        "p(90)": 445.33404699999994
+      },
+      "thresholds": {
+        "p(95)<500": {
+          "ok": false
+        },
+        "p(99)<1500": {
+          "ok": true
+        }
+      }
+    },
+    "iteration_duration": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(90)": 7711.8538478,
+        "p(95)": 9143.749410200004,
+        "p(99)": 27303.68695620001,
+        "max": 70671.064675,
+        "count": 2613,
+        "avg": 5446.72961046843,
+        "min": 1693.112118,
+        "med": 4184.123679
+      }
+    },
+    "http_req_duration{scope:auth,phase:s04}": {
+      "thresholds": {
+        "p(95)<8000": {
+          "ok": true
+        }
+      },
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "max": 0,
+        "count": 0,
+        "avg": 0,
+        "min": 0,
+        "med": 0,
+        "p(90)": 0,
+        "p(95)": 0,
+        "p(99)": 0
+      }
+    },
+    "orders_placed": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 192,
+        "rate": 1.0550665514468285
+      }
+    },
+    "http_req_duration{scope:journey,phase:s05}": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(95)": 0,
+        "p(99)": 0,
+        "max": 0,
+        "count": 0,
+        "avg": 0,
+        "min": 0,
+        "med": 0,
+        "p(90)": 0
+      },
+      "thresholds": {
+        "p(95)<500": {
+          "ok": true
+        }
+      }
+    }
+  },
+  "setup_data": {
+    "startedOnUtc": "2026-08-11T15:42:06.056Z"
+  }
+}

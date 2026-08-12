@@ -21,6 +21,14 @@ that gets rewritten is not evidence of anything.
 | `mixed.js-spike-spike-03.summary.json` | `spike` | 10× for 60 s. `peak` p95 313 ms, `post` back to 55.78 ms — the platform recovered inside the 3-minute window. |
 | `mixed.js-ramp-ramp-01.summary.json` | `ramp` | 2 → 20 customers/s in eight steps. Every step green: the knee is above the profile's default range. |
 | `mixed.js-ramp-ramp-02.summary.json` | `ramp` | The continuation, `RAMP_STEPS=10,13,16,20,25`. **The knee**: 20 customers/s green at p95 230 ms, 26 customers/s gone at 1.85 s and 3.8% errors, and the run aborted there. The steps it never reached are in the file with `p(95)=0` and no samples — the trivially-passing empty phase, worth seeing once. |
+| `mixed.js-ramp-f-before-02.summary.{json,md}` | `ramp` | **Milestone F, the before.** Same profile as `ramp-02`, one variable at a time from here on. 678 `53300` connection refusals underneath it; journey p95 746 ms, 0.40% errors, 2.09% of placements failed. |
+| `mixed.js-ramp-f-pipeline-01.summary.{json,md}` | `ramp` | **Milestone F, after the event-pipeline change** (dispatch index + 1 s/50 + `SKIP LOCKED`). Backlog drain 2.96 → 9.44 rows/s, errors to zero, journey p95 slightly *worse* at 789 ms — because the run stopped failing and completed more work. |
+| `mixed.js-ramp-f-pools-01.summary.{json,md}` | `ramp` | **Milestone F, after bounding the Npgsql pools.** journey p95 586 ms, p99 2.31 s → 1.15 s, `POST /orders` p95 1.43 s → 919 ms, backends 88/100 → 87/200. The best of the three. |
+
+The three `f-*` runs are one controlled sequence and are only meaningful read together, in that order
+— `docs/load-testing.md` is the log that explains what changed between each and why one of the three
+predicted fixes was reverted instead of shipped. They carry the post-Milestone-E shape described
+above, including the `.summary.md` beside each.
 
 ## The environment they came from
 

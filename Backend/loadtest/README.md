@@ -310,7 +310,7 @@ number to within 6% (32.6 ms against 31.0 ms), which is the check that says the 
 
 ## Before every run
 
-Three things, in this order. All of them have burned a run in this repo.
+Four things, in this order. All of them have burned a run in this repo.
 
 **1. Is the stack up, and is anything else eating it?**
 
@@ -345,6 +345,30 @@ be blamed for:
 ```bash
 docker exec FoodDeliveryService.Queue rabbitmqctl list_queues name messages
 ```
+
+**4. Has anything touched `docker-compose.yml` or rebuilt an image since the last run?** If so, start
+the generator's dependencies *before* the run rather than letting the runner do it:
+
+```bash
+docker compose up -d fooddeliveryservice.gateway fooddeliveryservice.identity
+```
+
+`docker compose run` starts the k6 service's `depends_on` — Gateway and Identity — **transitively,
+and recreates any of them compose thinks is out of date**. Two ways that ruins a run, both met during
+Milestone F:
+
+- A run started 30 seconds after an unrelated `docker compose build` died in `setup()` with
+  `dial tcp 172.18.0.7:8080: connect: connection refused`, because compose had just replaced the
+  Identity container the driver roster was logging into. Nothing was wrong with the platform and
+  nothing in the k6 output says so.
+- Identity `depends_on` the **database**, so an edited `docker-compose.yml` gets a *recreated
+  Postgres* as a side effect of starting the load generator. That is how a `max_connections` change
+  landed silently in the middle of a controlled before/after — which is the one thing a bottleneck
+  hunt cannot survive.
+
+Doing it yourself first also means the run does not measure a cold Duende: the first token against one
+costs ~7.9 s against 15–40 ms warm, and `smoke.js` is the cheap way to burn that off before a profile
+starts. Run it twice if containers were just recreated — the first one is the warm-up.
 
 Then record the environment next to whatever number the run produces. Without it the number is an
 anecdote:
