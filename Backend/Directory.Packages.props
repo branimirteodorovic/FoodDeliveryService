@@ -57,6 +57,11 @@
     <PackageVersion Include="Serilog.AspNetCore" Version="10.0.0" />
     <PackageVersion Include="Serilog.Sinks.Seq" Version="9.1.0" />
     <PackageVersion Include="Swashbuckle.AspNetCore" Version="10.2.3" />
+    <!-- Transitive pin: Testcontainers 4.13.0 pulls SSH.NET 2025.1.0, which carries the high
+         severity GHSA-q939-rpr3-3284 (ScpClient recursive download path traversal) and fails
+         restore under NuGetAudit. 2026.0.0 is the first patched release; drop this pin once
+         Testcontainers ships a version that references it directly. -->
+    <PackageVersion Include="SSH.NET" Version="2026.0.0" />
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.13.0" />
     <PackageVersion Include="Testcontainers.RabbitMq" Version="4.13.0" />
     <PackageVersion Include="Testcontainers.Redis" Version="4.13.0" />
