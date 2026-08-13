@@ -47,6 +47,11 @@ status_of() {  # $1 = full URL
   curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$1" || echo "000"
 }
 
+status_of_post() {  # $1 = full URL — for endpoints mapped with MapPost, where a GET is a 405
+  curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+    -X POST -H 'Content-Type: application/json' -d '{}' "$1" || echo "000"
+}
+
 assert_status() {  # $1 = URL, $2..$n = acceptable codes
   local url="$1"; shift
   local actual
@@ -58,6 +63,20 @@ assert_status() {  # $1 = URL, $2..$n = acceptable codes
     fi
   done
   echo "FAIL: $url returned $actual, expected one of: $*" >&2
+  return 1
+}
+
+assert_post_status() {  # $1 = URL, $2..$n = acceptable codes
+  local url="$1"; shift
+  local actual
+  actual="$(status_of_post "$url")"
+  for expected in "$@"; do
+    if [ "$actual" = "$expected" ]; then
+      echo "    POST $url -> $actual"
+      return 0
+    fi
+  done
+  echo "FAIL: POST $url returned $actual, expected one of: $*" >&2
   return 1
 }
 
@@ -73,6 +92,25 @@ await_status() {  # $1 = URL, $2 = code, $3 = timeout seconds
     sleep 3
   done
   echo "FAIL: $url did not reach $expected within ${timeout}s (last: ${actual:-none})" >&2
+  return 1
+}
+
+await_endpoints_empty() {  # $1 = Service name, $2 = timeout seconds
+  # /health/ready going 503 and the pod leaving the Service endpoints are not simultaneous: kubelet
+  # only marks the pod NotReady after failureThreshold x periodSeconds (3 x 10s), and the endpoint
+  # controller reacts after that. Asserting it the instant readiness flips is a guaranteed flake.
+  local service="$1" timeout="$2" deadline addresses
+  deadline=$((SECONDS + timeout))
+  while [ $SECONDS -lt $deadline ]; do
+    addresses="$(kubectl -n "$NAMESPACE" get endpoints "$service" \
+      -o jsonpath='{.subsets[*].addresses[*].ip}')"
+    if [ -z "$addresses" ]; then
+      echo "    pod removed from the Service endpoints"
+      return 0
+    fi
+    sleep 3
+  done
+  echo "FAIL: pod is still a ready Service endpoint ($addresses) after ${timeout}s despite /health/ready 503" >&2
   return 1
 }
 
@@ -92,7 +130,9 @@ assert_status "$GATEWAY_URL/health/ready" 200
 # An empty body on the anonymous registration route: 400 means YARP forwarded it and Users rejected
 # the payload, which is the proof that the route, the cluster and the Service DNS all resolve.
 # A 404 here would mean the route never matched — the failure mode the Gateway's config had.
-assert_status "$GATEWAY_URL/users/register" 400 415 422
+# It must be a POST: the endpoint is MapPost, so a GET returns 405, which reads like a routing
+# fault when it is in fact the opposite.
+assert_post_status "$GATEWAY_URL/users/register" 400 415 422
 
 echo "==> 3. Identity serves discovery"
 assert_status "$IDENTITY_URL/.well-known/openid-configuration" 200
@@ -113,13 +153,7 @@ await_status "http://127.0.0.1:$LOCAL_PORT/health/ready" 503 120
 # …while liveness is unmoved. This is the assertion the whole probe contract turns on.
 assert_status "http://127.0.0.1:$LOCAL_PORT/health/live" 200
 
-ready_addresses="$(kubectl -n "$NAMESPACE" get endpoints fooddeliveryservice-orders-api \
-  -o jsonpath='{.subsets[*].addresses[*].ip}')"
-if [ -n "$ready_addresses" ]; then
-  echo "FAIL: pod is still a ready Service endpoint ($ready_addresses) despite /health/ready 503" >&2
-  exit 1
-fi
-echo "    pod removed from the Service endpoints"
+await_endpoints_empty fooddeliveryservice-orders-api 120
 
 restarts_during="$(restart_count)"
 if [ "$restarts_during" != "$restarts_before" ]; then

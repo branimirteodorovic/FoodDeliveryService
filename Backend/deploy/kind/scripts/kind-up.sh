@@ -78,6 +78,10 @@ if [ "$build" = true ]; then
 fi
 
 echo "==> applying namespace, config and backing services"
+# The namespace goes first, on its own: `kubectl apply -f <dir>` applies files in alphabetical order,
+# so config.yaml would otherwise be created before namespace.yaml and fail with "namespaces
+# \"fooddeliveryservice\" not found". Re-applying it as part of the directory below is a no-op.
+kubectl apply -f "$deploy_dir/k8s/base/namespace.yaml"
 kubectl apply -f "$deploy_dir/k8s/base/"
 
 echo "==> waiting for Postgres, Redis and RabbitMQ"

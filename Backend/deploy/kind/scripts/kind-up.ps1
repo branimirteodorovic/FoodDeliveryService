@@ -85,6 +85,12 @@ if (-not $NoBuild) {
 }
 
 Write-Host '==> applying namespace, config and backing services'
+# The namespace goes first, on its own: `kubectl apply -f <dir>` applies files in alphabetical order,
+# so config.yaml would otherwise be created before namespace.yaml and fail with "namespaces
+# 'fooddeliveryservice' not found". Re-applying it as part of the directory below is a no-op.
+kubectl apply -f (Join-Path $deployDir 'k8s/base/namespace.yaml')
+if ($LASTEXITCODE -ne 0) { throw 'kubectl apply (namespace) failed' }
+
 kubectl apply -f (Join-Path $deployDir 'k8s/base/')
 if ($LASTEXITCODE -ne 0) { throw 'kubectl apply (base) failed' }
 
