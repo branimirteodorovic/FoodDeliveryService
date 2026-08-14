@@ -69,6 +69,10 @@ namespace FoodDeliveryService.Modules.RealTime.Infrastructure.Database.Migration
                         .HasDatabaseName("ix_inbox_messages_correlation_id")
                         .HasFilter("correlation_id IS NOT NULL");
 
+                    b.HasIndex("OccurredOnUtc")
+                        .HasDatabaseName("ix_inbox_messages_unprocessed")
+                        .HasFilter("processed_on_utc IS NULL");
+
                     b.ToTable("inbox_messages", (string)null);
                 });
 

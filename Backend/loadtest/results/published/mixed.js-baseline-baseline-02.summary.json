@@ -1,0 +1,665 @@
+{
+    "metrics": {
+        "iteration_duration": {
+            "p(95)": 7047.083251699997,
+            "avg": 4709.780467891413,
+            "min": 33.180407,
+            "med": 3756.591998,
+            "max": 65135.86235,
+            "p(90)": 6221.789487800001
+        },
+        "browse_to_order_conversion": {
+            "passes": 121,
+            "fails": 0,
+            "value": 1
+        },
+        "track_delivery_visible": {
+            "passes": 712,
+            "fails": 96,
+            "value": 0.8811881188118812
+        },
+        "data_sent": {
+            "count": 9268039,
+            "rate": 27487.934204510846
+        },
+        "http_req_waiting": {
+            "med": 7.810231,
+            "max": 2138.497353,
+            "p(90)": 22.853480599999997,
+            "p(95)": 35.82197059999989,
+            "avg": 21.65109910301671,
+            "min": 3.130531
+        },
+        "driver_location_reports": {
+            "count": 1040,
+            "rate": 3.0845199909809704
+        },
+        "browse_duration": {
+            "avg": 4049.0480591497226,
+            "min": 2098,
+            "med": 4068,
+            "max": 5869,
+            "p(90)": 5234,
+            "p(95)": 5503
+        },
+        "http_req_failed": {
+            "fails": 7988,
+            "passes": 1,
+            "thresholds": {
+                "rate<0.01": false
+            },
+            "value": 0.00012517211165352359
+        },
+        "checks": {
+            "passes": 23368,
+            "fails": 1,
+            "thresholds": {
+                "rate>0.99": false
+            },
+            "value": 0.9999572082673628
+        },
+        "order_idempotency_replays": {
+            "count": 2,
+            "rate": 0.005931769213424943
+        },
+        "http_req_duration{scope:journey}": {
+            "min": 3.267549,
+            "med": 8.386165,
+            "max": 525.044349,
+            "p(90)": 22.006337600000005,
+            "p(95)": 30.69627399999999,
+            "avg": 13.12826424953286,
+            "thresholds": {
+                "p(95)<500": false,
+                "p(99)<1500": false
+            }
+        },
+        "vus": {
+            "max": 53,
+            "value": 6,
+            "min": 0
+        },
+        "http_req_connecting": {
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0.028428051070221554,
+            "min": 0,
+            "med": 0,
+            "max": 29.067238
+        },
+        "vus_max": {
+            "max": 72,
+            "value": 72,
+            "min": 72
+        },
+        "browse_empty": {
+            "passes": 0,
+            "fails": 541,
+            "value": 0
+        },
+        "driver_claims_missed": {
+            "count": 365,
+            "rate": 1.082547881450052
+        },
+        "delivery_fulfilment_duration": {
+            "min": 3288,
+            "med": 4492,
+            "max": 5961,
+            "p(90)": 5260.4,
+            "p(95)": 5463.899999999999,
+            "avg": 4466.708737864078
+        },
+        "iterations": {
+            "count": 3122,
+            "rate": 9.259491742156335
+        },
+        "http_req_receiving": {
+            "avg": 0.26212327074727776,
+            "min": 0.021803,
+            "med": 0.160523,
+            "max": 30.2046,
+            "p(90)": 0.4054554,
+            "p(95)": 0.6248067999999999
+        },
+        "data_received": {
+            "count": 34352264,
+            "rate": 101884.851003323
+        },
+        "kitchen_pending_backlog": {
+            "p(90)": 0,
+            "p(95)": 1,
+            "avg": 0.07200538358008075,
+            "min": 0,
+            "med": 0,
+            "max": 5
+        },
+        "kitchen_transition_success": {
+            "passes": 322,
+            "fails": 1,
+            "thresholds": {
+                "rate>0.95": false
+            },
+            "value": 0.9969040247678018
+        },
+        "http_req_tls_handshaking": {
+            "max": 0,
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0,
+            "min": 0,
+            "med": 0
+        },
+        "kitchen_transitions": {
+            "count": 323,
+            "rate": 0.9579807279681283
+        },
+        "order_idempotency_replay_correct": {
+            "passes": 2,
+            "fails": 0,
+            "thresholds": {
+                "rate>0.99": false
+            },
+            "value": 1
+        },
+        "orders_placed": {
+            "count": 131,
+            "rate": 0.3885308834793338
+        },
+        "http_req_duration": {
+            "max": 2138.745388,
+            "p(90)": 23.431032,
+            "p(95)": 36.182442599999966,
+            "avg": 22.00009659819762,
+            "min": 3.267549,
+            "med": 8.163748
+        },
+        "http_req_duration{expected_response:true}": {
+            "med": 8.162943,
+            "max": 2138.745388,
+            "p(90)": 23.42947,
+            "p(95)": 36.13487674999999,
+            "avg": 21.994699768903452,
+            "min": 3.267549
+        },
+        "http_req_blocked": {
+            "avg": 0.04400717524095623,
+            "min": 0.0031,
+            "med": 0.008302,
+            "max": 30.960108,
+            "p(90)": 0.017502,
+            "p(95)": 0.026463399999999946
+        },
+        "deliveries_completed": {
+            "count": 103,
+            "rate": 0.3054861144913846
+        },
+        "track_polls": {
+            "rate": 2.396434762223677,
+            "count": 808
+        },
+        "driver_claims_won": {
+            "rate": 0.308451999098097,
+            "count": 104
+        },
+        "driver_claim_hit_rate": {
+            "passes": 104,
+            "fails": 365,
+            "thresholds": {
+                "rate>0": false
+            },
+            "value": 0.22174840085287847
+        },
+        "track_reached_terminal": {
+            "passes": 10,
+            "fails": 45,
+            "value": 0.18181818181818182
+        },
+        "order_placement_failures": {
+            "passes": 0,
+            "fails": 133,
+            "thresholds": {
+                "rate<0.01": false
+            },
+            "value": 0
+        },
+        "http_req_sending": {
+            "avg": 0.08687422443359623,
+            "min": 0.009401,
+            "med": 0.06971,
+            "max": 2.763894,
+            "p(90)": 0.15538179999999993,
+            "p(95)": 0.20662219999999998
+        },
+        "order_placement_duration": {
+            "min": 7.840565,
+            "med": 22.1367,
+            "max": 86.402996,
+            "p(90)": 48.2084146,
+            "p(95)": 59.4637414,
+            "avg": 26.93796533082708,
+            "thresholds": {
+                "p(95)<1000": false
+            }
+        },
+        "http_reqs": {
+            "count": 7989,
+            "rate": 23.694452123025936
+        },
+        "http_req_duration{scope:auth}": {
+            "med": 554.1551440000001,
+            "max": 2138.745388,
+            "p(90)": 1909.7862712,
+            "p(95)": 2044.79569235,
+            "avg": 881.4038044749998,
+            "min": 101.829533,
+            "thresholds": {
+                "p(95)<4000": false
+            }
+        }
+    },
+    "setup_data": {
+        "startedOnUtc": "2026-08-10T15:07:36.689Z"
+    },
+    "root_group": {
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {
+            "setup": {
+                "checks": {
+                    "PATCH /delivery/drivers/me/availability → 204/400": {
+                        "fails": 0,
+                        "name": "PATCH /delivery/drivers/me/availability → 204/400",
+                        "path": "::setup::PATCH /delivery/drivers/me/availability → 204/400",
+                        "id": "905c8905a9e232ff680ca38bd25600af",
+                        "passes": 50
+                    },
+                    "PATCH /delivery/drivers/me/availability → not a problem document": {
+                        "fails": 0,
+                        "name": "PATCH /delivery/drivers/me/availability → not a problem document",
+                        "path": "::setup::PATCH /delivery/drivers/me/availability → not a problem document",
+                        "id": "731b23a82bbe733b1f6e796cfd7d669d",
+                        "passes": 50
+                    },
+                    "GET /delivery/deliveries (drain) → 200": {
+                        "name": "GET /delivery/deliveries (drain) → 200",
+                        "path": "::setup::GET /delivery/deliveries (drain) → 200",
+                        "id": "312fbf4b55f9c719f14368712ca92de5",
+                        "passes": 8,
+                        "fails": 0
+                    },
+                    "GET /delivery/deliveries (drain) → not a problem document": {
+                        "path": "::setup::GET /delivery/deliveries (drain) → not a problem document",
+                        "id": "c91e1067459898c702aaca9d769ae753",
+                        "passes": 8,
+                        "fails": 0,
+                        "name": "GET /delivery/deliveries (drain) → not a problem document"
+                    },
+                    "GET /delivery/deliveries (drain) → body is an array": {
+                        "name": "GET /delivery/deliveries (drain) → body is an array",
+                        "path": "::setup::GET /delivery/deliveries (drain) → body is an array",
+                        "id": "cdbc788847aeaafc8a9583942e13b52e",
+                        "passes": 8,
+                        "fails": 0
+                    },
+                    "GET /delivery/drivers/me → 200": {
+                        "name": "GET /delivery/drivers/me → 200",
+                        "path": "::setup::GET /delivery/drivers/me → 200",
+                        "id": "6a7f67faaf6287cd8872c0b0dfe742d3",
+                        "passes": 8,
+                        "fails": 0
+                    },
+                    "GET /delivery/drivers/me → not a problem document": {
+                        "id": "c40049c49198fda9a12d0966c8dae605",
+                        "passes": 8,
+                        "fails": 0,
+                        "name": "GET /delivery/drivers/me → not a problem document",
+                        "path": "::setup::GET /delivery/drivers/me → not a problem document"
+                    },
+                    "POST /delivery/deliveries/:id/picked-up → 204/400": {
+                        "name": "POST /delivery/deliveries/:id/picked-up → 204/400",
+                        "path": "::setup::POST /delivery/deliveries/:id/picked-up → 204/400",
+                        "id": "e1e1989a3d89a501f77afef9126a1f73",
+                        "passes": 1,
+                        "fails": 0
+                    },
+                    "POST /delivery/deliveries/:id/picked-up → not a problem document": {
+                        "passes": 1,
+                        "fails": 0,
+                        "name": "POST /delivery/deliveries/:id/picked-up → not a problem document",
+                        "path": "::setup::POST /delivery/deliveries/:id/picked-up → not a problem document",
+                        "id": "0347556067c5fdc07272c2a9b8ced3c8"
+                    },
+                    "POST /delivery/deliveries/:id/delivered → 204/400": {
+                        "passes": 1,
+                        "fails": 0,
+                        "name": "POST /delivery/deliveries/:id/delivered → 204/400",
+                        "path": "::setup::POST /delivery/deliveries/:id/delivered → 204/400",
+                        "id": "ab74d7b9981abd99dd05cc30e8e98435"
+                    },
+                    "POST /delivery/deliveries/:id/delivered → not a problem document": {
+                        "path": "::setup::POST /delivery/deliveries/:id/delivered → not a problem document",
+                        "id": "cdca9735d5f32b43ca84c93af503a0f0",
+                        "passes": 1,
+                        "fails": 0,
+                        "name": "POST /delivery/deliveries/:id/delivered → not a problem document"
+                    }
+                },
+                "name": "setup",
+                "path": "::setup",
+                "id": "5c0f8025f7e0b6654089e5b00e950f1a",
+                "groups": {}
+            }
+        },
+        "checks": {
+            "GET /orders (kitchen) → 200": {
+                "name": "GET /orders (kitchen) → 200",
+                "path": "::GET /orders (kitchen) → 200",
+                "id": "3a1b8ea9543d91b0734522d5105f8755",
+                "passes": 1486,
+                "fails": 0
+            },
+            "GET /orders (kitchen) → not a problem document": {
+                "name": "GET /orders (kitchen) → not a problem document",
+                "path": "::GET /orders (kitchen) → not a problem document",
+                "id": "3d70c0a96745757235ad9078a6c14a82",
+                "passes": 1486,
+                "fails": 0
+            },
+            "GET /orders (kitchen) → body is an array": {
+                "name": "GET /orders (kitchen) → body is an array",
+                "path": "::GET /orders (kitchen) → body is an array",
+                "id": "c3fed2b9c83a90c7227afbe53a53feed",
+                "passes": 1486,
+                "fails": 0
+            },
+            "POST /delivery/drivers/me/location → 204": {
+                "name": "POST /delivery/drivers/me/location → 204",
+                "path": "::POST /delivery/drivers/me/location → 204",
+                "id": "72fa5aa700e687f09b6f32ea198ad8d9",
+                "passes": 1040,
+                "fails": 0
+            },
+            "POST /delivery/drivers/me/location → not a problem document": {
+                "fails": 0,
+                "name": "POST /delivery/drivers/me/location → not a problem document",
+                "path": "::POST /delivery/drivers/me/location → not a problem document",
+                "id": "d2bad3f21b780861281f65dac58e47d4",
+                "passes": 1040
+            },
+            "POST /orders/:id/accept → 204": {
+                "name": "POST /orders/:id/accept → 204",
+                "path": "::POST /orders/:id/accept → 204",
+                "id": "b8740bbdfbecd603b854691eb23ecfd0",
+                "passes": 107,
+                "fails": 0
+            },
+            "POST /orders/:id/accept → not a problem document": {
+                "fails": 0,
+                "name": "POST /orders/:id/accept → not a problem document",
+                "path": "::POST /orders/:id/accept → not a problem document",
+                "id": "8e62a273e641605e6627557bcf720d96",
+                "passes": 107
+            },
+            "GET /orders → 200": {
+                "name": "GET /orders → 200",
+                "path": "::GET /orders → 200",
+                "id": "43fd17a0e8ea016a043cb6c89ac4c6a6",
+                "passes": 61,
+                "fails": 0
+            },
+            "GET /orders → not a problem document": {
+                "fails": 0,
+                "name": "GET /orders → not a problem document",
+                "path": "::GET /orders → not a problem document",
+                "id": "5c55993e9ef347271b5c01c35bec1c11",
+                "passes": 61
+            },
+            "GET /orders → body is an array": {
+                "id": "4a5358e92c91d8ef7024684bb4c0567a",
+                "passes": 61,
+                "fails": 0,
+                "name": "GET /orders → body is an array",
+                "path": "::GET /orders → body is an array"
+            },
+            "GET /orders/:id → 200": {
+                "passes": 808,
+                "fails": 0,
+                "name": "GET /orders/:id → 200",
+                "path": "::GET /orders/:id → 200",
+                "id": "160350f0bd4b2b76c55151ad69d014d0"
+            },
+            "GET /orders/:id → not a problem document": {
+                "path": "::GET /orders/:id → not a problem document",
+                "id": "cec573cec95479d61961bc2e4272c9d1",
+                "passes": 808,
+                "fails": 0,
+                "name": "GET /orders/:id → not a problem document"
+            },
+            "GET /orders/:id → has the requested id": {
+                "name": "GET /orders/:id → has the requested id",
+                "path": "::GET /orders/:id → has the requested id",
+                "id": "d511bcbb706d36018d2a8ae9a8bd3f6e",
+                "passes": 808,
+                "fails": 0
+            },
+            "GET /orders/:id → carries a status": {
+                "name": "GET /orders/:id → carries a status",
+                "path": "::GET /orders/:id → carries a status",
+                "id": "7a9fdf11b47396f744685625fa421efb",
+                "passes": 808,
+                "fails": 0
+            },
+            "GET /delivery/orders/:orderId/delivery → 200/404": {
+                "id": "7140225159287b11d2c15f0da76c96b0",
+                "passes": 808,
+                "fails": 0,
+                "name": "GET /delivery/orders/:orderId/delivery → 200/404",
+                "path": "::GET /delivery/orders/:orderId/delivery → 200/404"
+            },
+            "GET /delivery/orders/:orderId/delivery → not a problem document": {
+                "passes": 808,
+                "fails": 0,
+                "name": "GET /delivery/orders/:orderId/delivery → not a problem document",
+                "path": "::GET /delivery/orders/:orderId/delivery → not a problem document",
+                "id": "17920cdf2d71066fe4e0d53bbe34ebd2"
+            },
+            "GET /delivery/orders/:orderId/delivery → is this order's delivery": {
+                "name": "GET /delivery/orders/:orderId/delivery → is this order's delivery",
+                "path": "::GET /delivery/orders/:orderId/delivery → is this order's delivery",
+                "id": "9a043daa539a8b3bec2a10e3a3e58258",
+                "passes": 808,
+                "fails": 0
+            },
+            "POST /orders/:id/preparing → 204": {
+                "name": "POST /orders/:id/preparing → 204",
+                "path": "::POST /orders/:id/preparing → 204",
+                "id": "c3948fa1b1e4f84c923d118e767d92d2",
+                "passes": 108,
+                "fails": 1
+            },
+            "POST /orders/:id/preparing → not a problem document": {
+                "name": "POST /orders/:id/preparing → not a problem document",
+                "path": "::POST /orders/:id/preparing → not a problem document",
+                "id": "a0c1a6211df04051dac089e2af668056",
+                "passes": 109,
+                "fails": 0
+            },
+            "GET /restaurants → 200": {
+                "name": "GET /restaurants → 200",
+                "path": "::GET /restaurants → 200",
+                "id": "ce72979866a14c8e602d806240934765",
+                "passes": 541,
+                "fails": 0
+            },
+            "GET /restaurants → not a problem document": {
+                "name": "GET /restaurants → not a problem document",
+                "path": "::GET /restaurants → not a problem document",
+                "id": "fcf443519b3c7ed1ae651477622edb48",
+                "passes": 541,
+                "fails": 0
+            },
+            "GET /restaurants → body is an array": {
+                "name": "GET /restaurants → body is an array",
+                "path": "::GET /restaurants → body is an array",
+                "id": "87d7999cb3d087699a158e38be5bf972",
+                "passes": 541,
+                "fails": 0
+            },
+            "GET /delivery/deliveries (offer board) → 200": {
+                "path": "::GET /delivery/deliveries (offer board) → 200",
+                "id": "189b60aeafa7ddcbdfaa6c64ba3d7d37",
+                "passes": 834,
+                "fails": 0,
+                "name": "GET /delivery/deliveries (offer board) → 200"
+            },
+            "GET /delivery/deliveries (offer board) → not a problem document": {
+                "passes": 834,
+                "fails": 0,
+                "name": "GET /delivery/deliveries (offer board) → not a problem document",
+                "path": "::GET /delivery/deliveries (offer board) → not a problem document",
+                "id": "861ae55c1dd94522c574db8ed9f6f621"
+            },
+            "GET /delivery/deliveries (offer board) → body is an array": {
+                "name": "GET /delivery/deliveries (offer board) → body is an array",
+                "path": "::GET /delivery/deliveries (offer board) → body is an array",
+                "id": "830d7fe0517d2e04016f674851107edd",
+                "passes": 834,
+                "fails": 0
+            },
+            "GET /restaurants/:id → 200": {
+                "id": "97076fc94b2b05b16e2525a3972007c5",
+                "passes": 541,
+                "fails": 0,
+                "name": "GET /restaurants/:id → 200",
+                "path": "::GET /restaurants/:id → 200"
+            },
+            "GET /restaurants/:id → not a problem document": {
+                "name": "GET /restaurants/:id → not a problem document",
+                "path": "::GET /restaurants/:id → not a problem document",
+                "id": "87343316e86c679c042ce2790911117b",
+                "passes": 541,
+                "fails": 0
+            },
+            "GET /restaurants/:id → has the requested id": {
+                "path": "::GET /restaurants/:id → has the requested id",
+                "id": "d4a96a90913970e5ad35206c4d813e4e",
+                "passes": 541,
+                "fails": 0,
+                "name": "GET /restaurants/:id → has the requested id"
+            },
+            "GET /restaurants/:id → has a name": {
+                "passes": 541,
+                "fails": 0,
+                "name": "GET /restaurants/:id → has a name",
+                "path": "::GET /restaurants/:id → has a name",
+                "id": "a210c0dc158d1c12353dfb410c2312bc"
+            },
+            "POST /orders/:id/ready → 204": {
+                "fails": 0,
+                "name": "POST /orders/:id/ready → 204",
+                "path": "::POST /orders/:id/ready → 204",
+                "id": "ef431a3187e06ae00fa5270275b63c7e",
+                "passes": 107
+            },
+            "POST /orders/:id/ready → not a problem document": {
+                "path": "::POST /orders/:id/ready → not a problem document",
+                "id": "47b22de80cf6478bab286171a726eec9",
+                "passes": 107,
+                "fails": 0,
+                "name": "POST /orders/:id/ready → not a problem document"
+            },
+            "GET /restaurants/:id/menu → 200": {
+                "name": "GET /restaurants/:id/menu → 200",
+                "path": "::GET /restaurants/:id/menu → 200",
+                "id": "abbba1bd63823171580f3737ca7cf781",
+                "passes": 541,
+                "fails": 0
+            },
+            "GET /restaurants/:id/menu → not a problem document": {
+                "name": "GET /restaurants/:id/menu → not a problem document",
+                "path": "::GET /restaurants/:id/menu → not a problem document",
+                "id": "f14e7b41b9efdf972173615bd01dc8f5",
+                "passes": 541,
+                "fails": 0
+            },
+            "GET /restaurants/:id/menu → is the requested restaurant's menu": {
+                "name": "GET /restaurants/:id/menu → is the requested restaurant's menu",
+                "path": "::GET /restaurants/:id/menu → is the requested restaurant's menu",
+                "id": "d26ae743f6c03270ab4a54bc778c2040",
+                "passes": 541,
+                "fails": 0
+            },
+            "GET /restaurants/:id/menu → carries categories": {
+                "name": "GET /restaurants/:id/menu → carries categories",
+                "path": "::GET /restaurants/:id/menu → carries categories",
+                "id": "1fabd368c96c93bbefd3257617e50013",
+                "passes": 541,
+                "fails": 0
+            },
+            "POST /delivery/deliveries/:id/accept → 204/400": {
+                "fails": 0,
+                "name": "POST /delivery/deliveries/:id/accept → 204/400",
+                "path": "::POST /delivery/deliveries/:id/accept → 204/400",
+                "id": "014905a2957200778e7896205cd2f9bb",
+                "passes": 469
+            },
+            "POST /delivery/deliveries/:id/accept → not a problem document": {
+                "passes": 469,
+                "fails": 0,
+                "name": "POST /delivery/deliveries/:id/accept → not a problem document",
+                "path": "::POST /delivery/deliveries/:id/accept → not a problem document",
+                "id": "001d89036b5171031914b5fc85b72bd3"
+            },
+            "POST /orders → 200": {
+                "name": "POST /orders → 200",
+                "path": "::POST /orders → 200",
+                "id": "35971bb71070a6126dcf90f5e53bfc14",
+                "passes": 133,
+                "fails": 0
+            },
+            "POST /orders → not a problem document": {
+                "path": "::POST /orders → not a problem document",
+                "id": "5836f4c71d222333c8d3fdd3c30621ed",
+                "passes": 133,
+                "fails": 0,
+                "name": "POST /orders → not a problem document"
+            },
+            "POST /orders → returns an order id": {
+                "path": "::POST /orders → returns an order id",
+                "id": "26ec8285cac3482e00ed8b2c784daddf",
+                "passes": 133,
+                "fails": 0,
+                "name": "POST /orders → returns an order id"
+            },
+            "POST /delivery/deliveries/:id/picked-up → 204": {
+                "name": "POST /delivery/deliveries/:id/picked-up → 204",
+                "path": "::POST /delivery/deliveries/:id/picked-up → 204",
+                "id": "d90ec937a2499500e6df9f9ed5491fc2",
+                "passes": 103,
+                "fails": 0
+            },
+            "POST /delivery/deliveries/:id/picked-up → not a problem document": {
+                "name": "POST /delivery/deliveries/:id/picked-up → not a problem document",
+                "path": "::POST /delivery/deliveries/:id/picked-up → not a problem document",
+                "id": "67e4bcde9d99d727f5a5eae30e17b066",
+                "passes": 103,
+                "fails": 0
+            },
+            "POST /delivery/deliveries/:id/delivered → 204": {
+                "name": "POST /delivery/deliveries/:id/delivered → 204",
+                "path": "::POST /delivery/deliveries/:id/delivered → 204",
+                "id": "2961e1b6b13a05be4f368505681911cb",
+                "passes": 103,
+                "fails": 0
+            },
+            "POST /delivery/deliveries/:id/delivered → not a problem document": {
+                "name": "POST /delivery/deliveries/:id/delivered → not a problem document",
+                "path": "::POST /delivery/deliveries/:id/delivered → not a problem document",
+                "id": "d6da0493fd188a42f5e8842909c0895f",
+                "passes": 103,
+                "fails": 0
+            }
+        }
+    }
+}

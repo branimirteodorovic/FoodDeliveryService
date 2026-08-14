@@ -69,6 +69,10 @@ namespace FoodDeliveryService.Modules.Notifications.Infrastructure.Database.Migr
                         .HasDatabaseName("ix_inbox_messages_correlation_id")
                         .HasFilter("correlation_id IS NOT NULL");
 
+                    b.HasIndex("OccurredOnUtc")
+                        .HasDatabaseName("ix_inbox_messages_unprocessed")
+                        .HasFilter("processed_on_utc IS NULL");
+
                     b.ToTable("inbox_messages", (string)null);
                 });
 
@@ -135,6 +139,10 @@ namespace FoodDeliveryService.Modules.Notifications.Infrastructure.Database.Migr
                     b.HasIndex("CorrelationId")
                         .HasDatabaseName("ix_outbox_messages_correlation_id")
                         .HasFilter("correlation_id IS NOT NULL");
+
+                    b.HasIndex("OccurredOnUtc")
+                        .HasDatabaseName("ix_outbox_messages_unprocessed")
+                        .HasFilter("processed_on_utc IS NULL");
 
                     b.ToTable("outbox_messages", (string)null);
                 });

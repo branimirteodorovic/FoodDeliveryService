@@ -116,7 +116,11 @@ internal sealed class ProcessInboxJob(
              WHERE processed_on_utc IS NULL
              ORDER BY occurred_on_utc
              LIMIT @BatchSize
-             FOR UPDATE
+             -- SKIP LOCKED: a scheduler that ticks while another is mid-batch takes the *next*
+             -- rows instead of blocking on these. No effect at one replica, where Quartz's
+             -- [DisallowConcurrentExecution] already serializes the job — it is the prerequisite
+             -- KUBERNETES_PHASE2_PLAN.md §5.1 names for ever running more than one.
+             FOR UPDATE SKIP LOCKED
              """;
 
         IEnumerable<InboxMessageResponse> inboxMessages = await connection.QueryAsync<InboxMessageResponse>(

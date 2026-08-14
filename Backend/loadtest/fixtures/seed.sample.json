@@ -1,0 +1,66 @@
+{
+  "_comment": [
+    "The shape of the file the Milestone B seeder writes next to this one as seed.json (gitignored).",
+    "This sample is trimmed to two of everything and carries no real ids: it exists so the format is",
+    "reviewable in a diff, and so lib/fixtures.js has something to read in a checkout nobody has",
+    "seeded. Regenerate the real thing with:",
+    "  dotnet run --project tools/FoodDeliveryService.LoadTest.Seeder"
+  ],
+  "runId": "loadtest-20260810-120000",
+  "generatedOnUtc": "2026-08-10T12:00:00.0000000Z",
+  "environment": "compose",
+  "prefix": "loadtest",
+  "restaurants": [
+    {
+      "restaurantId": "00000000-0000-0000-0000-0000000000a1",
+      "name": "loadtest Sample Kitchen 000",
+      "latitude": 44.7866,
+      "longitude": 20.4489,
+      "city": "Belgrade",
+      "postalCode": "11000",
+      "country": "Serbia",
+      "managerEmail": "loadtest-manager-0000@fooddeliveryservice.com",
+      "managerPassword": "Loadtest!23456",
+      "menuItemIds": [
+        "00000000-0000-0000-0000-0000000000b1",
+        "00000000-0000-0000-0000-0000000000b2"
+      ]
+    },
+    {
+      "restaurantId": "00000000-0000-0000-0000-0000000000a2",
+      "name": "loadtest Sample Grill 001",
+      "latitude": 44.7901,
+      "longitude": 20.4523,
+      "city": "Belgrade",
+      "postalCode": "11000",
+      "country": "Serbia",
+      "managerEmail": "loadtest-manager-0001@fooddeliveryservice.com",
+      "managerPassword": "Loadtest!23456",
+      "menuItemIds": [
+        "00000000-0000-0000-0000-0000000000b3"
+      ]
+    }
+  ],
+  "customers": [
+    {
+      "email": "loadtest-customer-0000@fooddeliveryservice.com",
+      "password": "Loadtest!23456"
+    },
+    {
+      "email": "loadtest-customer-0001@fooddeliveryservice.com",
+      "password": "Loadtest!23456"
+    }
+  ],
+  "drivers": [
+    {
+      "driverId": "00000000-0000-0000-0000-0000000000c1",
+      "email": "loadtest-driver-0000@fooddeliveryservice.com",
+      "password": "Loadtest!23456"
+    },
+    {
+      "driverId": "00000000-0000-0000-0000-0000000000c2",
+      "email": "loadtest-driver-0001@fooddeliveryservice.com",
+      "password": "Loadtest!23456"
+    }
+  ]
+}

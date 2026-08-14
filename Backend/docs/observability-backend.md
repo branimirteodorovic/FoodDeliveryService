@@ -84,6 +84,7 @@ uids are fixed in the files, so links to them are stable.
 | **RED** | `fds-red` | Rate, errors and duration per service, at both layers — the transport histogram (what the caller saw) and the application histogram (what the handler pipeline did). Plus the two probe counts, so "is anything down" is on the same screen. |
 | **Business** | `fds-business` | Orders per minute, the full lifecycle transition graph tagged `from`→`to`, cancellation share, and the driver-offer outcome mix with its p95 duration. |
 | **Cache** | `fds-cache` | Hit rate overall, per key prefix and for `user_permissions` specifically, plus lookups and misses per service. |
+| **Load test** | `fds-load` | A k6 run (Feature 3.5) and the platform's response to it, on one screen: arrival rate, VUs, client p95 per endpoint and error rate on the top half; application p95 per service, 5xx, orders/s, assignment outcomes and cache hit rate on the bottom. **Empty unless a load test is streaming** — see below. |
 
 Panels worth knowing about:
 
@@ -97,6 +98,35 @@ Panels worth knowing about:
 - **Cache** — in Development an unreachable Redis degrades to an in-process cache, which the counters
   happily report a healthy hit rate against. A high hit rate is **not** evidence that Redis is up;
   `/health/ready` is.
+- **Load test, "Client p95 against server p95"** is the reason that dashboard exists. The client line
+  contains everything in front of the application — accept queues, the thread pool, the network — so
+  when the two separate, the wait is not inside a handler and no index or cache will move it.
+
+### The `k6_*` series, and why they are not emitted by anything
+
+Every other metric on these dashboards comes out of a .NET process over OTLP. The `k6_*` ones are
+**pushed into Prometheus by the load generator** over the remote-write endpoint, which is why
+`docker-compose.yml` starts Prometheus with `--web.enable-remote-write-receiver`. Three consequences:
+
+- They exist only while a run is streaming, and only when it was asked to: remote write is opt-in
+  (`loadtest/scripts/run.{sh,ps1} --prometheus`), because the generator and this Prometheus compete
+  for the same host CPU as the system being measured.
+- `ObservabilityAssetTests` lists them in `KnownMetrics` under an explicit comment, next to
+  `probe_success` — the other metric this repository owns the producer of but not inside a service —
+  and a separate test keeps them off the three always-on dashboards, where they would be empty on
+  every ordinary day and read as broken instrumentation.
+- Their names are k6's remote-write translation, not the names in `loadtest/lib/metrics.js`: `k6_`
+  prefix, `_total` for a counter, `_rate` for a rate, and one gauge per statistic for a trend
+  (`order_placement_duration` → `k6_order_placement_duration_p95`).
+
+The durable record of a run is **not** here. Prometheus keeps 7 days on a disposable volume; the run
+writes `loadtest/results/{script}-{profile}-{runId}.summary.{json,md}` at the moment the numbers
+exist, plus `.platform.json` holding the server-side series behind these panels.
+`loadtest/README.md` is the runbook, and [`load-testing.md`](load-testing.md) is where the published
+numbers, the environment each came from and the bottleneck log live. The graphs that document quotes
+are **re-plotted from those summaries** (`node loadtest/scripts/plot.mjs`) rather than exported from
+this Grafana, for the retention reason above — a panel image linked from documentation is a broken
+image with a month's notice.
 
 ## 4. Alerts
 
@@ -112,8 +142,10 @@ Alertmanager (§6).
 | `HighApplicationExceptionRate` | requests that *threw* > 5% for a service | 2m | critical |
 | `HighHttpLatencyP95` | transport p95 > 1s | 5m | warning |
 | `SlowApplicationRequests` | application p95 > 1s for a given request type | 5m | warning |
+| `PlatformDegradedUnderLoad` | 5xx > 1% **while a k6 run is in flight** (`k6_vus > 0`) | 1m | warning |
+| `LoadGeneratorSaturated` | k6 is dropping iterations — the generator, not the platform | 1m | warning |
 
-Two decisions behind them:
+Three decisions behind them:
 
 - **Availability is measured from outside.** A killed container reports no error rate — it reports
   nothing, which is exactly what an idle container reports. `probe_success` is what makes "kill a
@@ -122,6 +154,12 @@ Two decisions behind them:
 - **Every ratio is guarded by a minimum request rate** (`> 0.05` req/s). Without it, one failed
   request on a quiet night is a 100% error rate and every ratio alert here would be permanently
   firing, which is the same as having none.
+- **The load-test pair is gated on a run being in progress**, which is what lets it be stricter than
+  the rules above — 1% over two minutes rather than 5% over five. The general rules have to survive
+  an idle night and are correspondingly forgiving; during a load test there is no shortage of
+  traffic and no reason to wait. `LoadGeneratorSaturated` is not about the platform at all: dropped
+  iterations mean k6 could not offer the load in the profile, so every number after that moment
+  understates capacity, and Feature 3.5's method says to check it before blaming anything.
 
 `ServiceNotReady` intentionally does *not* fire for a host that is entirely gone — its
 `and on (service) probe_success{job="health-live"} == 1` guard leaves that case to `ServiceDown`, so
@@ -156,6 +194,12 @@ docker-compose up -d
 8. **A dependency outage is distinguishable.** `docker stop FoodDeliveryService.Redis` instead:
    `ServiceDown` stays quiet and **ServiceNotReady** fires for the hosts whose readiness check now
    fails — the liveness/readiness split doing exactly what Feature 2.5 will bind pod probes to.
+9. **Load populates** *(needs Feature 3.5's seeded fixture)*. From `loadtest/scripts/`, run
+   `./run.sh scenarios/mixed.js --profile baseline --prometheus`, then open
+   <http://localhost:3100/d/fds-load> while it is running: the top half fills within a flush interval
+   (5 s), the `Run` variable offers this run's `testid`, and the orders/s panel shows k6's count and
+   the platform's count tracking each other. An empty top half with a busy bottom half means the run
+   was started without `--prometheus`.
 
 Traces are unaffected by all of this: Jaeger is still at <http://localhost:16686>, it just receives
 them via the collector now.

@@ -154,9 +154,21 @@ spec:
           envFrom:
             - configMapRef:
                 name: platform-config
-          # No database, no Redis, no broker: the Gateway proxies and validates JWTs, nothing else.
-          # Its readiness is its liveness by design — one dead downstream cluster must not take the
-          # single public entry point out of rotation and every other service with it.
+          env:
+            # No database and no broker — the Gateway proxies and validates JWTs. It does take one
+            # Redis connection, and only since Feature 3.5 Milestone G: the edge rate limiter's
+            # counters live there because per-pod in-memory buckets would multiply the configured
+            # limit by the replica count (§5.4). Outside Development the host refuses to start
+            # without it rather than silently enforcing a limit it cannot honour.
+            - name: ConnectionStrings__Cache
+              valueFrom:
+                secretKeyRef:
+                  name: platform-secrets
+                  key: ConnectionStrings__Cache
+          # Its readiness is still its liveness by design — one dead downstream cluster must not take
+          # the single public entry point out of rotation and every other service with it. Redis is
+          # deliberately not a readiness dependency either: the limiter fails open when the store is
+          # unreachable, so losing Redis costs the per-client limit, not the gateway.
           startupProbe:
             httpGet:
               path: /health/live

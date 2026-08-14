@@ -1,0 +1,104 @@
+// Thresholds are the pass/fail gate, not decoration: k6 exits non-zero when one is breached, which
+// is what makes a run something CI or a reviewer can trust rather than a wall of numbers someone has
+// to interpret.
+//
+// This is the *shared* block. `config/profiles.js` layers two things on top of it: per-profile
+// overrides (a spike is allowed to degrade at its peak, a soak is not allowed to degrade at all) and,
+// for staged profiles, one threshold **per phase** — which is what turns "where is the knee?" into a
+// line in the terminal rather than an argument about a graph.
+
+/**
+ * Journey latency is measured *separately from login*, via the `scope` tag `lib/http.js` and
+ * `lib/auth.js` put on every request.
+ *
+ * The reason is ASP.NET Identity: `POST /connect/token` verifies a PBKDF2 hash and deliberately
+ * burns CPU doing it, so it is the most expensive endpoint in the system by an order of magnitude.
+ * Averaged into `http_req_duration` it drags the journey percentiles around for a reason that has
+ * nothing to do with the platform under test. Split out, login cost is its own visible line — which
+ * is itself a capacity fact worth publishing (Milestone F #6).
+ */
+export const SCOPE_JOURNEY = 'journey';
+export const SCOPE_AUTH = 'auth';
+export const SCOPE_SETUP = 'setup';
+
+/**
+ * Requests **no real client would ever make** — today, exactly one: `driver.js` polling the
+ * administrator's delivery board to find out which deliveries are currently offered.
+ *
+ * It exists because the platform has no per-driver "my offers" read model (see `scenarios/driver.js`)
+ * — so it is harness scaffolding standing in for a push channel, not a journey. It still loads the
+ * platform, so it stays inside `http_req_failed` and `checks`; it is kept out of the journey latency
+ * SLO because a threshold on it would be a threshold on the workaround.
+ */
+export const SCOPE_DISPATCH = 'dispatch';
+
+// Where these numbers stand today. They are budgets, not measurements — Milestone D's baseline run
+// is what turns them into numbers with evidence behind them. For scale, `smoke.js` at 5 VUs against
+// a warm compose stack (generator co-located, 30 s) measures:
+//
+//   journey  p95  33 ms   p99  81 ms   (list/detail/menu through the Gateway)
+//   auth     p95 643 ms                (5 concurrent logins; PBKDF2, and it shows)
+//
+// So the journey budget has an order of magnitude of headroom and the auth budget about 3×. Both are
+// deliberate at this stage: a smoke test that fails on ordinary host noise gets ignored within a week.
+const DEFAULTS = {
+    journeyP95: 500,
+    journeyP99: 1500,
+    // Token issuance is CPU-bound by design; it gets a budget of its own rather than an exemption.
+    authP95: 2000,
+    errorRate: 0.01,
+    checkRate: 0.99,
+    // The Gateway's capacity guardrail (Milestone G) firing on ordinary traffic. Effectively zero by
+    // default and deliberately so: a limiter sized correctly must be invisible below the knee, and a
+    // single 429 in a five-minute baseline means the budget is wrong, not that the platform is busy.
+    // The staged profiles raise it, because shedding *is* what they are there to observe.
+    throttledRate: 0.001,
+    // The `ramp` profile sets this: past the knee a run has already answered its question, and ten
+    // more minutes of recording timeouts adds nothing. It applies to the two run-wide criteria the
+    // plan's saturation rule names — the error rate and journey p95 — and to nothing else, because
+    // aborting a ramp on a login percentile would end it for a reason that is not the platform's.
+    //
+    // Note what a *cumulative* threshold means on a staged run: it mixes every step so far, so it
+    // trips some way past the step that actually broke. That is the intended division of labour —
+    // the per-phase thresholds in `config/profiles.js` identify the knee, this one stops the run.
+    abortOnFail: false,
+    delayAbortEval: '30s',
+};
+
+/**
+ * The shared SLO block, as a k6 `thresholds` object.
+ *
+ * @param {object} [overrides] any of the DEFAULTS above. `config/profiles.js` supplies a profile's.
+ */
+export function sloThresholds(overrides = {}) {
+    const o = { ...DEFAULTS, ...overrides };
+
+    const abort = { abortOnFail: o.abortOnFail, delayAbortEval: o.delayAbortEval };
+
+    return {
+        // Every request in the run, including setup: a broken preflight must not look like a pass.
+        http_req_failed: [{ threshold: `rate<${o.errorRate}`, ...abort }],
+
+        [`http_req_duration{scope:${SCOPE_JOURNEY}}`]: [
+            { threshold: `p(95)<${o.journeyP95}`, ...abort },
+            `p(99)<${o.journeyP99}`,
+        ],
+        // `authP95: null` drops the run-wide login gate, and only the staged profiles do it: their
+        // cumulative login percentile is fixed by the ignition burst in the first thirty seconds and
+        // says nothing about any later phase, so `config/profiles.js` gates login **per phase**
+        // instead. Dropped rather than loosened — a 20-second budget nothing can ever cross is worse
+        // than no budget, because it looks like one.
+        ...(o.authP95 ? { [`http_req_duration{scope:${SCOPE_AUTH}}`]: [`p(95)<${o.authP95}`] } : {}),
+
+        // A `200 OK` carrying a ProblemDetails body is still an application failure. `http_req_failed`
+        // counts status codes and would call it a success; the checks in `lib/http.js` look at the
+        // body, and this is the threshold that makes them matter.
+        checks: [`rate>${o.checkRate}`],
+
+        // The rejected fraction, stated rather than hidden. It is a gate in both directions: on a
+        // flat profile it fails if the guardrail fires at all, and on a staged one it fails only if
+        // the platform is shedding *most* of its traffic — which is a limiter mis-sized the other
+        // way, refusing work the platform could have done.
+        requests_throttled: [`rate<${o.throttledRate}`],
+    };
+}

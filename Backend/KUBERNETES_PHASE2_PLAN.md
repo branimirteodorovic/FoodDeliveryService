@@ -159,13 +159,20 @@ Three separate hazards, all cheap to fix, all invisible until a second pod exist
    `Database:RunMigrationsOnStartup` (default `true` so compose and the integration suites are
    unchanged, `false` in-cluster) and run migrations once from a one-shot `Job` before the new pods
    roll. Prefer one shared extension over seven copies.
-2. **`FOR UPDATE` without `SKIP LOCKED`.** `ProcessOutboxJob` and `ProcessInboxJob` select a batch
-   `FOR UPDATE` and then dispatch the *entire batch* — handler plus MassTransit publish — inside
-   that transaction. Quartz's `[DisallowConcurrentExecution]` is per-scheduler, i.e. **per pod**.
-   Correctness holds (under READ COMMITTED, Postgres re-evaluates the `WHERE` after the lock is
-   released, so nothing is dispatched twice), but replica two blocks on replica one for a whole
-   batch. Adding `SKIP LOCKED` — one word, six modules — makes replicas take disjoint batches.
-   Without it, scaling out makes outbox latency *worse*.
+2. ~~**`FOR UPDATE` without `SKIP LOCKED`.**~~ **Fixed 2026-08-11 by `LOADTESTING_PHASE3_PLAN.md`
+   Milestone F**, which had to touch all eleven of those queries anyway to index the dispatch
+   predicate. All of them now read `FOR UPDATE SKIP LOCKED`, so replicas take disjoint batches
+   instead of blocking on each other for a whole batch. No single-replica effect was measured and
+   none was expected — `[DisallowConcurrentExecution]` already serializes the job within a pod — so
+   this is banked as a prerequisite, not as a speed-up. The measurement that indicted the pipeline,
+   the query plans either side of the index, and what the change did to the backlog drain rate are in
+   [`docs/load-testing.md`](docs/load-testing.md) §6; the same document's §10 states what these three
+   hazards mean for a replica count above 1, and re-derives the two limits that are now **per pod** —
+   `Maximum Pool Size` and the Gateway's `GlobalConcurrencyLimit`. **Also fixed in the same change and relevant
+   here:** the same milestone bounded every service's Npgsql pool (`Maximum Pool Size`), which is a
+   *per-pod* bound — two Orders replicas are 40 connections, not 20 — so a replica count above 1 has
+   to revisit `deploy/k8s/base/config.yaml` and Postgres' `max_connections` together. Hazards 1 and
+   3 are untouched and still block replicas > 1.
 3. **Delivery's expired-offer counter double-counts.** `ProcessExpiredOffersJob` takes no
    distributed lock, so every replica scans the same expired offers.
    `DeliveryAssignmentDiagnostics.RecordExpiredOffer()` fires at *detection*, before the command, so
@@ -218,8 +225,14 @@ rejects it. This cannot be fixed at the Ingress either — the Ingress fronts th
 addresses RealTime as a single Service, so YARP's session affinity has no destinations to
 affinitize between. `sessionAffinity: ClientIP` on the RealTime Service is a partial guard (it pins
 per *Gateway* pod, not per client). The real scale path is **Azure SignalR Service**. Second: the
-**Gateway** can scale freely today only because Feature 1.3's rate limiter was never built — if one
-is ever added it must be Redis-backed, or per-pod buckets multiply the limit by the replica count.
+**Gateway** used to scale freely only because Feature 1.3's rate limiter was never built — the
+warning here was that if one were ever added it must be Redis-backed, or per-pod buckets would
+multiply the limit by the replica count. **It has since been built** (Feature 3.5 Milestone G,
+[`docs/rate-limiting.md`](docs/rate-limiting.md)) and it is Redis-backed for exactly this reason:
+the counters are in `ConnectionStrings__Cache`, the Gateway Deployment reads that key from
+`platform-secrets`, and outside Development the host refuses to start on the in-memory fallback
+rather than enforce N× its configured limit on N pods. The Gateway therefore still scales — the
+prerequisite is met rather than pending.
 
 ### 5.5 The observability stack in-cluster
 
@@ -280,7 +293,10 @@ PITR backups; secret-rotation automation; multi-region, blue-green and canary de
 - Solution targets **.NET 10**; images are `mcr.microsoft.com/dotnet/{sdk,aspnet}:10.0`, in which
   `$APP_UID` is **1654**.
 - All eight Dockerfiles exist, are multi-stage and already run as a non-root `USER $APP_UID`.
-- The Gateway has **no rate limiter** — a Feature 1.3 task that was never built.
+- The Gateway **has a rate limiter since Feature 3.5 Milestone G** — the Feature 1.3 task that was
+  never built. Redis-backed (so it survives replicas > 1), route-tiered, exempting `/health/*` and
+  `hubs/**`. It adds one env key to the Gateway Deployment, `ConnectionStrings__Cache` from
+  `platform-secrets`. See [`docs/rate-limiting.md`](docs/rate-limiting.md).
 - A pre-existing Gateway defect was fixed alongside the first CI workflow: three routes referenced a
   `fooddeliveryservice-cluster` that was never defined. The dead catch-all route was deleted and the
   two anonymous routes (`users/register`, `users/accept-invitation`) repointed at

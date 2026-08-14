@@ -23,5 +23,14 @@ public sealed class InboxMessageConfiguration : IEntityTypeConfiguration<InboxMe
         builder
             .HasIndex(o => o.CorrelationId)
             .HasFilter("correlation_id IS NOT NULL");
+
+        // The consuming half of the dispatch query, and the same fix for the same reason — see
+        // OutboxMessageConfiguration for the measurement. A busy module's inbox grows exactly as
+        // fast as everybody else's outboxes publish into it, so this side degrades first in a
+        // service that mostly reacts rather than publishes.
+        builder
+            .HasIndex(o => o.OccurredOnUtc)
+            .HasFilter("processed_on_utc IS NULL")
+            .HasDatabaseName("ix_inbox_messages_unprocessed");
     }
 }

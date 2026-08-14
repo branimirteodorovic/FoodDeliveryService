@@ -70,8 +70,38 @@ public class ObservabilityAssetTests
         // The blackbox exporter probing Milestone C's endpoints — the only metric here that is not
         // emitted by the application itself.
         "probe_success",
-        "probe_duration_seconds"
+        "probe_duration_seconds",
+
+        // ── Pushed by the k6 load generator, not emitted by any service ──────────────────────────
+        //
+        // Read that again before assuming something is missing from the code: these arrive over
+        // Prometheus' remote-write endpoint while a load test is running (Feature 3.5 Milestone E,
+        // LOADTESTING_PHASE3_PLAN.md §6) and they exist only for the duration of a run. They occupy
+        // the same exception `probe_success` above does — a metric this repository owns the
+        // *producer* of, just not inside a .NET process.
+        //
+        // The names are k6's remote-write translation and it is mechanical: `k6_` prefix, then the
+        // metric type decides the suffix. A counter gains `_total`, a rate gains `_rate`, a gauge
+        // gains nothing, and a trend becomes one gauge per statistic in K6_PROMETHEUS_RW_TREND_STATS
+        // (`p(95)` → `_p95`), which is set in docker-compose.yml. Custom metrics come from
+        // `loadtest/lib/metrics.js` — `orders_placed` there is `k6_orders_placed_total` here.
+        "k6_vus",
+        "k6_http_reqs_total",
+        "k6_http_req_duration_p95",
+        "k6_checks_rate",
+        "k6_dropped_iterations_total",
+        "k6_orders_placed_total",
+        "k6_order_placement_duration_p95"
     ];
+
+    /// <summary>
+    /// The prefix that marks a series as pushed by the load generator rather than emitted by a
+    /// service. Used to keep those series on the dashboard that expects them to be absent most of
+    /// the time — see <see cref="K6Series_Should_OnlyBeQueried_ByTheLoadDashboard"/>.
+    /// </summary>
+    private const string LoadGeneratorPrefix = "k6_";
+
+    private const string LoadDashboardFile = "load.json";
 
     /// <summary>
     /// A metric reference in PromQL is always an identifier immediately followed by a label matcher
@@ -128,8 +158,37 @@ public class ObservabilityAssetTests
         IEnumerable<string> uids = DashboardDocuments()
             .Select(dashboard => dashboard.RootElement.GetProperty("uid").GetString()!);
 
-        // RED, business and cache hit-rate: the three panels §6 names by hand.
-        uids.Should().BeEquivalentTo("fds-red", "fds-business", "fds-cache");
+        // RED, business and cache hit-rate: the three Telemetry 2.4 §6 names by hand, plus the load
+        // dashboard Feature 3.5 Milestone E adds — a k6 run read next to the platform's own metrics.
+        uids.Should().BeEquivalentTo("fds-red", "fds-business", "fds-cache", "fds-load");
+    }
+
+    [Theory]
+    [MemberData(nameof(DashboardFiles))]
+    public void K6Series_Should_OnlyBeQueried_ByTheLoadDashboard(string fileName)
+    {
+        using JsonDocument dashboard = ReadJson(BackendPath("docker", "grafana", "dashboards", fileName));
+
+        List<string> k6Series =
+        [
+            .. Expressions(dashboard)
+                .SelectMany(MetricNamesIn)
+                .Where(metric => metric.StartsWith(LoadGeneratorPrefix, StringComparison.Ordinal))
+        ];
+
+        if (fileName == LoadDashboardFile)
+        {
+            // The load dashboard's whole point is the client's view next to the server's, so it is
+            // the one file that must have both.
+            k6Series.Should().NotBeEmpty("{0} exists to show what the load generator measured", fileName);
+            return;
+        }
+
+        // Everywhere else they are a trap. A k6 series has data only while a load test is streaming
+        // into Prometheus, so a panel on an always-on dashboard would be empty on every ordinary day
+        // and read as broken instrumentation.
+        k6Series.Should().BeEmpty(
+            "{0} is read when no load test is running, and k6 series do not exist then", fileName);
     }
 
     [Theory]
@@ -175,13 +234,7 @@ public class ObservabilityAssetTests
     {
         using JsonDocument dashboard = ReadJson(BackendPath("docker", "grafana", "dashboards", fileName));
 
-        List<string> referenced =
-        [
-            .. QueryPanels(dashboard)
-                .SelectMany(panel => panel.GetProperty("targets").EnumerateArray())
-                .Select(target => target.GetProperty("expr").GetString()!)
-                .SelectMany(MetricNamesIn)
-        ];
+        List<string> referenced = [.. Expressions(dashboard).SelectMany(MetricNamesIn)];
 
         // Without this, an extraction that silently matched nothing would make the assertion below
         // pass on an empty set — the failure mode a test like this is most likely to have.
@@ -329,6 +382,12 @@ public class ObservabilityAssetTests
     private static IEnumerable<JsonElement> QueryPanels(JsonDocument dashboard) =>
         dashboard.RootElement.GetProperty("panels").EnumerateArray()
             .Where(panel => panel.GetProperty("type").GetString() is not ("row" or "text"));
+
+    /// <summary>Every PromQL expression a dashboard's panels query.</summary>
+    private static IEnumerable<string> Expressions(JsonDocument dashboard) =>
+        QueryPanels(dashboard)
+            .SelectMany(panel => panel.GetProperty("targets").EnumerateArray())
+            .Select(target => target.GetProperty("expr").GetString()!);
 
     private static string Title(JsonElement panel) =>
         panel.TryGetProperty("title", out JsonElement title) ? title.GetString() ?? "?" : "?";

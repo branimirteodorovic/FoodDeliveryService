@@ -55,20 +55,30 @@ type: Opaque
 # readable. Base64 is not encryption either way — the protection is that these values are worthless
 # outside a local cluster.
 stringData:
-  # Shared by all six module hosts.
+  # Shared by all six module hosts — and, since Feature 3.5 Milestone G, by the Gateway, whose edge
+  # rate limiter keeps its counters here so they survive a replica count above 1 (§5.4).
   ConnectionStrings__Cache: fooddeliveryservice-redis:6379
   ConnectionStrings__Queue: amqp://fooddeliveryservice-queue:5672
 
   # One database per service on the shared server (Hard Rule #5). Each Deployment maps exactly one
   # of these onto its own ConnectionStrings__Database, so no service can even name another's
   # database. EF Migrate() creates them on first start.
-  Database__Identity: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_identity;Username=postgres;Password=postgres
-  Database__Users: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_users;Username=postgres;Password=postgres
-  Database__Orders: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_orders;Username=postgres;Password=postgres
-  Database__Restaurants: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_restaurants;Username=postgres;Password=postgres
-  Database__Delivery: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_delivery;Username=postgres;Password=postgres
-  Database__Notifications: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_notifications;Username=postgres;Password=postgres
-  Database__RealTime: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_realtime;Username=postgres;Password=postgres
+  #
+  # `Maximum Pool Size` is explicit and it is not decoration. Npgsql defaults to 100 per pool and
+  # every module host builds two pools from this string — the shared NpgsqlDataSource for Dapper and
+  # the outbox/inbox jobs, and EF Core's own — so seven unbounded hosts can demand 1,400 connections
+  # from a server whose default ceiling is 100. Feature 3.5 Milestone F measured what that costs:
+  # 192 `53300: sorry, too many clients already` in Orders alone inside one 3-minute ramp. Bounded,
+  # the worst case is 6 × 20 + 20 = 140. **A replica count above 1 multiplies this** — two Orders
+  # pods are 40 connections, not 20 — so raising replicas means revisiting this line and the
+  # server's max_connections together (see KUBERNETES_PHASE2_PLAN.md §5.1).
+  Database__Identity: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_identity;Username=postgres;Password=postgres;Maximum Pool Size=20
+  Database__Users: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_users;Username=postgres;Password=postgres;Maximum Pool Size=10
+  Database__Orders: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_orders;Username=postgres;Password=postgres;Maximum Pool Size=10
+  Database__Restaurants: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_restaurants;Username=postgres;Password=postgres;Maximum Pool Size=10
+  Database__Delivery: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_delivery;Username=postgres;Password=postgres;Maximum Pool Size=10
+  Database__Notifications: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_notifications;Username=postgres;Password=postgres;Maximum Pool Size=10
+  Database__RealTime: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_realtime;Username=postgres;Password=postgres;Maximum Pool Size=10
 
   # The client-credentials secret Users presents to Identity's api/users provisioning endpoint —
   # the one sanctioned service-to-service HTTP call in the system. Both sides read the same value,

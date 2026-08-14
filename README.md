@@ -16,6 +16,7 @@ The platform serves five user types — **Customers**, **Restaurant Managers**, 
 - [Feature Status](#feature-status)
 - [Running It Locally](#running-it-locally)
 - [Testing](#testing)
+- [Load Testing](#load-testing)
 - [Repository Layout](#repository-layout)
 - [Cloud Mapping](#cloud-mapping-azure)
 
@@ -140,7 +141,7 @@ graph TB
 
 ### How a request flows
 
-1. The client hits the **Gateway** only. YARP validates the JWT issued by Duende, then routes by path prefix (`orders/**`, `restaurants/**`, `delivery/**`, `users/**`, …) to the owning service.
+1. The client hits the **Gateway** only. YARP validates the JWT issued by Duende, then routes by path prefix (`orders/**`, `restaurants/**`, `delivery/**`, `users/**`, …) to the owning service. Between authentication and routing sits the **edge rate limiter**: a global concurrency cap plus a per-client fixed window partitioned by subject (IP when anonymous), sized per route tier so browsing is shed before an order or a delivery lifecycle transition is. Its counters live in Redis, because per-pod buckets would multiply the limit by the replica count.
 2. The service validates the JWT again (defence in depth) and resolves the caller's **permissions** — in non-Users services that is a MassTransit request/response call to Users, cached in Redis.
 3. A Minimal API endpoint dispatches a **command** or **query** through MediatR. Commands go through EF Core repositories and return `Result<T>`; queries go through **Dapper** and never touch EF Core.
 4. A domain event raised by an aggregate is written to that service's `outbox_messages` table **in the same transaction as the state change**. A Quartz job publishes it to RabbitMQ, consumers land it in their own `inbox_messages` table, and a second Quartz job dispatches the handler idempotently. Nothing is lost if a process dies mid-flight.
@@ -164,6 +165,7 @@ graph TB
 | **Observability** | OpenTelemetry (traces + metrics) → OTel Collector → Jaeger / Prometheus / Grafana; Serilog → Seq; health probes on every host |
 | **Validation** | FluentValidation via a MediatR pipeline behaviour |
 | **Testing** | xUnit v3, AwesomeAssertions, Bogus, **Testcontainers** (ephemeral Postgres/Redis/RabbitMQ per test run) |
+| **Load testing** | k6 — scripted end-to-end journeys under arrival-rate profiles, streamed live into the same Prometheus/Grafana the platform uses |
 | **Containers / orchestration** | Docker, Docker Compose, Kubernetes manifests, KinD for local clusters |
 | **CI** | GitHub Actions (build, test, manifest policy + `kubeconform` validation, cluster smoke test) |
 | **Code quality** | Nullable reference types, `TreatWarningsAsErrors`, full Roslyn analysis mode, SonarAnalyzer |
@@ -204,7 +206,7 @@ Legend: **✅ Implemented** · **🚧 In Progress** · **📋 Pending**
 | Identity service — registration, login, JWT, roles | ✅ Implemented | Duende IdentityServer; 5 roles; admin seeded from configuration |
 | Staff/partner provisioning via emailed invitation | ✅ Implemented | One-time activation token; no temporary password is ever emailed |
 | API Gateway with JWT validation and path routing | ✅ Implemented | YARP; all external traffic goes through it |
-| Gateway rate limiting | 📋 Pending | |
+| Gateway rate limiting | ✅ Implemented | Redis-backed, route-tiered admission control at the edge; measured to turn a collapse past the knee into a plateau |
 | Restaurant service — onboarding, menus, availability | ✅ Implemented | Admin onboards restaurant + provisions its manager in one flow |
 | Restaurant search, filtering and pagination | ✅ Implemented | |
 | Order service — full lifecycle state machine | ✅ Implemented | Pending → Accepted/Rejected → Preparing → Ready → Out for Delivery → Delivered / Cancelled, with enforced transitions |
@@ -238,7 +240,7 @@ Legend: **✅ Implemented** · **🚧 In Progress** · **📋 Pending**
 
 | Feature | Status | Notes |
 |---|---|---|
-| Load testing & scalability demonstration | 📋 Pending | Planned with k6, driving scripted end-to-end user journeys |
+| Load testing & scalability demonstration | ✅ Implemented | k6 harness driving five end-to-end journeys through the Gateway; knee located, three bottlenecks measured and fixed — see [Load Testing](#load-testing) |
 | AI customer support chatbot (RAG) | 📋 Pending | |
 | Personalised recommendations | 📋 Pending | |
 | AI-powered dynamic ETA | 📋 Pending | |
@@ -300,6 +302,75 @@ These tests have earned their keep: the Users suite surfaced a real outbox seria
 
 ---
 
+## Load Testing
+
+Correctness tests say the platform does the right thing. Load testing asks a different question — *how much of it, before what breaks first* — and it is answered here with a **k6 harness** (`Backend/loadtest/`) that drives the real journeys through the Gateway against the running stack, with the platform's own telemetry as the second witness.
+
+### How a run is performed
+
+**1. Seed a deterministic dataset.** A .NET seeder (`Backend/tools/FoodDeliveryService.LoadTest.Seeder`) creates 20 restaurants × 24 menu items, 500 customers and 50 drivers **through the public API** — never by inserting rows, because a direct insert skips the outbox and the replicas the order path depends on would never arrive. It waits for a probe order to succeed before writing `fixtures/seed.json`, so a run can never start against ids the platform cannot yet resolve. The dataset is generated from a fixed Bogus seed, so the same world is reproducible.
+
+**2. Drive all five journeys at once.** Each journey is a script; `mixed.js` composes them, because measuring one endpoint measures an endpoint, not a platform.
+
+| Script | Actor | What it does |
+|---|---|---|
+| `browse.js` | customer | list → detail → menu — 70% of customer traffic |
+| `order.js` | customer | browse, then `POST /orders`; ~1% deliberately replay an idempotency key |
+| `track.js` | customer | poll the order and its delivery — the worst read amplification per order |
+| `restaurant.js` | manager | dashboard poll → one lifecycle step per order — *without it nothing leaves `Pending`* |
+| `driver.js` | driver | position report → claim an offer → picked up → delivered — *without it nothing reaches `Delivered`* |
+
+The three customer journeys run under **`constant-arrival-rate`**, not a fixed pool of virtual users. A closed loop issues its next request only after the previous one returns, so as the system slows the offered load falls with it and a saturated system reports itself as merely slow. Real customers do not slow down because the site is slow. The two operator journeys are correctly `constant-vus` — a kitchen has a fixed number of staff — because they are supply, not demand.
+
+**3. Pick a profile.** A profile is the *shape* of a run, held as data in `config/profiles.js` so that adding a test type is a config entry rather than a new script, and two runs of one profile are comparable by construction.
+
+| Profile | Shape | The question it answers |
+|---|---|---|
+| `baseline` | 2 arrivals/s, 5 min | What does an unloaded request cost? Everything else is read against this. |
+| `ramp` | 2 → 32/s in 8 steps of 90 s | **Where is the knee?** |
+| `spike` | 2/s → 20/s for 60 s → 2/s | Does it recover, and how fast does the queue drain? |
+| `soak` | 4/s for 2 h | Do memory, connections or the outbox backlog grow without bound? |
+
+Every staged profile tags each request with its phase and declares thresholds **per phase**, which makes saturation mechanical instead of a debate about a graph: the first step whose journey `p(95)` goes red *is* the knee, printed in the terminal. The first phase is always an ungated `warm` — an early run attributed a knee to its own ignition burst (VU startup plus a cold permission cache), and a warm-up phase is the fix.
+
+```bash
+cd Backend/loadtest/scripts && ./run.sh scenarios/mixed.js --profile ramp
+```
+
+**4. Declare saturation against fixed criteria, then find the saturated component from the platform, not from k6.** A step saturates when journey p95 crosses the SLO, *or* errors exceed 1%, *or* a backlog metric grows monotonically across the whole step. k6 only says *that* it slowed down; RED metrics per service, cache hit ratio, RabbitMQ depth, the unprocessed `outbox_messages` count and `pg_stat_activity` say *where*. Every run records the environment beside its numbers, and every published figure keeps its run artifact in `loadtest/results/published/` — a number with no artifact behind it is an assertion.
+
+Two design decisions keep the results honest. A `429` from the rate limiter is counted as an **answer**, not a failure — otherwise the guardrail would fail the very test that motivated it — and is reported as a separate shed fraction that must be quoted next to any percentile taken from a step where it was non-zero, since refused requests are cheap and always flatter a p95. And every virtual user logs in **once**, cached in VU-local state: PBKDF2 is deliberately expensive, so a script that authenticates per iteration turns the whole exercise into a password-hashing benchmark of one service.
+
+### What it measured
+
+> compose · 8 vCPU · 7.6 GB to Docker · **1 replica per service** · **generator co-located on the same machine**. These numbers do not transfer to other hardware, and above roughly half the host's cores they describe the contest between the platform and its own load generator.
+
+At **baseline** (2 arrivals/s, five minutes): 8,211 requests at 24.4/s, journey **p50 8.5 ms · p95 31.3 ms · p99 77.3 ms** against a 500 ms SLO, `POST /orders` p95 59.2 ms, **0.00%** errors. Run back to back, two baselines agree on journey p95 to **1.8%** — which is what makes anything else worth quoting.
+
+**The knee is between 26 and 32 arrivals/s on this environment, and the component that saturates first is host CPU** — eight cores shared between the services, Postgres, Redis, RabbitMQ, the tracing stack *and the generator*. The largest single consumer at the knee was password hashing: Identity took 2.3 of the 8 cores issuing tokens against roughly 3 for the entire application path. That makes every figure here a **lower bound**, since every virtual user signs in while a real population is mostly returning users holding tokens.
+
+![Requests served and journey p95 at each ramp step, with and without the Gateway's rate limiter: without it the top step serves 1,968 requests at a p95 of 14.39 s; with it the same step serves 17,060 at 554 ms](Backend/docs/assets/loadtest/knee-cliff-vs-plateau.svg)
+
+Past the knee the platform used to collapse; it now sheds. Same ramp, same machine, same afternoon, one variable — the Gateway's admission control. Without it, the 32/s step served **1,968** requests, a seventh of what the 26/s step served while offered load *rose* by a quarter, and 32.4% of that step failed. With it, the same step served **17,060** at p95 **554 ms**, refusing 4.99% to do it — and because shedding is ranked by route, of 1,581 rejections not one was an order or a delivery lifecycle transition.
+
+### Three bottlenecks found, one fix reverted
+
+Each was measured with a before/after of the same profile on the same machine, one variable at a time:
+
+- **The event pipeline had no index.** The outbox/inbox dispatch query sequentially scanned tables that only grow — 2,567 buffers and 16.05 ms per probe, twice per module per tick. A partial index took it to **1 buffer and 0.125 ms**; the backlog drain went 2.96 → 9.44 rows/s and order-placement failures 2.09% → 0%.
+- **Every connection pool was unbounded.** Seven hosts × two pools × Npgsql's default of 100, against a Postgres running `max_connections=100`, produced **678 "sorry, too many clients already"** in three minutes with 80 of 88 backends *idle*. Bounding them took journey p99 from 2.31 s to 1.15 s.
+- **The obvious cache was not the problem.** The one uncached browse query measured 242 ms against 26 ms for its cached neighbours — until the connection fix landed, after which the same query measured **26.3 ms**. The 9× gap was 12%: it had never been a missing cache, it was a query holding a connection while the pool starved. The cache was written, measured, and **reverted**.
+
+That last one is the most useful entry in the log, and the reason to read it: the first bottleneck in a queue makes every component behind it look guilty.
+
+### What this does *not* claim
+
+A single-replica stack on eight shared cores will not serve 100,000 concurrent users. What was measured is ~**190 journey requests/second** and ~**2.6 orders/second** per stack of that size at p95 554 ms while shedding 5%. 100,000 concurrent users acting once every 30 seconds is on the order of 3,300 requests/second — roughly **17–20 such stacks**, *if* the single Postgres, Redis and RabbitMQ behind them scale too, which this work did not measure because host CPU saturated first. Running more than one replica is blocked on three specific hazards, one of which this work fixed (`FOR UPDATE` without `SKIP LOCKED` on all eleven dispatch queries) and two of which are open and named.
+
+**The full method, every threshold, the complete bottleneck log including the fixes that did not work, and how to reproduce any number above:** [`Backend/docs/load-testing.md`](Backend/docs/load-testing.md). The harness runbook is [`Backend/loadtest/README.md`](Backend/loadtest/README.md); the guardrail's design is [`Backend/docs/rate-limiting.md`](Backend/docs/rate-limiting.md).
+
+---
+
 ## Repository Layout
 
 ```
@@ -310,13 +381,15 @@ Backend/
 │   └── Modules/{Name}/         # Domain · Application · Infrastructure · Presentation · IntegrationEvents (+ tests)
 ├── deploy/                     # Kubernetes manifests, KinD scripts, policy checks
 ├── docker/                     # OTel Collector, Prometheus rules, provisioned Grafana dashboards, blackbox
-└── docs/                       # Caching, observability, health-probe contract, CAP trade-offs, ADRs
+├── loadtest/                   # k6 harness — journeys, profiles, thresholds, published run artifacts
+├── tools/                      # The deterministic load-test dataset seeder
+└── docs/                       # Caching, observability, rate limiting, load testing, health probes, ADRs
 Frontend/                       # Angular SPA (planned)
 ```
 
 Each module follows the same five-project shape, and a module's `IntegrationEvents` project is the **only** thing another service is ever allowed to reference.
 
-Deeper write-ups live in [`Backend/docs/`](Backend/docs/): caching strategy and invalidation model, the observability architecture, the health-probe contract, CAP-theorem trade-offs for this topology, and the registration-flow architecture decisions.
+Deeper write-ups live in [`Backend/docs/`](Backend/docs/): caching strategy and invalidation model, the observability architecture, the edge rate-limiting design, the full load-testing record, the health-probe contract, CAP-theorem trade-offs for this topology, and the registration-flow architecture decisions.
 
 ---
 

@@ -67,6 +67,17 @@ services:
     build:
       context: .
       dockerfile: src/API/FoodDeliveryService.Gateway/Dockerfile
+    environment:
+      # The edge rate limiter (Feature 3.5 Milestone G), on by default. The variable exists so the
+      # milestone's before/after ramp can turn it off for one run without editing a file — and
+      # turning it *off* is the only honest way to measure "without the guardrail": raising the
+      # limits until they never bind leaves the middleware in the pipeline and is a different run.
+      #
+      #   RATE_LIMITING_ENABLED=false docker compose up -d fooddeliveryservice.gateway
+      #
+      # Recreating the gateway alone is safe — it has no depends_on, so unlike Identity it cannot
+      # drag a fresh Postgres in behind it (loadtest/README.md → Before every run).
+      - RateLimiting__Enabled=${RATE_LIMITING_ENABLED:-true}
     ports:
       - 3000:8080
       - 3001:8081
@@ -74,6 +85,24 @@ services:
   fooddeliveryservice.database:
     image: postgres:17
     container_name: FoodDeliveryService.Database
+    # postgres:17 ships max_connections=100, and one server holds every service's database. Measured
+    # during Feature 3.5 Milestone F: at 20 customers/second the before run logged 192 occurrences of
+    # `Npgsql.PostgresException 53300: sorry, too many clients already` in Orders alone, with
+    # pg_stat_activity sampled at 88 backends of which 80 were *idle* — the pools were hoarding
+    # connections, not using them.
+    #
+    # The real fix is on the client side: every service's connection string now carries an explicit
+    # `Maximum Pool Size` (10 per module host, 20 for Identity). Each module host builds two pools
+    # from that string — the shared NpgsqlDataSource for Dapper and the outbox/inbox jobs, and EF
+    # Core's own — so its worst case is 20, six module hosts are 120, Identity adds 20, and the
+    # bounded total is 140. This raises the server's ceiling to 200 so that total has real headroom
+    # and a psql session or the seeder can still get in when everything is at its limit.
+    #
+    # Both halves are needed. Raising the ceiling alone just moves an unbounded pool's collision
+    # further out; bounding the pools alone leaves no room for the tenth service this repo will add.
+    command:
+      - -c
+      - max_connections=200
     environment:
       - POSTGRES_DB=fooddeliveryservice
       - POSTGRES_USER=postgres
@@ -117,6 +146,18 @@ services:
   fooddeliveryservice.jaeger:
     image: jaegertracing/all-in-one:latest
     container_name: FoodDeliveryService.Jaeger
+    environment:
+      # all-in-one stores spans in memory and, left unbounded, keeps every one of them. That is
+      # harmless while a human clicks around and ruinous under a load test: measured during Feature
+      # 3.5 Milestone D, after a few profile runs Jaeger held 3.5 GB of the host's 7.6 GB and burned
+      # 2.2 of its 8 cores, and the *next* run recorded journey p95 6.1 s against the 31 ms the same
+      # profile had measured an hour earlier. Nothing about the platform had changed — the tracing
+      # backend had simply eaten the machine it shares with the system under test.
+      #
+      # 20k traces is a few minutes of a busy run, which is all a trace store on the same host is for:
+      # pulling up one slow request from the step that just broke. Anything older belongs in a Jaeger
+      # with real storage, on a machine that is not also running the thing being measured.
+      - MEMORY_MAX_TRACES=20000
     ports:
       - 16686:16686
 
@@ -156,6 +197,13 @@ services:
       - --storage.tsdb.retention.time=7d
       # Lets `curl -X POST localhost:9090/-/reload` pick up an edited rule file without a restart.
       - --web.enable-lifecycle
+      # Accepts the k6 load generator's remote writes (Feature 3.5, Milestone E). Prometheus rejects
+      # them outright without this flag — k6 logs a write error per flush and the `fds-load`
+      # dashboard stays empty, which reads exactly like "the load test did not run".
+      #
+      # It opens a write endpoint on a port that is already published to the host, so it belongs in a
+      # local stack and nowhere else. Everything scraped stays scraped; this only adds a way in.
+      - --web.enable-remote-write-receiver
     volumes:
       - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./docker/prometheus/rules:/etc/prometheus/rules:ro
@@ -191,6 +239,45 @@ services:
     ports:
       # 3000 is the gateway and 3001 its HTTPS port, so Grafana takes 3100 on the host.
       - 3100:3000
+
+  # The load generator (Feature 3.5). Behind a compose profile, so `docker-compose up -d` is
+  # byte-for-byte unchanged for everyone who is not running a load test; it only starts when asked:
+  #
+  #   docker compose --profile loadtest run --rm fooddeliveryservice.k6 run /loadtest/smoke.js
+  #
+  # (or `loadtest/scripts/run.{sh,ps1}`, which fills in the run id and the output flags).
+  #
+  # Running it in the network rather than on the host is the point: the Gateway is reached at its
+  # container address, so Docker's host port-forwarding is not part of the measurement.
+  #
+  # CAVEAT, and it applies to every number this produces: the generator shares one host's CPU with
+  # the eight services, Postgres, Redis, RabbitMQ, Prometheus, Grafana, Jaeger and Seq. Above roughly
+  # half the host's cores the results describe that contest, not the platform.
+  fooddeliveryservice.k6:
+    image: grafana/k6:latest
+    container_name: FoodDeliveryService.K6
+    profiles: [loadtest]
+    environment:
+      - K6_NO_USAGE_REPORT=true
+      # Where a run goes when it is asked to stream (Milestone E). These are inert on their own —
+      # they take effect only when k6 is started with `-o experimental-prometheus-rw`, which
+      # `loadtest/scripts/run.{sh,ps1} --prometheus` adds. Kept here rather than in the runner
+      # because this is the file that owns the Prometheus service name.
+      - K6_PROMETHEUS_RW_SERVER_URL=http://fooddeliveryservice.prometheus:9090/api/v1/write
+      # Trends arrive as one gauge per statistic, so this list *is* the set of series the dashboard
+      # can query: k6_http_req_duration_p95, _p99, _avg, _max.
+      - K6_PROMETHEUS_RW_TREND_STATS=p(95),p(99),avg,max
+      # Marks the run's series stale when it ends, instead of leaving Grafana drawing the last value
+      # flat across the hours afterwards — which looks like a load test nobody stopped.
+      - K6_PROMETHEUS_RW_STALE_MARKERS=true
+    volumes:
+      # Read-only: a load script has no business editing the repo it was mounted from.
+      - ./loadtest:/loadtest:ro
+      # …except results, which is a separate writable mount so summaries survive the container.
+      - ./loadtest/results:/loadtest/results
+    depends_on:
+      - fooddeliveryservice.gateway
+      - fooddeliveryservice.identity
 
   fooddeliveryservice.queue:
     image: rabbitmq:management-alpine

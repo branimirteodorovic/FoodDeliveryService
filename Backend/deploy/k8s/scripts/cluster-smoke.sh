@@ -47,7 +47,10 @@ status_of() {  # $1 = full URL
   curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$1" || echo "000"
 }
 
-status_of_post() {  # $1 = full URL — for endpoints mapped with MapPost, where a GET is a 405
+# The same, for a route that only answers a POST. Without this the register check below GETs a
+# `MapPost` endpoint and reads the resulting 405 as a failure — which is a bug in the check, not in
+# the platform, and an expensive one to diagnose because the number *looks* like a routing fault.
+status_of_post() {  # $1 = full URL
   curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
     -X POST -H 'Content-Type: application/json' -d '{}' "$1" || echo "000"
 }
@@ -130,8 +133,8 @@ assert_status "$GATEWAY_URL/health/ready" 200
 # An empty body on the anonymous registration route: 400 means YARP forwarded it and Users rejected
 # the payload, which is the proof that the route, the cluster and the Service DNS all resolve.
 # A 404 here would mean the route never matched — the failure mode the Gateway's config had.
-# It must be a POST: the endpoint is MapPost, so a GET returns 405, which reads like a routing
-# fault when it is in fact the opposite.
+# It has to be a POST: `users/register` is a MapPost endpoint, so a GET answers 405 and proves
+# only that something downstream owns the path, not that the request reached the handler.
 assert_post_status "$GATEWAY_URL/users/register" 400 415 422
 
 echo "==> 3. Identity serves discovery"
@@ -152,6 +155,22 @@ kubectl -n "$NAMESPACE" wait --for=delete pod/fooddeliveryservice-redis-0 --time
 await_status "http://127.0.0.1:$LOCAL_PORT/health/ready" 503 120
 # …while liveness is unmoved. This is the assertion the whole probe contract turns on.
 assert_status "http://127.0.0.1:$LOCAL_PORT/health/live" 200
+
+# The Gateway holds a Redis connection too, since Feature 3.5 Milestone G put the rate limiter's
+# counters there — and it is the single public entry point, so the blast radius of getting this
+# wrong is the whole platform. The limiter fails **open**: losing Redis costs the per-client budget,
+# not the gateway. So unlike a module host it must stay Ready and must keep proxying while Redis is
+# down. Asserted here rather than trusted, because "we made the front door depend on the cache" is
+# exactly the change that deserves a test.
+#
+# Both checks are deliberately downstream-independent: the module hosts *are* supposed to drain
+# their endpoints while Redis is gone, so proxying anything through the gateway right now would be
+# asserting the opposite of step 4. `/health/ready` is the gateway's own probe, and a path no YARP
+# route matches still passes through the limiter — a 404 means the request was admitted with the
+# store unreachable, where a 429 or a 500 would mean it failed closed.
+assert_status "$GATEWAY_URL/health/ready" 200
+assert_status "$GATEWAY_URL/no-such-route" 404
+echo "    gateway still Ready and admitting requests without its rate-limit store"
 
 await_endpoints_empty fooddeliveryservice-orders-api 120
 
