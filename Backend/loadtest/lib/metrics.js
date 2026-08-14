@@ -40,7 +40,15 @@ export const requestsThrottled = new Rate('requests_throttled');
 
 // ── Browse ────────────────────────────────────────────────────────────────────────────────────
 
-/** End-to-end wall time of list → detail → menu, think time excluded. */
+/**
+ * End-to-end wall time of list → detail → menu **including the two 1–3 s think sleeps between them**,
+ * because the thing being measured is a customer's browse, not three requests.
+ *
+ * So it is a funnel metric, not a latency one, and its median sits around 4.5 s on a healthy run for
+ * reasons that have nothing to do with the platform. Quote it for *shape* — a browse that doubles
+ * while think time is unchanged is a real regression — never as a server-side number. The server-side
+ * number is `http_req_duration{scope:journey}`, and per endpoint it is on the `fds-load` dashboard.
+ */
 export const browseDuration = new Trend('browse_duration', true);
 
 /** Browse iterations that found nothing to look at — an empty catalogue, or a page past the end. */

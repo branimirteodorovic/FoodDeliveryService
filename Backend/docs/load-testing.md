@@ -1,16 +1,24 @@
-# Load testing — the bottleneck log
+# Load testing — the numbers, the method, and the bottleneck log
 
-> Started by **Feature 3.5 — Load Testing & Scalability Demonstration**
-> (`LOADTESTING_PHASE3_PLAN.md`), **Milestone F**. Milestones A–E built the harness — how to seed,
-> how to run each profile, what each threshold means and where a run's artifacts go all live in
-> [`../loadtest/README.md`](../loadtest/README.md), which is the runbook and stays the runbook.
-> **This document is the other half: what the harness found, what was changed because of it, and
-> what was changed and then reverted.** Milestone H expands it into the reference write-up with the
-> published numbers and the extrapolation; what is here now is the log of round one.
+> The reference document for **Feature 3.5 — Load Testing & Scalability Demonstration**
+> (`LOADTESTING_PHASE3_PLAN.md`). It holds three things: **the published numbers** and the exact
+> environment each came from, **enough method to reproduce one of them**, and **the full log of what
+> the harness found — including the fixes that were written, measured and reverted.**
+>
+> The runbook is [`../loadtest/README.md`](../loadtest/README.md): every flag, every profile knob,
+> every way to read a run in flight. This document is what the runs *said*.
+
+| | |
+|---|---|
+| Want to run one | [`../loadtest/README.md`](../loadtest/README.md) |
+| Want the headline numbers | [§1](#1-the-published-numbers) |
+| Want to reproduce one | [§3](#3-reproducing-a-number-on-this-page) |
+| Want the findings | [§5](#5-what-the-ramp-actually-indicted) – [§9](#9-round-two-admission-control) |
+| Want the "100,000 users" answer | [§10](#10-the-extrapolation-stated-as-one) |
 
 ## Why a log of failures is the point
 
-The method the plan fixes for this milestone is deliberately boring, and it is the whole value:
+The method the plan fixes for this feature is deliberately boring, and it is the whole value:
 
 > run the profile, record, change **one** thing, re-run the *same* profile in the *same*
 > environment, record. Anything that doesn't improve the number gets reverted, and gets a line
@@ -18,9 +26,133 @@ The method the plan fixes for this milestone is deliberately boring, and it is t
 
 A list of fixes with no numbers beside them is a list of opinions. A negative result — *we thought it
 was X, we measured, it wasn't* — is the most credible thing in a document like this, because it is
-the thing nobody writes down unless they actually ran the test.
+the thing nobody writes down unless they actually ran the test. [§6.3](#3-caching-the-browse-list--written-measured-reverted)
+is that entry, and it is the one to read first.
 
-## The environment every number below came from
+---
+
+## 1. The published numbers
+
+Every number below has a summary JSON behind it in
+[`../loadtest/results/published/`](../loadtest/results/published/), and every one of them came from
+[the environment in §2](#2-the-environment-every-number-here-came-from). Read that section before
+quoting any of them anywhere.
+
+### Steady state — what the platform costs when it is not under pressure
+
+`--profile baseline`: 2 customer arrivals/s for five minutes, the full mix (browse 70% / order 20% /
+track 8%, with kitchen and driver traffic behind it). Run twice, back to back, because a single
+measurement of a shared host is a rumour.
+
+| | `baseline-01` | `baseline-02` | agreement |
+|---|---|---|---|
+| Requests | 8,211 (**24.4/s**) | 7,989 (23.7/s) | 2.7% |
+| Journey p50 | 8.46 ms | 8.39 ms | 0.8% |
+| Journey p95 | **31.26 ms** | 30.69 ms | 1.8% |
+| Journey p99 | 77.32 ms † | 75.97 ms † | 1.7% |
+| `POST /orders` p95 | 59.22 ms | 59.46 ms | 0.4% |
+| `http_req_failed` | **0.00%** | 0.01% | |
+| checks | 24,037, 100% | 23,369, 99.99% | |
+| Orders placed | 121 | 131 | 8% |
+| Deliveries completed | 113 | 103 | 9% |
+| Login p95 (`/connect/token`) | 2.92 s | 2.04 s | *not comparable* ‡ |
+
+† The two baseline runs predate Milestone E, so their artifacts carry k6's older flat
+`--summary-export` shape, which exports no `p(99)`. The p99 above is from the run's terminal output as
+recorded in the runbook at the time. Everything else in the row is in the file.
+‡ Login is dominated by the run's ignition burst — ~50 VUs each acquiring a token within a second or
+two — which is a function of the VU count, not of the platform. Read it per phase on a staged profile
+instead; see [§5 #6](#5-what-the-ramp-actually-indicted).
+
+**These two runs predate round one, and the table is not annotated to hide it.** Rounds one and two
+changed how the platform behaves *at saturation* — connection exhaustion, event-pipeline drain rate,
+admission control — and none of those binds at 2 arrivals/s: the pools never approach a bound of 10,
+the limiter is sized to be invisible below the knee, and the faster outbox tick is background work on
+an otherwise idle host. So these numbers are expected to still hold. **Expected, not verified** — the
+run that would settle it is ten minutes long and is listed as open in [§11](#11-still-open), with the
+reason it has not been done.
+
+The steady-state pair is the reference the rest of the page is read against, and it is where the SLO's
+headroom comes from: journey p95 of 31 ms against a 500 ms gate.
+
+### Under load — the top of the ramp, on current code
+
+`--profile ramp` with the stock eight steps (2 → 32 customer arrivals/s, 90 s each), limiter on:
+`g-after-01`.
+
+| | Run-wide | Top step (`s08`, 32 arrivals/s) |
+|---|---|---|
+| Requests | 95,908 (**104.0/s**) | 17,060 journey requests in 90 s (**190/s**) |
+| Journey p50 | 115.92 ms | 228.9 ms |
+| Journey p95 | 476.07 ms | **554.42 ms** |
+| Journey p99 | 749.47 ms | 760.2 ms |
+| Journey max | 5.76 s | |
+| `http_req_failed` | **0.20%** | 0.35% |
+| Shed (`429`) | 1.66% (1,581 requests) | **4.99%** |
+| checks | 99.94% | |
+| `POST /orders` p95 / p99 | 782 ms / 1.25 s | |
+| Order placement failures | **0.00%** | |
+
+### What each journey did, in that run
+
+The mix is a platform, not an endpoint, and a latency table alone hides whether the lifecycle actually
+completed. These are the counters that say it did:
+
+| Journey | Work completed | Notes |
+|---|---|---|
+| **Browse** — `GET /restaurants`, `/{id}`, `/{id}/menu` | 10,970 browse journeys | `browse_duration` (med 4.48 s) includes the two 1–3 s think sleeps; the server-side number is the journey percentile above |
+| **Order** — `POST /orders` | **2,428 placed**, 0 failed, 27 idempotent replays all correct | 2.63 orders/s run-wide |
+| **Track** — `GET /orders/{id}`, `GET /delivery/orders/{id}/delivery` | 12,610 polls, 85% found a delivery | a `404` before the kitchen marks ready is correct |
+| **Kitchen** — accept → preparing → ready | 6,878 transitions, 99.13% accepted | |
+| **Driver** — location, claim, pickup, delivered | 7,881 position reports, **207 deliveries completed** | capped by the harness, not the platform — [§11](#11-still-open) |
+
+### The spike — does it recover?
+
+`--profile spike`, `spike-03`: 10× for 60 seconds, then back down. The pass condition is **`post`**,
+not `peak`; anything can survive a minute.
+
+| Phase | Journey p95 |
+|---|---|
+| `pre` (2/s) | 32.61 ms |
+| `peak` (20/s, 60 s) | 313.41 ms |
+| `post` (2/s) | 55.79 ms |
+
+25,372 requests, `http_req_failed` **0.02%** (4 requests), 4 failed checks out of 70,480, 420 orders
+placed. The queue drained inside the three-minute window and the platform came back to within 24 ms of
+where it started. That `pre` phase is also a free cross-check on the whole harness: a different
+profile, an hour apart, reproducing the baseline's 31.26 ms to within 6%.
+
+### The knee, and what the guardrail did to it
+
+The one graph worth having. Same ramp, same machine, same afternoon; the Gateway's admission control
+is the only variable.
+
+![The cliff and the plateau: requests served and journey p95 per ramp step, with and without the Gateway's rate limiter](assets/loadtest/knee-cliff-vs-plateau.svg)
+
+| step | rate | before p95 | before errors | before served | after p95 | after errors | **after shed** | after served |
+|---|---|---|---|---|---|---|---|---|
+| s05 | 16/s | 322 ms | 0.30% | 9,582 | 306 ms | 0.00% | 0.00% | 9,703 |
+| s06 | 20/s | 478 ms | 0.21% | 11,441 | 547 ms | 0.02% | 0.41% | 11,375 |
+| s07 | 26/s | 539 ms | 0.26% | 14,099 | 566 ms | 0.39% | 3.27% | 14,292 |
+| s08 | 32/s | **14.39 s** | **32.38%** | **1,968** | **554 ms** | 0.35% | **4.99%** | **17,060** |
+
+**Read the `served` columns first.** At 32 arrivals/s the unguarded platform served 1,968 requests in
+the step — a seventh of what it had served at 26/s — while the offered load had *risen* by a quarter.
+Throughput going down as load goes up is the definition of a cliff. With the limiter, the same step
+served 17,060 at a p95 of 554 ms: the latency it was already delivering two steps earlier, having
+refused one request in twenty.
+
+The same pair, said the other way — what the overload *was*:
+
+![How overload gets expressed: 32% of requests failing without the limiter, 5% deliberately shed with it](assets/loadtest/overload-expressed.svg)
+
+**So the saturation point of this environment is between 26 and 32 customer arrivals/s**, and the
+component that saturates is **host CPU** — not any single service. [§7](#7-what-actually-saturates-first-on-this-environment)
+is the evidence for that and the reason it constrains what any of these fixes could have achieved.
+
+---
+
+## 2. The environment every number here came from
 
 ```
 compose · 8 vCPU · 7.6 GB to Docker · generator co-located · 1 replica per service
@@ -29,23 +161,143 @@ up:   gateway identity users orders restaurants delivery notifications
 down: realtime frauddetection prometheus grafana blackbox
 fixture: 20 restaurants × 24 menu items · 500 customers · 50 drivers
 k6:    grafana/k6:latest, inside the compose network (ENV=compose)
-profile: ramp · RAMP_STEPS=10,13,16,20,25 of 2/s · 90 s per step
 ```
 
-Two things about it that matter when reading any number here:
+The `f-*` runs of round one narrow the ramp to `RAMP_STEPS=10,13,16,20,25` because they were bisecting
+a knee already known to be there; the `g-*` runs of round two use the stock eight steps because they
+have to show both sides of it. Everything else above is identical across every number on this page.
+
+Three things about this environment that matter when reading any number here:
 
 - **The generator shares the host with everything it measures.** Above roughly half the host's cores
-  the results describe that contest. Every number below is therefore a *relative* claim — the same
-  profile, the same machine, the same afternoon, one variable changed — and not a capacity figure
-  that transfers anywhere.
+  the results describe that contest. Every comparison here is therefore a *relative* claim — same
+  profile, same machine, same afternoon, one variable changed — and not a capacity figure that
+  transfers anywhere. Removing that limitation is Milestone J, which is not built.
 - **A platform-side sampler ran during every run** (`pg_stat_activity`, per-database outbox/inbox
-  backlog, `docker stats`, every ~12 s). It costs CPU. It ran identically for the before and the
-  after, so it cancels out of the comparison and is left in rather than quietly dropped.
+  backlog, `docker stats`, every ~12 s). It costs CPU. It ran identically for the before and the after,
+  so it cancels out of the comparison and is left in rather than quietly dropped.
+- **Five services were down** — RealTime, Prometheus, Grafana and blackbox stopped deliberately to
+  leave the eight cores to the path under test, and FraudDetection because `docker-compose.yml` has no
+  service for it. A run with the observability stack up measures a different machine; that is not a
+  hypothetical, see the Jaeger note in the runbook's *Read this before quoting a number*. It also means
+  **the `--prometheus` streaming mode and these published numbers are mutually exclusive**: the run
+  that draws itself live on `fds-load` is paying for a Prometheus and a Grafana out of the same eight
+  cores.
 
-## What the ramp actually indicted
+---
 
-The plan listed seven predicted bottlenecks. Round one measured them; here is the scorecard before
-any fix was made. Evidence is from one `ramp` run that reached 20 customers/s and aborted at 3:01.
+## 3. Reproducing a number on this page
+
+The bar this feature set itself: **a reader who has never run the project can reproduce a published
+number from the documentation alone.** The shortest path to that, from `Backend/`, is four commands
+and about ten minutes.
+
+**1. Bring up the stack, minus what the reference environment leaves down.**
+
+```bash
+docker compose up -d
+```
+
+Then stop the four the published runs did not have running, so the comparison is like-for-like:
+
+```bash
+docker compose stop fooddeliveryservice.realtime.api fooddeliveryservice.prometheus fooddeliveryservice.grafana fooddeliveryservice.blackbox
+```
+
+The fifth, FraudDetection, needs nothing: `docker-compose.yml` has no service for it, which is why it
+appears in the `down` list of every run on this page.
+
+**2. Seed the fixture.** Nothing that places an order can run against an empty database, and the seeder
+drives the **public API** rather than inserting rows — inserting them directly would skip the outbox,
+so Orders would never receive the restaurant and menu replicas and every order would fail with
+`RestaurantNotFound`.
+
+```bash
+dotnet run --project tools/FoodDeliveryService.LoadTest.Seeder
+```
+
+It takes minutes, most of it 500 PBKDF2 registrations, and it deliberately refuses to write
+`fixtures/seed.json` until a probe order actually succeeds. Re-running is safe and resumes.
+
+**3. Run the profile.** From `loadtest/scripts/`:
+
+```bash
+./run.sh scenarios/mixed.js --profile baseline --run-id my-baseline-01
+```
+
+`--profile ramp` reproduces the knee (~15 min), `--profile spike` the recovery (~8 min).
+
+`--prometheus` streams the run into Grafana's `fds-load` dashboard as it happens and captures the
+platform's own series next to it — but it needs Prometheus and Grafana up, which is **not** the
+environment above. Use it to *watch* a run and to find out where time went; do not compare its numbers
+against this page.
+
+**4. Read it.** The run writes `loadtest/results/mixed.js-baseline-my-baseline-01.summary.{json,md}`
+at the moment the numbers exist. The `.md` is the same run as tables; the `.json` is what the
+published artifacts are. The keys worth knowing:
+
+| Key | Is |
+|---|---|
+| `metrics["http_req_duration{scope:journey}"].values` | the journey SLO — `p(95)`, `p(99)`, `med` |
+| `metrics["http_req_duration{scope:journey,phase:s08}"].values` | one ramp step; `count` is how many requests it actually served |
+| `metrics.http_req_failed.values.rate` | the error rate |
+| `metrics.requests_throttled.values` | the shed fraction, and `passes` for the absolute count |
+| `metrics.checks.values.rate` | body-shape assertions — a healthy latency profile with a sagging check rate is a platform returning fast wrong answers |
+
+Then compare against §1. **If two consecutive baselines on your machine disagree by more than 5% on
+journey p95, stop** — the harness is measuring your host, not the platform, and nothing further is
+trustworthy. Start with `docker stats`; it has been the answer every time so far.
+
+**The graphs on this page regenerate from the published artifacts alone**, with no stack running at
+all:
+
+```bash
+node scripts/plot.mjs
+```
+
+That exists because Prometheus keeps seven days on a volume `docker-compose.yml` calls disposable — a
+graph exported from Grafana and linked from documentation is a broken image with a month's notice.
+
+### What the thresholds mean
+
+k6 exits non-zero on a breached threshold, which is what makes a run a gate rather than a wall of
+numbers. Full table in the runbook; the five that decide a pass:
+
+| Gate | Why that number |
+|---|---|
+| `http_req_duration{scope:journey}` `p(95)<500`, `p(99)<1500` | The customer-facing SLO. Login is excluded via the `scope` tag because PBKDF2 is an order of magnitude more expensive than anything else and would drag the percentile around for a reason that is not the platform's. Measured baseline is 31 ms, so the gate has ~16× of headroom and will not fail on host noise. |
+| `http_req_failed` `rate<0.01` | 1%. A `429` is deliberately **not** counted here — see below. |
+| `checks` `rate>0.99` | A `200 OK` carrying a ProblemDetails body is still a failure; the status code alone would call it a success. |
+| `order_placement_duration` `p(95)<1000` | In a mixed run the global percentile is dominated by browse at 70% of traffic, so it stays green while the write path degrades. This is the threshold that notices. |
+| `requests_throttled` `rate<0.001` on flat profiles, `<0.5` per step on staged ones | Asymmetric on purpose. A correctly sized limiter is **invisible** below the knee, so any shedding on `baseline` means it is mis-sized; a staged profile is *supposed* to shed at the top, and the budget there catches the opposite failure — a limiter refusing work the platform could have done. |
+
+**Saturation is declared at the first step where** journey p95 exceeds the SLO, **or** `http_req_failed`
+exceeds 1%, **or** a backlog grows monotonically across the whole step. The first two are per-phase
+thresholds printed in the summary. The third is not something k6 can see — it comes from the platform,
+and it is the criterion round one actually moved ([§8](#8-did-the-saturation-point-move)).
+
+---
+
+## 4. The predictions, written down before the measurement
+
+`LOADTESTING_PHASE3_PLAN.md` §7 lists seven predicted bottlenecks, each derived from reading the code,
+each with the evidence that would confirm it and the fix it would imply. They were written **before
+any load was generated**, and they were not edited afterwards.
+
+That ordering is the only reason the scorecard below means anything. A list of bottlenecks assembled
+after the profiling run is a list of things that turned out to be true, which is indistinguishable
+from a list of things anyone would have said. A list committed in advance can be *wrong* — and two of
+these are: #4 was rejected outright, and #3 was confirmed and then overturned by a later measurement
+in the same series.
+
+Sections 5–9 are what happened. Sections 10–11 are what it means and what is left.
+
+---
+
+## 5. What the ramp actually indicted
+
+Here is the scorecard before any fix was made. Evidence is from one `ramp` run that reached 20
+customers/s and aborted at 3:01.
 
 | # | Predicted | Verdict | The evidence |
 |---|---|---|---|
@@ -57,7 +309,11 @@ any fix was made. Evidence is from one `ramp` run that reached 20 customers/s an
 | 6 | Token issuance is CPU-bound by design | **confirmed, no fix** | Identity averaged 40.7% CPU and its `warm`-phase login p95 was 9.4 s while the journey p95 beside it was 236 ms. This is PBKDF2 doing exactly what it is for. Recorded as a capacity fact. |
 | 7 | Assignment lock contention | **not reached** | No `lock_contended` outcomes recorded. The run never got far enough past the other three to load it. |
 
-## Round one, change by change
+---
+
+## 6. Round one, change by change
+
+![Round one: journey p95, journey p99 and POST /orders p95 across the three controlled runs](assets/loadtest/round-one-fixes.svg)
 
 ### 1. The event pipeline: an index, a faster tick, and `SKIP LOCKED`
 
@@ -215,9 +471,11 @@ every component behind it look guilty. Measuring #3 before fixing #1 would have 
 the latency collapse, and credited the wrong change — with a plausible story and a graph to match.
 Fix the wall in front before you believe anything about what is behind it.
 
-## What actually saturates first, on this environment
+---
 
-Worth stating before anyone reads the table above as "these fixes were disappointing". The sampler
+## 7. What actually saturates first, on this environment
+
+Worth stating before anyone reads the tables above as "these fixes were disappointing". The sampler
 totalled every container's CPU during each run:
 
 | | peak total container CPU |
@@ -226,7 +484,8 @@ totalled every container's CPU during each run:
 | after the event pipeline (`f-pipeline-01`) | **830%** of 800% |
 | after bounding the pools (`f-pools-01`) | **942%** of 800% |
 
-Eight cores, and at the 20 customers/s step they are gone — to eight .NET services, Postgres, Redis,
+Eight cores, and at the 20 customers/s step they are gone — to the seven .NET services that were up
+(the environment above leaves RealTime and FraudDetection down), Postgres, Redis,
 RabbitMQ, Jaeger, Seq, the collector **and the load generator, which is on the same host**. (The
 totals above 800% are `docker stats` sampling containers at slightly different instants, not spare
 capacity; the point they make is the same either way.) No fix to any single component moves a number
@@ -234,13 +493,23 @@ in that state; it can only change how the saturated CPU is spent. That is what t
 above do, and it is why they show up as *errors removed* and *work completed* rather than as latency
 won.
 
+The single largest consumer at the knee, measured separately during the pre-round-one ramp, was
+**password hashing**: Identity took 2.3 of the 8 cores to issue tokens while the entire application
+path — Gateway, Orders, Restaurants, Delivery — used about 3. That is prediction #6, and it carries a
+caveat that has to travel with every capacity number on this page: an arrival-rate ramp conflates *a
+customer arrives* with *a customer signs in*, and a real population is mostly returning users holding
+valid tokens. **The knee here is therefore a lower bound on the platform's capacity**, and closing that
+gap is a harness question (a warm token pool) before it is a platform one.
+
 The plan said this would happen — *"above roughly half the host's cores the results describe the
 contest, not the platform"* — and the honest form of the round-one result is therefore: **the knee on
 this environment is host CPU at roughly 20 customers/s, and the component-level ceilings found
 underneath it are the ones that would bind next on hardware that is not.** Milestone J (a generator
 that is not co-located) is what turns that into a platform number.
 
-## Did the saturation point move?
+---
+
+## 8. Did the saturation point move?
 
 The runbook's breaking-point method declares saturation at the first step where **any** of three
 things happens. Taking them one at a time at the 20 customers/s step, which is where all three runs
@@ -263,7 +532,9 @@ environment where the generator is not competing for the cores it measures (Mile
 admission control so the platform sheds instead of queueing past it (Milestone G) — not another
 component fix.
 
-## Round two: admission control, and what it can and cannot move
+---
+
+## 9. Round two: admission control
 
 **Milestone G is built** — the Gateway now has a global concurrency limit plus a per-client fixed
 window, shaped by route tier, with counters in Redis. The design, the defaults and their arithmetic
@@ -301,23 +572,7 @@ before  g-before-01   RateLimiting__Enabled=false   the pre-Milestone-G gateway
 after   g-after-01    RateLimiting__Enabled=true    global concurrency 48, per-client 200/60/300 per 10 s
 ```
 
-### Per step — the cliff and the plateau
-
-| step | rate | before p95 | before errors | before served | after p95 | after errors | **after shed** | after served |
-|---|---|---|---|---|---|---|---|---|
-| s05 | 16/s | 322 ms | 0.30% | 9,582 | 306 ms | 0.00% | 0.00% | 9,703 |
-| s06 | 20/s | 478 ms | 0.21% | 11,441 | 547 ms | 0.02% | 0.41% | 11,375 |
-| s07 | 26/s | 539 ms | 0.26% | 14,099 | 566 ms | 0.39% | 3.27% | 14,292 |
-| s08 | 32/s | **14.39 s** | **32.38%** | **1,968** | **554 ms** | **0.35%** | **4.99%** | **17,060** |
-
-**Read the last column first.** At 32 customers/s the unguarded platform served **1,968** requests in
-the step — a seventh of what it had served at 26/s, while the offered load had *risen* by a quarter.
-That is the cliff, and it is the definitional one: throughput went down as load went up. With the
-limiter, the same step served **17,060** — 8.7× more — at a p95 of 554 ms, which is the same latency
-it was delivering two steps earlier.
-
-The price was **4.99% of requests refused**. That is the entire trade: shed one request in twenty and
-the other nineteen are served in half a second; shed none and two thirds of them fail after fourteen.
+The per-step table and both graphs are in [§1](#the-knee-and-what-the-guardrail-did-to-it).
 
 ### Run-wide
 
@@ -389,7 +644,65 @@ What changed is how a saturated system spends what it has: **the knee moved from
 customers/s to a plateau at 32 customers/s**, and the platform now degrades in a way a client can
 respond to.
 
-## Still open
+---
+
+## 10. The extrapolation, stated as one
+
+The project plan asks for *"gradually increase to 100,000 virtual users"*. This is the honest answer,
+and the arithmetic is here so it can be checked rather than believed.
+
+**What was measured**, on one 8-core machine, one replica of each service, generator co-located:
+
+| | |
+|---|---|
+| Journey requests served, top step | **190/s** at p95 554 ms, shedding 4.99% |
+| Requests run-wide | 104/s across the whole 15-minute ramp |
+| Orders placed | **2.63/s** run-wide, 2,428 total, 0 failed |
+| Concurrent sessions in flight, peak | **405 VUs** measured, across customers, kitchens and drivers — of which ~220 are customer journeys (Little's law: 32 arrivals/s × 6.9 s mean iteration, and that mean is taken across all three scenarios, so read it as an order of magnitude) |
+| First component to saturate | **host CPU**, with token hashing the largest single consumer |
+
+**What that does *not* mean.** 100,000 concurrent users is not 100,000 requests per second. A
+concurrent user is a person with the app open; the load they generate is the rate at which they *act*.
+At one action per 30 seconds — generous for a food-delivery app, where the dominant activity is
+watching a driver move — 100,000 concurrent users is on the order of **3,300 requests/second**. That
+is the number worth planning against, and it is ~17× the 190/s measured here.
+
+**So the claim, with its scope attached:**
+
+> A single-replica stack on 8 shared cores serves **~190 journey requests/second and ~2.6 orders/second
+> at p95 554 ms**, refusing 5% of traffic to hold that latency. Serving 100,000 concurrent users at one
+> action per 30 s (~3,300 req/s) is therefore **roughly 17–20 stacks of that size** — *if* the stateful
+> tier scales with them, which is the part that is not measured and not free.
+
+Three qualifiers, each of which moves the number:
+
+1. **It is a lower bound.** The generator took a share of the same eight cores, and every VU logs in
+   once, so the ramp charges PBKDF2 for arrivals that a real returning-user population would not pay.
+   Removing the first is Milestone J; removing the second is a warm token pool in the harness.
+2. **The application tier is the easy half.** The seven hosts are stateless and scale horizontally.
+   One Postgres, one Redis and one RabbitMQ are not, and none of them was the thing that saturated
+   here, which means none of them has a measured ceiling in this repository. Any 17-stack claim is an
+   application-tier claim with an unmeasured data tier behind it.
+3. **Replicas > 1 is blocked on specific, named things**, and they are the useful part of this answer:
+   - **Fixed by this feature** — `FOR UPDATE` without `SKIP LOCKED` on all eleven outbox/inbox
+     dispatch queries, which would have had replicas blocking on each other for a whole batch
+     (`KUBERNETES_PHASE2_PLAN.md` §5.1 hazard 2).
+   - **Still open** — the migration race at startup (hazard 1) and Delivery's expired-offer counter
+     double-counting per replica (hazard 3).
+   - **Introduced by round one and round two, and needing arithmetic redone per replica count** —
+     `Maximum Pool Size` is *per pod*, so two Orders replicas are 40 connections against a
+     `max_connections` of 200; and the Gateway's **global** concurrency limit is per pod while its
+     per-client windows are shared in Redis, so `GlobalConcurrencyLimit: 48` is a per-pod number
+     derived from *this* host. [`rate-limiting.md`](rate-limiting.md) §5 has the derivation to redo.
+
+A recruiter or an interviewer reading that learns more than any six-figure user count would, and it is
+the answer this feature was built to be able to give. The number that would replace it is one measured
+against a multi-replica deployment from a generator that is not co-located — Milestone J, which
+depends on a real cluster and is not built.
+
+---
+
+## 11. Still open
 
 - **Two Npgsql pools per service, from one connection string.** Every module host builds a
   `NpgsqlDataSource` (Dapper + the outbox/inbox jobs) *and* lets EF Core build its own from the same
@@ -423,3 +736,8 @@ respond to.
   the exported series names read off a live Prometheus first, because `ObservabilityAssetTests`
   rejects a dashboard that names a metric nothing emits. The k6 summary carries the number per phase
   in the meantime.
+- **The two baseline runs predate round one**, for the reason given in [§1](#steady-state--what-the-platform-costs-when-it-is-not-under-pressure).
+  Re-running the pair on current code would cost ten minutes and would make the steady-state table an
+  exact match for the rest of the page. It has not been done because the published set was produced on
+  an otherwise idle machine, and a run added later under different conditions is a worse number, not a
+  fresher one.

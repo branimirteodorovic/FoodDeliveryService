@@ -6,9 +6,18 @@
 > covers **Feature 3.5 — Load Testing & Scalability Demonstration**, the fifth feature of **Phase 3**
 > in `FoodDelivery_ProjectPlan.md`.
 
-> **Status (verified against the code on 2026-08-08): not started.** There is no `k6`, no load
-> script, no performance harness and no perf job in `.github/workflows/ci.yml` anywhere in the
-> repository. Everything below is open work.
+> **Status: A–H shipped (2026-08-14); the feature is complete.** The harness is in `Backend/loadtest/`,
+> the seeder in `Backend/tools/FoodDeliveryService.LoadTest.Seeder`, the published run artifacts in
+> `loadtest/results/published/`, and the write-up in [`docs/load-testing.md`](docs/load-testing.md)
+> plus the project [`README.md`](../README.md). Round one (F) shipped the outbox/inbox dispatch index,
+> a faster tick with `SKIP LOCKED`, and bounded Npgsql pools — and reverted the browse-list cache after
+> measuring it. Round two (G) shipped the Gateway's Redis-backed edge rate limiter
+> ([`docs/rate-limiting.md`](docs/rate-limiting.md)). **Optional I (CI perf smoke) and J (Azure Load
+> Testing / distributed k6) are not built**, and the second is what a capacity number free of the
+> co-located generator depends on.
+>
+> *(Original status, verified against the code on 2026-08-08: not started — no `k6`, no load script, no
+> performance harness, no perf job anywhere in the repository.)*
 
 > **Scope for this iteration:** build a *repeatable, evidence-producing* load-testing capability
 > against the running platform, and use it. Concretely: (1) a k6 harness that authenticates like a

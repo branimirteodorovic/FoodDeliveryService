@@ -164,7 +164,11 @@ Three separate hazards, all cheap to fix, all invisible until a second pod exist
    predicate. All of them now read `FOR UPDATE SKIP LOCKED`, so replicas take disjoint batches
    instead of blocking on each other for a whole batch. No single-replica effect was measured and
    none was expected — `[DisallowConcurrentExecution]` already serializes the job within a pod — so
-   this is banked as a prerequisite, not as a speed-up. **Also fixed in the same change and relevant
+   this is banked as a prerequisite, not as a speed-up. The measurement that indicted the pipeline,
+   the query plans either side of the index, and what the change did to the backlog drain rate are in
+   [`docs/load-testing.md`](docs/load-testing.md) §6; the same document's §10 states what these three
+   hazards mean for a replica count above 1, and re-derives the two limits that are now **per pod** —
+   `Maximum Pool Size` and the Gateway's `GlobalConcurrencyLimit`. **Also fixed in the same change and relevant
    here:** the same milestone bounded every service's Npgsql pool (`Maximum Pool Size`), which is a
    *per-pod* bound — two Orders replicas are 40 connections, not 20 — so a replica count above 1 has
    to revisit `deploy/k8s/base/config.yaml` and Postgres' `max_connections` together. Hazards 1 and

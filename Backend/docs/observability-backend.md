@@ -122,7 +122,11 @@ Every other metric on these dashboards comes out of a .NET process over OTLP. Th
 The durable record of a run is **not** here. Prometheus keeps 7 days on a disposable volume; the run
 writes `loadtest/results/{script}-{profile}-{runId}.summary.{json,md}` at the moment the numbers
 exist, plus `.platform.json` holding the server-side series behind these panels.
-`loadtest/README.md` is the runbook.
+`loadtest/README.md` is the runbook, and [`load-testing.md`](load-testing.md) is where the published
+numbers, the environment each came from and the bottleneck log live. The graphs that document quotes
+are **re-plotted from those summaries** (`node loadtest/scripts/plot.mjs`) rather than exported from
+this Grafana, for the retention reason above — a panel image linked from documentation is a broken
+image with a month's notice.
 
 ## 4. Alerts
 

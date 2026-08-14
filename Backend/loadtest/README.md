@@ -965,8 +965,14 @@ above; that number is a direct function of `DRIVER_VUS` against `RATE`.
 
 | | |
 |---|---|
-| `docs/load-testing.md`'s published numbers and the project README evidence | Milestone H |
 | a CI performance smoke job, and a generator that is not co-located | optional Milestones I and J |
 
-Milestone F's measured fixes are in [`../docs/load-testing.md`](../docs/load-testing.md); Milestone
-G's guardrail is in [`../docs/rate-limiting.md`](../docs/rate-limiting.md).
+Everything this harness has measured — the published numbers, the environment each came from, the
+round-one and round-two before/afters and the fixes that were reverted — is in
+[`../docs/load-testing.md`](../docs/load-testing.md) (Milestone H), which is also where the graphs in
+the project [`README.md`](../../README.md) come from. Milestone G's guardrail design is in
+[`../docs/rate-limiting.md`](../docs/rate-limiting.md).
+
+`node scripts/plot.mjs` regenerates those graphs from `results/published/` alone — no stack, no
+Grafana, no network. Prometheus keeps seven days on a disposable volume, so a published graph has to
+be redrawable from an artifact that does not expire.

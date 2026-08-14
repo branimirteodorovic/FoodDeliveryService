@@ -55,6 +55,18 @@ environment down next to them rather than in a commit message. The generator sha
 everything it is measuring; above roughly half of them the results describe that contest. See
 *Read this before quoting a number* in `../../README.md`.
 
+## The graphs are drawn from these files
+
+`node scripts/plot.mjs` (from `loadtest/`) reads the six post-Milestone-E summaries here and writes
+the three SVGs in `docs/assets/loadtest/` that the project README and `docs/load-testing.md` embed.
+Nothing else is needed — no stack, no Grafana, no network — which is the point: Prometheus keeps seven
+days, these files keep forever, so every published picture stays redrawable from published evidence.
+
+If a file here is ever changed, the graphs change with it on the next run of that script. That is the
+intended tripwire. It is also why the five pre-Milestone-E files are not regenerated into the new
+shape: the script does not read them, and rewriting a published artifact to suit a tool is how
+evidence stops being evidence.
+
 ## Reading one without k6
 
 The interesting keys are `metrics["http_req_duration{scope:journey}"]` (the journey SLO),
