@@ -17,6 +17,27 @@
 
 import { Counter, Rate, Trend } from 'k6/metrics';
 
+// ── Guardrail (Milestone G) ───────────────────────────────────────────────────────────────────
+
+/**
+ * Share of requests the Gateway shed with a `429`.
+ *
+ * **This is the metric the whole milestone exists to make visible.** Before the limiter, a platform
+ * past its knee expressed overload as timeouts, which `http_req_failed` records as the platform being
+ * broken — indistinguishable from a genuine 5xx, and impossible to plan capacity against. After it,
+ * overload has a name and a number: *this fraction of traffic was deliberately refused, and the rest
+ * was served inside the SLO*. So a 429 is deliberately **not** a `http_req_failed` and **not** a
+ * failed check (see `lib/http.js`); it is counted here instead, and thresholded per profile and per
+ * phase in `config/thresholds.js` / `config/profiles.js`.
+ *
+ * A rate above zero on `baseline` or `smoke.js` means the guardrail is mis-sized and is throttling
+ * ordinary traffic — which is why those profiles gate it at essentially zero rather than ignoring it.
+ *
+ * k6 `Rate` carries `passes` as well as `rate`, so the summary can print both the fraction and the
+ * absolute count without a second metric.
+ */
+export const requestsThrottled = new Rate('requests_throttled');
+
 // ── Browse ────────────────────────────────────────────────────────────────────────────────────
 
 /** End-to-end wall time of list → detail → menu, think time excluded. */

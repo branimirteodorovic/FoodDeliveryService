@@ -263,7 +263,133 @@ environment where the generator is not competing for the cores it measures (Mile
 admission control so the platform sheds instead of queueing past it (Milestone G) — not another
 component fix.
 
-## Still open after round one
+## Round two: admission control, and what it can and cannot move
+
+**Milestone G is built** — the Gateway now has a global concurrency limit plus a per-client fixed
+window, shaped by route tier, with counters in Redis. The design, the defaults and their arithmetic
+are in [`rate-limiting.md`](rate-limiting.md); this section is about what it means for the numbers
+above.
+
+Two things are worth stating before any before/after is quoted, because they are true regardless of
+what that run measures:
+
+- **A limiter does not add capacity.** The section above is unambiguous that the ceiling on this
+  environment is the eight cores, consumed by the platform *and its own generator*. Shedding cannot
+  create a core. What it changes is how a saturated system spends what it has: a fixed fraction of
+  requests refused in microseconds, the rest served, instead of all of them queued and most of them
+  abandoned.
+- **Latency improving because traffic was shed is not a latency improvement.** A refused request
+  costs less than a served one, which is the same effect round one already ran into in the opposite
+  direction (change 1: latency got *worse* because the after run stopped failing 2% of its orders and
+  therefore completed more work). Any p95 taken from a step with a non-zero shed fraction has to be
+  quoted next to that fraction, or it is a claim about traffic that was never served.
+
+So the criterion the guardrail was expected to move is the third one — a queue growing without
+bound — and the shape of the result, not its magnitude: **a plateau where there used to be a cliff,
+with the refused share stated rather than expressed as timeouts.**
+
+That is what it did.
+
+### The run
+
+The stock eight-step ramp — 2 → 32 customers/s, 90 s per step — rather than the `f-*` runs'
+`RAMP_STEPS=10,13,16,20,25`, because the question changed: those were bisecting a known knee, these
+have to show both sides of it. Same machine, same afternoon, same fixture, **one variable**:
+
+```
+before  g-before-01   RateLimiting__Enabled=false   the pre-Milestone-G gateway
+after   g-after-01    RateLimiting__Enabled=true    global concurrency 48, per-client 200/60/300 per 10 s
+```
+
+### Per step — the cliff and the plateau
+
+| step | rate | before p95 | before errors | before served | after p95 | after errors | **after shed** | after served |
+|---|---|---|---|---|---|---|---|---|
+| s05 | 16/s | 322 ms | 0.30% | 9,582 | 306 ms | 0.00% | 0.00% | 9,703 |
+| s06 | 20/s | 478 ms | 0.21% | 11,441 | 547 ms | 0.02% | 0.41% | 11,375 |
+| s07 | 26/s | 539 ms | 0.26% | 14,099 | 566 ms | 0.39% | 3.27% | 14,292 |
+| s08 | 32/s | **14.39 s** | **32.38%** | **1,968** | **554 ms** | **0.35%** | **4.99%** | **17,060** |
+
+**Read the last column first.** At 32 customers/s the unguarded platform served **1,968** requests in
+the step — a seventh of what it had served at 26/s, while the offered load had *risen* by a quarter.
+That is the cliff, and it is the definitional one: throughput went down as load went up. With the
+limiter, the same step served **17,060** — 8.7× more — at a p95 of 554 ms, which is the same latency
+it was delivering two steps earlier.
+
+The price was **4.99% of requests refused**. That is the entire trade: shed one request in twenty and
+the other nineteen are served in half a second; shed none and two thirds of them fail after fourteen.
+
+### Run-wide
+
+| | before | after |
+|---|---|---|
+| Requests completed | 77,881 (92.8/s) | **95,908 (104.0/s)** |
+| `http_req_failed` | 1.06% | **0.20%** |
+| checks | 99.65% | **99.94%** |
+| journey p95 | 438 ms | 476 ms |
+| journey **p99** | 1.09 s | **749 ms** |
+| journey **max** | 23.37 s | **5.76 s** |
+| `POST /orders` p95 | 1.06 s | **782 ms** |
+| **Order placement failures** | **4.02%** | **0.00%** |
+| Orders placed | 1,846 | **2,428** |
+| Kitchen transitions | 4,453 | **6,878** |
+| Dropped iterations | 642 | **393** |
+| Requests shed | 0 | 1,581 (1.66%) |
+| Peak total container CPU | 832% of 800% | 867% of 800% |
+
+**The p95 got 38 ms worse, and that is not a defect — it is the same effect change 1 above ran into.**
+The after run completed 18,000 more requests and 582 more orders on the same eight cores. A refused
+request is cheap and a *failed* one is cheaper still, so the before run's percentile is flattered by
+the third of s08 it never served. p99, max, the order path and the error rate all move the right way,
+and those are the numbers a customer actually experiences.
+
+### Was the shedding shaped, or just shedding?
+
+The whole argument for route tiers is that a `429` on a browse is cheap and a `429` on a delivery is
+not. Every one of the 1,581 rejections, taken from the Gateway's own request log:
+
+| Route | Tier | Shed |
+|---|---|---|
+| `GET /delivery/orders/{id}/delivery` | Read | 282 |
+| `GET /orders/{id}` | Read | 275 |
+| `GET /restaurants/{id}` | Read | 244 |
+| `GET /restaurants/{id}/menu` | Read | 240 |
+| `GET /restaurants` | Read | 240 |
+| `GET /delivery/deliveries` | Read | 91 |
+| `POST /delivery/drivers/me/location` | Write | 75 |
+| `POST /orders` | Write | 64 |
+| `GET /orders` | Read | 56 |
+| **any order or delivery lifecycle transition** | **Critical** | **0** |
+| **`/health/*`, `hubs/**`** | **Exempt** | **0** |
+
+1,428 reads (90%), 153 writes (10%), **zero lifecycle transitions and zero health probes**. Not one
+`accept`, `ready`, `picked-up` or `delivered` was refused across a run in which the platform was over
+its capacity for three minutes. The ranking did exactly what it was written to do, and the
+`0.00%` placement-failure row above is the same fact seen from the customer's side.
+
+### Two honest caveats
+
+- **`deliveries completed` went down, 229 → 207.** The dispatch board (`GET /delivery/deliveries`)
+  took 91 of the rejections, and that board is the harness's offer-board workaround: every driver VU
+  polls it on **one shared administrator token**, so they share one per-client bucket and behave like
+  a single abusive client. That is a property of the harness, not of the platform — the same one
+  `loadtest/README.md` calls the fulfilment ceiling — but it is a real cost of a per-client limiter
+  meeting a design that has no per-driver "my offers" read model. A real driver app would not be
+  affected; this run's drivers were.
+- **s04 shed 0.99% while s05 shed 0.00%.** The concurrency limit binding on a burst at 12/s and not at
+  16/s is not a contradiction — concurrency is rate × latency, and s04's ramp-in overlapped a slower
+  moment. It is a reminder that the global limit is not a rate limit and will occasionally clip a
+  spike well below the sustained knee.
+
+### What it does not claim
+
+It does not claim more capacity. Peak container CPU was 832% before and 867% after, against eight
+cores — the machine was equally gone in both runs, exactly as the section above said it would be.
+What changed is how a saturated system spends what it has: **the knee moved from a collapse at 32
+customers/s to a plateau at 32 customers/s**, and the platform now degrades in a way a client can
+respond to.
+
+## Still open
 
 - **Two Npgsql pools per service, from one connection string.** Every module host builds a
   `NpgsqlDataSource` (Dapper + the outbox/inbox jobs) *and* lets EF Core build its own from the same
@@ -284,4 +410,16 @@ component fix.
   handler combined, and buying 44 completed deliveries, about **21 wasted claims each**. It also caps
   measured fulfilment at ~0.9 deliveries/s no matter how many drivers run, because the waste grows
   with the pool. Until a "my offers" read model or the SignalR push exists, any capacity number for
-  the fulfilment half of the platform is a number about the harness.
+  the fulfilment half of the platform is a number about the harness. **Round two added a second cost
+  to it:** the whole driver pool polls that board on one shared administrator token, so a per-client
+  limiter sees them as a single abusive client — 91 of the guardrail's 1,581 rejections landed there,
+  and completed deliveries fell 229 → 207 because of it.
+- **The limits are sized for one machine.** `GlobalConcurrencyLimit: 48` is Little's law over an
+  8-core compose host with the generator co-located. On anything else it is a guess — including, and
+  especially, a multi-replica deployment, where the *global* limit is per pod while the per-client
+  windows are shared. Re-derive it from a ramp on the target environment;
+  [`rate-limiting.md`](rate-limiting.md) §5 has the arithmetic to redo.
+- **No Grafana panel for the shed rate yet.** The meter is registered and exporting; the panel needs
+  the exported series names read off a live Prometheus first, because `ObservabilityAssetTests`
+  rejects a dashboard that names a metric nothing emits. The k6 summary carries the number per phase
+  in the meantime.

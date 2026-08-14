@@ -31,6 +31,16 @@ import exec from 'k6/execution';
 import { SCOPE_AUTH, SCOPE_JOURNEY } from './thresholds.js';
 
 /**
+ * The shed budget for a step of a staged profile.
+ *
+ * Generous, and it has to be: past the knee the Gateway's guardrail (Milestone G) is *supposed* to
+ * be refusing traffic, and a tight budget here would fail the run for the platform behaving
+ * correctly. It is not `1` — a step where nearly everything is shed means the limiter is sized below
+ * what the platform can actually serve, which is the opposite failure and just as worth catching.
+ */
+const STAGED_THROTTLED_RATE = 0.5;
+
+/**
  * Arrival rate at multiplier 1×, in customers per second, split across the journeys by `MIX`.
  *
  * Every profile is expressed as multiples of this one number, so `-e RATE=` moves a whole profile up
@@ -150,6 +160,10 @@ const WARM_PHASE = {
     journeyP95: 5000,
     errorRate: 0.05,
     authP95: 20000,
+    // The ignition burst is a crowd of VUs arriving at once on a cold platform, so a little shedding
+    // here is the guardrail working. It is still budgeted rather than exempt: a warm-up that is
+    // mostly 429s would mean the limiter cannot absorb a normal start.
+    throttledRate: 0.1,
 };
 
 const DEFINITIONS = {
@@ -177,7 +191,15 @@ const DEFINITIONS = {
         // No run-wide `authP95`: the login percentile is gated per phase instead (see below), because
         // a cumulative one on a staged run is dominated by the ignition burst in `warm` and says
         // nothing about any step.
-        thresholds: { abortOnFail: true, delayAbortEval: '3m', authP95: null },
+        thresholds: {
+            abortOnFail: true,
+            delayAbortEval: '3m',
+            authP95: null,
+            // The run-wide gate is the *cumulative* shed fraction across every step, most of which
+            // are below the knee — so a ramp that ends up shedding half of everything it offered has
+            // found a limiter set too low, not a platform at capacity.
+            throttledRate: STAGED_THROTTLED_RATE,
+        },
         tagPhases: true,
         phases: [
             WARM_PHASE,
@@ -187,6 +209,7 @@ const DEFINITIONS = {
                 // Every step brings new VUs, and a new VU logs in once — so the login budget stays
                 // generous all the way up, and it is the *journey* percentiles that mark the knee.
                 authP95: 8000,
+                throttledRate: STAGED_THROTTLED_RATE,
                 hold: RAMP_HOLD,
                 // The first step continues at the warm-up's rate; the rest climb onto theirs.
                 rampIn: index === 0 ? null : RAMP_TRANSITION,
@@ -197,7 +220,7 @@ const DEFINITIONS = {
     spike: {
         question: 'Does it recover, and how long does the queue take to drain?',
         shape: `${BASE_RATE}/s → 10× for 60s → ${BASE_RATE}/s`,
-        thresholds: { authP95: null, errorRate: 0.05 },
+        thresholds: { authP95: null, errorRate: 0.05, throttledRate: STAGED_THROTTLED_RATE },
         tagPhases: true,
         // The pass condition for a spike is **recovery**, not survival, and phase thresholds are how
         // that gets said in a way k6 can check: `peak` is allowed to degrade, `post` is not. A run
@@ -212,7 +235,9 @@ const DEFINITIONS = {
         // still slow two minutes after the crowd left is a queue that never drained.
         phases: [
             WARM_PHASE,
-            { label: 'pre', multiplier: 1, hold: '2m', authP95: SUPPLY_START_AUTH_P95 },
+            // `pre` and `post` are the baseline rate: nothing should be shed there, and `post`
+            // shedding after the crowd has gone is a guardrail that failed to recover.
+            { label: 'pre', multiplier: 1, hold: '2m', authP95: SUPPLY_START_AUTH_P95, throttledRate: 0.01 },
             {
                 label: 'peak',
                 multiplier: 10,
@@ -221,8 +246,18 @@ const DEFINITIONS = {
                 journeyP95: 5000,
                 errorRate: 0.05,
                 authP95: 15000,
+                // A 10× arrival spike is exactly the case admission control is for. Shedding most of
+                // it is the correct outcome; the pass condition is what `post` looks like afterwards.
+                throttledRate: 0.9,
             },
-            { label: 'post', multiplier: 1, hold: '3m', rampIn: '10s', authP95: SUPPLY_START_AUTH_P95 },
+            {
+                label: 'post',
+                multiplier: 1,
+                hold: '3m',
+                rampIn: '10s',
+                authP95: SUPPLY_START_AUTH_P95,
+                throttledRate: 0.01,
+            },
         ],
     },
 
@@ -323,6 +358,10 @@ export function phaseThresholds() {
             `p(95)<${step.journeyP95}`,
         ];
         thresholds[`http_req_failed{phase:${step.label}}`] = [`rate<${step.errorRate}`];
+        // The guardrail's own line, per step. On a ramp this is the plateau made legible: the shed
+        // fraction stays at zero step after step and then starts climbing at exactly the step where
+        // the platform ran out of capacity — which used to be the step where everything timed out.
+        thresholds[`requests_throttled{phase:${step.label}}`] = [`rate<${step.throttledRate}`];
         // Login per phase, which is the only way to ask "did it *recover*?" about a path whose
         // run-wide percentile is fixed by whatever happened in the first thirty seconds.
         thresholds[`http_req_duration{scope:${SCOPE_AUTH},phase:${step.label}}`] = [
@@ -395,7 +434,8 @@ export function phaseTimetable() {
     return profile.steps.map(
         (step) =>
             `  ${step.label.padEnd(6)} ${clock(step.holdStart)}–${clock(step.holdEnd)}  ` +
-            `${step.rate}/s  (p95<${step.journeyP95}ms, errors<${pct(step.errorRate)})`
+            `${step.rate}/s  (p95<${step.journeyP95}ms, errors<${pct(step.errorRate)}, ` +
+            `shed<${pct(step.throttledRate)})`
     );
 }
 
@@ -409,7 +449,13 @@ function resolve() {
         );
     }
 
-    const defaults = { journeyP95: 500, errorRate: 0.01, authP95: 2000, ...definition.thresholds };
+    const defaults = {
+        journeyP95: 500,
+        errorRate: 0.01,
+        authP95: 2000,
+        throttledRate: 0.001,
+        ...definition.thresholds,
+    };
 
     let offset = 0;
 
@@ -428,6 +474,7 @@ function resolve() {
             journeyP95: phase.journeyP95 || defaults.journeyP95,
             errorRate: phase.errorRate || defaults.errorRate,
             authP95: phase.authP95 || defaults.authP95 || SUPPLY_START_AUTH_P95,
+            throttledRate: phase.throttledRate || defaults.throttledRate,
         };
 
         offset = step.holdEnd;

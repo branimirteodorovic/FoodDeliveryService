@@ -144,6 +144,12 @@ function headline(metrics) {
         requests: count(metrics, 'http_reqs'),
         requestsPerSecond: value(metrics, 'http_reqs', 'rate'),
         failureRate: value(metrics, 'http_req_failed', 'rate'),
+        // The Gateway's guardrail, in the headline rather than buried in the threshold list — a run
+        // whose latency looks excellent because a third of its traffic was refused is a different
+        // result from one that served everything, and the reader has to be told which they have.
+        // `null` before Milestone G's limiter existed, so old summaries still render.
+        throttledRate: value(metrics, 'requests_throttled', 'rate'),
+        throttled: value(metrics, 'requests_throttled', 'passes'),
         checkRate: value(metrics, 'checks', 'rate'),
         checksPassed: value(metrics, 'checks', 'passes'),
         checksFailed: value(metrics, 'checks', 'fails'),
@@ -193,9 +199,14 @@ function phases(metrics) {
             p95: value(metrics, journey, 'p(95)'),
             samples: value(metrics, journey, 'count'),
             errorRate: value(metrics, `http_req_failed{phase:${step.label}}`, 'rate'),
+            // The plateau, step by step. Read next to the p95 column this is the Milestone G result
+            // in two numbers: the step where `shed` leaves zero is where the guardrail engaged, and
+            // the p95 beside it is what the *admitted* requests still got.
+            throttledRate: value(metrics, `requests_throttled{phase:${step.label}}`, 'rate'),
             authP95: value(metrics, `http_req_duration{scope:${SCOPE_AUTH},phase:${step.label}}`, 'p(95)'),
             budgetP95: step.journeyP95,
             budgetErrorRate: step.errorRate,
+            budgetThrottledRate: step.throttledRate,
         };
     });
 }
@@ -269,6 +280,7 @@ function renderText(report) {
                     `${String(phase.rate).padStart(5)}/s  ` +
                     `p95 ${pad(ms(phase.p95), 10)}  ` +
                     `errors ${pad(pct(phase.errorRate), 7)}  ` +
+                    `shed ${pad(pct(phase.throttledRate), 7)}  ` +
                     `n=${number(phase.samples)}`
             );
         }
@@ -349,13 +361,14 @@ function renderMarkdown(report) {
         lines.push('');
         lines.push('## Phases');
         lines.push('');
-        lines.push('| Phase | Window | Rate | journey p95 | Errors | Samples | login p95 |');
-        lines.push('|---|---|---|---|---|---|---|');
+        lines.push('| Phase | Window | Rate | journey p95 | Errors | Shed (429) | Samples | login p95 |');
+        lines.push('|---|---|---|---|---|---|---|---|');
 
         for (const phase of report.phases) {
             lines.push(
                 `| \`${phase.label}\` | ${clock(phase.from)}–${clock(phase.to)} | ${phase.rate}/s | ` +
-                    `${ms(phase.p95)} | ${pct(phase.errorRate)} | ${number(phase.samples)} | ${ms(phase.authP95)} |`
+                    `${ms(phase.p95)} | ${pct(phase.errorRate)} | ${pct(phase.throttledRate)} | ` +
+                    `${number(phase.samples)} | ${ms(phase.authP95)} |`
             );
         }
 
@@ -388,13 +401,18 @@ function trafficRows(headline) {
     return [
         ['requests', `${number(headline.requests)}  (${decimals(headline.requestsPerSecond, 1)}/s)`],
         ['http_req_failed', pct(headline.failureRate)],
+    ].concat(
+        headline.throttledRate === null
+            ? []
+            : [['shed (429)', `${pct(headline.throttledRate)}  (${number(headline.throttled)} requests)`]]
+    ).concat([
         [
             'checks',
             `${pct(headline.checkRate)}  (${number(headline.checksPassed)} passed, ` +
                 `${number(headline.checksFailed)} failed)`,
         ],
         ['iterations', `${number(headline.iterations)}  (dropped ${number(headline.droppedIterations)})`],
-    ];
+    ]);
 }
 
 function latencyRows(headline) {

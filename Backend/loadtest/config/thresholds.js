@@ -48,6 +48,11 @@ const DEFAULTS = {
     authP95: 2000,
     errorRate: 0.01,
     checkRate: 0.99,
+    // The Gateway's capacity guardrail (Milestone G) firing on ordinary traffic. Effectively zero by
+    // default and deliberately so: a limiter sized correctly must be invisible below the knee, and a
+    // single 429 in a five-minute baseline means the budget is wrong, not that the platform is busy.
+    // The staged profiles raise it, because shedding *is* what they are there to observe.
+    throttledRate: 0.001,
     // The `ramp` profile sets this: past the knee a run has already answered its question, and ten
     // more minutes of recording timeouts adds nothing. It applies to the two run-wide criteria the
     // plan's saturation rule names — the error rate and journey p95 — and to nothing else, because
@@ -89,5 +94,11 @@ export function sloThresholds(overrides = {}) {
         // counts status codes and would call it a success; the checks in `lib/http.js` look at the
         // body, and this is the threshold that makes them matter.
         checks: [`rate>${o.checkRate}`],
+
+        // The rejected fraction, stated rather than hidden. It is a gate in both directions: on a
+        // flat profile it fails if the guardrail fires at all, and on a staged one it fails only if
+        // the platform is shedding *most* of its traffic — which is a limiter mis-sized the other
+        // way, refusing work the platform could have done.
+        requests_throttled: [`rate<${o.throttledRate}`],
     };
 }

@@ -18,6 +18,10 @@
     <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
     <PackageReference Include="Serilog.AspNetCore" />
     <PackageReference Include="Serilog.Sinks.Seq" />
+    <!-- The rate limiter's counters (Milestone G). Shared across replicas or the limit is a lie, so
+         the gateway opens one connection to the Redis the platform already runs — the only piece of
+         the limiter that could not live in Common.Presentation. -->
+    <PackageReference Include="StackExchange.Redis" />
     <PackageReference Include="Yarp.ReverseProxy" />
   </ItemGroup>
 

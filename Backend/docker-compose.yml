@@ -67,6 +67,17 @@ services:
     build:
       context: .
       dockerfile: src/API/FoodDeliveryService.Gateway/Dockerfile
+    environment:
+      # The edge rate limiter (Feature 3.5 Milestone G), on by default. The variable exists so the
+      # milestone's before/after ramp can turn it off for one run without editing a file — and
+      # turning it *off* is the only honest way to measure "without the guardrail": raising the
+      # limits until they never bind leaves the middleware in the pipeline and is a different run.
+      #
+      #   RATE_LIMITING_ENABLED=false docker compose up -d fooddeliveryservice.gateway
+      #
+      # Recreating the gateway alone is safe — it has no depends_on, so unlike Identity it cannot
+      # drag a fresh Postgres in behind it (loadtest/README.md → Before every run).
+      - RateLimiting__Enabled=${RATE_LIMITING_ENABLED:-true}
     ports:
       - 3000:8080
       - 3001:8081

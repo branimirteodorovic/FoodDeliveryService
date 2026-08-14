@@ -436,6 +436,71 @@ A spike reads the same way, with named phases instead of numbered ones — `warm
 `post` — and the pass condition is **`post`**, not `peak`. Anything can survive sixty seconds; the
 question is whether the queue drained afterwards.
 
+## The capacity guardrail
+
+Since **Milestone G** the Gateway has admission control — a global concurrency limit plus a
+per-client fixed window, shaped by route tier — so past the knee it refuses a fraction of traffic
+with `429` + `Retry-After` instead of accepting everything and timing out. The design, the numbers
+and why the counters live in Redis are in [`../docs/rate-limiting.md`](../docs/rate-limiting.md);
+what matters *here* is how a run reports it.
+
+**A `429` is an answer, not a failure.** It is excluded from `http_req_failed` and from the status
+check, and recorded in **`requests_throttled`** instead. If the harness counted it as an error, the
+guardrail would fail the very test that motivated it and every run past the knee would report a
+broken platform rather than a shedding one. The check keeps its original name so a before/after pair
+of summaries stays comparable line for line.
+
+So a ramp now has three numbers per step instead of two. The top two steps of the two published
+Milestone G runs, same profile, same machine, the limiter the only difference:
+
+```
+without the limiter (g-before-01)
+  s07  11:30–13:00   26/s  p95 538.71 ms   errors  0.26%   shed 0.00%   n=14,099
+  s08  13:15–14:45   32/s  p95  14.39 s    errors 32.38%   shed 0.00%   n= 1,968
+
+with it (g-after-01)
+  s07  11:30–13:00   26/s  p95 566.10 ms   errors  0.39%   shed 3.27%   n=14,292
+  s08  13:15–14:45   32/s  p95 554.42 ms   errors  0.35%   shed 4.99%   n=17,060
+```
+
+Read them together, and read `n` first. **The step where `shed` leaves zero is where the platform ran
+out of capacity; the p95 beside it is what the requests that *were* admitted still got; and `n` is
+whether the platform was still doing any work.** Without the limiter, s08 served a seventh of what
+s07 served while the offered load rose by a quarter — throughput going *down* as load goes up is the
+definition of the cliff. With it, s08 served more than s07 at the same latency, having refused one
+request in twenty.
+
+Three ways to read it wrong:
+
+- **`shed` above zero on `baseline` or `smoke.js` is a mis-sized guardrail, not a busy platform.**
+  Those profiles gate it at `rate<0.001` for exactly that reason — a limiter sized correctly is
+  invisible below the knee. Fix the limit, do not loosen the threshold.
+- **`shed` near 100% at a step is the opposite failure.** The limiter is refusing work the platform
+  could have done. The staged profiles cap it at 50% per step (90% for a spike's `peak`) so this
+  fails a run rather than reading as success.
+- **Latency improving while `shed` climbs is not a win.** A refused request costs less than a served
+  one, so shedding always flatters a percentile. Quote the shed fraction next to any p95 taken from a
+  step where it was non-zero, or the number is a claim about traffic that was never served.
+
+The one client in this harness that legitimately behaves like an abusive one is `driver.js`: it polls
+the *administrator's* delivery board, so the whole driver pool shares one subject and one per-client
+bucket. `ReadPermitLimit` is deliberately set above what that costs — see the offer-board workaround
+above. If you raise `DRIVER_VUS` a long way, check whether the dispatch scope is being shed before
+concluding anything about the platform.
+
+To measure without the guardrail — which is how the published before/after was produced — use the
+compose variable and recreate **only** the Gateway, which has no `depends_on` and so cannot drag a
+fresh Postgres in behind it:
+
+```bash
+RATE_LIMITING_ENABLED=false docker compose up -d fooddeliveryservice.gateway
+```
+
+Export it for the `run.sh` invocation too, or `docker compose run` will decide the Gateway is out of
+date and recreate it mid-run. Turning it *off* is the only honest way to measure "without": raising
+the limits until they never bind leaves the middleware in the pipeline and is a different run. The
+startup log says which mode it came up in — check it before trusting the numbers.
+
 ## Where a run's results go
 
 Two destinations, answering different questions. Both are Milestone E.
@@ -591,6 +656,26 @@ So the range was extended, starting from the last step of the previous run so th
 reference environment. `s02` crosses both saturation criteria at once, the run aborted there instead
 of spending six more minutes recording a collapse, and `s03`–`s05` are in the summary with `p(95)=0`
 and no samples behind them: the trivially-passing empty phase, in the wild.
+
+### Where it is now
+
+Both tables above predate Milestone F. The Milestone G before-run (`g-before-01`, the stock
+`1,2,4,6,8,10,13,16` ramp, limiter off) re-measured the same environment after F's fixes:
+
+| Step | Customers/s | journey p95 | errors | served |
+|---|---|---|---|---|
+| `s06` | 20 | 477.72 ms | 0.21% | 11,441 |
+| `s07` | 26 | 538.71 ms | 0.26% | 14,099 |
+| `s08` | 32 | **14.39 s** | **32.38%** | **1,968** |
+
+So the knee moved out by roughly one step — 26 customers/s now sits just over the SLO rather than
+collapsing through it — and the collapse moved to 32. Treat the shift as indicative rather than
+measured: the ramp *shape* differs from the two runs above (different steps, different warm-up
+history), so this is not the one-variable comparison the `f-*` and `g-*` pairs are.
+
+What is not indicative is `s08`. Throughput falling to a seventh while offered load rises is the
+cliff itself, and it is what Milestone G's guardrail was built to replace — see
+[The capacity guardrail](#the-capacity-guardrail) and `../docs/load-testing.md` → *Round two*.
 
 ### What saturated
 
@@ -781,6 +866,7 @@ polling loop instead of the journeys.
 | `http_req_duration{scope:journey}` | `p(95)<500`, `p(99)<1500` |
 | `http_req_duration{scope:auth}` | `p(95)<2000` |
 | `checks` | `rate>0.99` |
+| `requests_throttled` | `rate<0.001` — the Gateway's guardrail must be invisible below the knee. Raised per profile; see [The capacity guardrail](#the-capacity-guardrail) |
 
 Scenarios add their own on top, which is the point of the custom metrics: in a mixed run the global
 `http_req_duration` is dominated by browse at 70% of the traffic, so it stays green while the write
@@ -797,11 +883,17 @@ path degrades.
 On top of that, each profile applies its own overrides, and the staged ones replace the run-wide login
 budget with one **per phase**:
 
-| Profile | Journey p95 | Errors | Login p95 | Aborts |
-|---|---|---|---|---|
-| `baseline`, `soak` | 500 ms, strict | 1% | 4 s run-wide | no |
-| `ramp` | 500 ms **per step** | 1% per step | 8 s per step | yes — cumulative p95 and error rate |
-| `spike` | 500 ms in `pre`/`post`, 5 s in `peak` | 5% | 4 s in `pre`/`post`, 15 s in `peak` | no |
+| Profile | Journey p95 | Errors | Shed (429) | Login p95 | Aborts |
+|---|---|---|---|---|---|
+| `baseline`, `soak` | 500 ms, strict | 1% | 0.1%, strict | 4 s run-wide | no |
+| `ramp` | 500 ms **per step** | 1% per step | 50% per step | 8 s per step | yes — cumulative p95 and error rate |
+| `spike` | 500 ms in `pre`/`post`, 5 s in `peak` | 5% | 1% in `pre`/`post`, **90% in `peak`** | 4 s in `pre`/`post`, 15 s in `peak` | no |
+
+The shed budgets are asymmetric on purpose. Flat profiles run below the knee, so any shedding there
+means the limiter is mis-sized. Staged profiles are *supposed* to shed at the top — the budget is
+there to catch the other failure, a limiter set so low it refuses work the platform could have done.
+A spike's `peak` may shed almost everything; its `pre` and `post` may not, because a guardrail still
+refusing traffic two minutes after the crowd left has not recovered.
 
 `baseline` is strict partly *because it runs for five minutes*. Shortened with `-e DURATION=60s` it
 fails on login alone — measured 5.57 s — because the ignition burst is then most of the run with
@@ -873,6 +965,8 @@ above; that number is a direct function of `DRIVER_VUS` against `RATE`.
 
 | | |
 |---|---|
-| the measured fixes behind the knee | Milestone F — the shortlist is in `../LOADTESTING_PHASE3_PLAN.md` §7 |
-| rate limiting at the Gateway, so a ramp plateaus instead of collapsing | Milestone G |
-| `docs/load-testing.md` and the README evidence | Milestone H |
+| `docs/load-testing.md`'s published numbers and the project README evidence | Milestone H |
+| a CI performance smoke job, and a generator that is not co-located | optional Milestones I and J |
+
+Milestone F's measured fixes are in [`../docs/load-testing.md`](../docs/load-testing.md); Milestone
+G's guardrail is in [`../docs/rate-limiting.md`](../docs/rate-limiting.md).

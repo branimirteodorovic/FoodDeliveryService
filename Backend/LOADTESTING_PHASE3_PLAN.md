@@ -568,7 +568,9 @@ the first answer.
   it needs `--web.enable-remote-write-receiver`.
 - **`ObservabilityAssetTests` pins the dashboard uid set exactly** and rejects unknown metric names in
   any dashboard or alert expression. A new dashboard is a two-file change, always.
-- **The Gateway has no rate limiter and no `Common.Infrastructure` dependency** — both shape
-  Milestone G.
+- **The Gateway had no rate limiter and has no `Common.Infrastructure` dependency** — both shaped
+  Milestone G, which built one: the shared code lives in `Common.Presentation/RateLimiting` (the same
+  place the health probes and `AddHostTelemetry` live, for the same reason) and only the Redis store
+  is in the Gateway. See [`docs/rate-limiting.md`](docs/rate-limiting.md).
 - **Every service runs one replica**, applies migrations at startup, and exports OTLP to the
   collector at `http://fooddeliveryservice.otel-collector:4317`.

@@ -43,7 +43,7 @@ src/
 When implementing a feature, first decide: **which service owns the state being changed?** That module gets the command/endpoint. Then ask: **does any other service care about this state change?** If yes, publish an integration event and add consumers there — never call another service's API or database directly.
 
 ## Request Flow
-1. Client → **Gateway** (`:3000`). YARP validates the JWT (Duende), then routes by path prefix: `orders/**`, `restaurants/**`, `users/**`, `notifications/**` → the matching service. `users/register` is anonymous.
+1. Client → **Gateway** (`:3000`). YARP validates the JWT (Duende), then routes by path prefix: `orders/**`, `restaurants/**`, `users/**`, `notifications/**` → the matching service. `users/register` is anonymous. Between authentication and routing sits the **edge rate limiter** (`app.UseEdgeRateLimiting()`, `Common.Presentation/RateLimiting`): a global concurrency limit plus a per-client fixed window partitioned by subject (IP when anonymous), sized per route tier so browsing is shed before an order or delivery lifecycle transition is. Counters live in the shared Redis — per-pod buckets would multiply the limit by the replica count. `/health/*` and `hubs/**` are exempt. Rejections are `429` + `Retry-After`. It is **edge-only**: never add a limiter to a module host. `docs/rate-limiting.md`
 2. Service validates the JWT again, `CustomClaimsTransformation` resolves permissions via `IPermissionService` (in non-Users services this is a **MassTransit request/response call to Users**, cached in Redis for 5 min).
 3. Minimal API endpoint → `ISender.Send(command/query)` → `result.Match(Results.Ok, ApiResults.Problem)`.
 

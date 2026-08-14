@@ -55,7 +55,8 @@ type: Opaque
 # readable. Base64 is not encryption either way — the protection is that these values are worthless
 # outside a local cluster.
 stringData:
-  # Shared by all six module hosts.
+  # Shared by all six module hosts — and, since Feature 3.5 Milestone G, by the Gateway, whose edge
+  # rate limiter keeps its counters here so they survive a replica count above 1 (§5.4).
   ConnectionStrings__Cache: fooddeliveryservice-redis:6379
   ConnectionStrings__Queue: amqp://fooddeliveryservice-queue:5672
 

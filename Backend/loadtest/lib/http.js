@@ -8,11 +8,28 @@ import exec from 'k6/execution';
 import { environment, runId } from '../config/environments.js';
 import { phaseTag } from '../config/profiles.js';
 import { SCOPE_JOURNEY } from '../config/thresholds.js';
+import { requestsThrottled } from './metrics.js';
 
 /** Matches `CorrelationHeaders.CorrelationId` in `Common.Presentation/Correlation`. */
 const CORRELATION_HEADER = 'X-Correlation-Id';
 
 const PROBLEM_CONTENT_TYPE = 'application/problem+json';
+
+/**
+ * The Gateway's capacity guardrail answering (Milestone G).
+ *
+ * **A 429 is an answer, not a failure**, and the distinction is the whole point of building the
+ * limiter: past the knee the platform now refuses a fraction of requests *quickly and explicitly*
+ * instead of accepting all of them and timing out. If the harness counted that as an error, the
+ * guardrail would fail the very test that motivated it, and every run past the knee would report a
+ * broken platform rather than a shedding one.
+ *
+ * So it is excluded from `http_req_failed` and from the status check, and recorded in
+ * `requests_throttled` — which has its own threshold, strict on `baseline`/`smoke` (the guardrail
+ * must never fire on ordinary traffic) and generous on `ramp`/`spike` (where shedding is the
+ * expected behaviour being measured).
+ */
+const THROTTLED_STATUS = 429;
 
 /**
  * One correlation id per iteration.
@@ -131,10 +148,22 @@ export function send(method, url, payload, options = {}) {
         // been given. Declaring them here keeps `http_req_failed` meaning "the platform answered
         // something nobody asked for" — the failure rate stays trustworthy precisely because the
         // expected outcomes are named rather than tolerated by loosening the threshold.
-        responseCallback: http.expectedStatuses(...expected),
+        //
+        // 429 joins that set for every request, for the reason at THROTTLED_STATUS: the guardrail
+        // refusing a request is the platform working, and it is measured in `requests_throttled`
+        // rather than smuggled into the error rate.
+        responseCallback: http.expectedStatuses(...expected, THROTTLED_STATUS),
     };
 
     const response = http.request(method, url, payload, params);
+
+    const throttled = response.status === THROTTLED_STATUS;
+
+    // Recorded for every request, so the metric exists — and reads 0% — on a run nothing was shed in.
+    // That is what makes `rate<0.001` on `baseline` an actual gate rather than a threshold on a
+    // metric that quietly never materialises. Tagged like the request, so the summary can say *which*
+    // endpoint was shed: on a correctly tiered limiter that should be browse, never `delivered`.
+    requestsThrottled.add(throttled, { name, scope, ...phase });
 
     let parsed;
     const json = () => {
@@ -150,7 +179,11 @@ export function send(method, url, payload, options = {}) {
     };
 
     const checks = {
-        [`${name} → ${expected.join('/')}`]: (r) => expected.includes(r.status),
+        // A shed request satisfies this rather than failing it, and the check keeps its name so a
+        // before/after pair of summaries stays comparable line for line — which is the entire point
+        // of the Milestone G re-run. The shed *fraction* is `requests_throttled`, not a `checks` rate
+        // quietly a few points lower.
+        [`${name} → ${expected.join('/')}`]: (r) => expected.includes(r.status) || throttled,
 
         // A `200 OK` carrying a ProblemDetails body is an application failure that `http_req_failed`
         // happily counts as a success. `ApiResults.Problem` shouldn't produce one, and this check is

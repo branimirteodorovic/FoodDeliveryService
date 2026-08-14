@@ -24,15 +24,22 @@ that gets rewritten is not evidence of anything.
 | `mixed.js-ramp-f-before-02.summary.{json,md}` | `ramp` | **Milestone F, the before.** Same profile as `ramp-02`, one variable at a time from here on. 678 `53300` connection refusals underneath it; journey p95 746 ms, 0.40% errors, 2.09% of placements failed. |
 | `mixed.js-ramp-f-pipeline-01.summary.{json,md}` | `ramp` | **Milestone F, after the event-pipeline change** (dispatch index + 1 s/50 + `SKIP LOCKED`). Backlog drain 2.96 → 9.44 rows/s, errors to zero, journey p95 slightly *worse* at 789 ms — because the run stopped failing and completed more work. |
 | `mixed.js-ramp-f-pools-01.summary.{json,md}` | `ramp` | **Milestone F, after bounding the Npgsql pools.** journey p95 586 ms, p99 2.31 s → 1.15 s, `POST /orders` p95 1.43 s → 919 ms, backends 88/100 → 87/200. The best of the three. |
+| `mixed.js-ramp-g-before-01.summary.{json,md}` | `ramp` | **Milestone G, the before** — the stock 8-step ramp (2 → 32 customers/s) with `RateLimiting__Enabled=false`. **The cliff**: green to 26 customers/s (p95 539 ms), then s08 collapses to p95 **14.39 s**, **32.4%** errors and 1,968 served requests where the previous step served 14,099. |
+| `mixed.js-ramp-g-after-01.summary.{json,md}` | `ramp` | **Milestone G, the after** — identical profile, limiter on. **The plateau**: s08 holds p95 **554 ms** at 0.35% errors and **17,060** served requests, shedding 4.99%. Run-wide throughput +12%, p99 1.09 s → 749 ms, placement failures 4.02% → 0.00%. |
 
 The three `f-*` runs are one controlled sequence and are only meaningful read together, in that order
 — `docs/load-testing.md` is the log that explains what changed between each and why one of the three
 predicted fixes was reverted instead of shipped. They carry the post-Milestone-E shape described
 above, including the `.summary.md` beside each.
 
+The two `g-*` runs are a pair and mean nothing apart: same profile, same machine, same afternoon,
+**one variable** — the Gateway's `RateLimiting__Enabled`. They also use the *stock* eight-step ramp
+rather than the `f-*` runs' `RAMP_STEPS=10,13,16,20,25`, because the question changed: the `f-*` runs
+were bisecting a known knee, while these two have to show what happens on either side of it.
+
 ## The environment they came from
 
-All five, same machine, same day, nothing else running on it:
+All of them, same machine, nothing else running on it:
 
 ```
 compose · 8 vCPU · 7.6 GB to Docker · generator co-located · 1 replica per service

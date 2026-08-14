@@ -221,8 +221,14 @@ rejects it. This cannot be fixed at the Ingress either — the Ingress fronts th
 addresses RealTime as a single Service, so YARP's session affinity has no destinations to
 affinitize between. `sessionAffinity: ClientIP` on the RealTime Service is a partial guard (it pins
 per *Gateway* pod, not per client). The real scale path is **Azure SignalR Service**. Second: the
-**Gateway** can scale freely today only because Feature 1.3's rate limiter was never built — if one
-is ever added it must be Redis-backed, or per-pod buckets multiply the limit by the replica count.
+**Gateway** used to scale freely only because Feature 1.3's rate limiter was never built — the
+warning here was that if one were ever added it must be Redis-backed, or per-pod buckets would
+multiply the limit by the replica count. **It has since been built** (Feature 3.5 Milestone G,
+[`docs/rate-limiting.md`](docs/rate-limiting.md)) and it is Redis-backed for exactly this reason:
+the counters are in `ConnectionStrings__Cache`, the Gateway Deployment reads that key from
+`platform-secrets`, and outside Development the host refuses to start on the in-memory fallback
+rather than enforce N× its configured limit on N pods. The Gateway therefore still scales — the
+prerequisite is met rather than pending.
 
 ### 5.5 The observability stack in-cluster
 
@@ -283,7 +289,10 @@ PITR backups; secret-rotation automation; multi-region, blue-green and canary de
 - Solution targets **.NET 10**; images are `mcr.microsoft.com/dotnet/{sdk,aspnet}:10.0`, in which
   `$APP_UID` is **1654**.
 - All eight Dockerfiles exist, are multi-stage and already run as a non-root `USER $APP_UID`.
-- The Gateway has **no rate limiter** — a Feature 1.3 task that was never built.
+- The Gateway **has a rate limiter since Feature 3.5 Milestone G** — the Feature 1.3 task that was
+  never built. Redis-backed (so it survives replicas > 1), route-tiered, exempting `/health/*` and
+  `hubs/**`. It adds one env key to the Gateway Deployment, `ConnectionStrings__Cache` from
+  `platform-secrets`. See [`docs/rate-limiting.md`](docs/rate-limiting.md).
 - A pre-existing Gateway defect was fixed alongside the first CI workflow: three routes referenced a
   `fooddeliveryservice-cluster` that was never defined. The dead catch-all route was deleted and the
   two anonymous routes (`users/register`, `users/accept-invitation`) repointed at
