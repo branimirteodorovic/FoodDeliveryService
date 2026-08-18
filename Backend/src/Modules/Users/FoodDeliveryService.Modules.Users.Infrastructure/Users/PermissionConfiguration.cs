@@ -44,7 +44,14 @@ internal sealed class PermissionConfiguration : IEntityTypeConfiguration<Permiss
             Permission.GetDeliveries,
             Permission.ManageDeliveries,
             Permission.AdministerDeliveries,
-            Permission.ViewSupportDashboard);
+            Permission.ViewSupportDashboard,
+            Permission.OpenSupportTicket,
+            Permission.GetSupportTickets,
+            Permission.ManageSupportTickets,
+            Permission.AssignSupportTickets,
+            Permission.RequestRefund,
+            Permission.ApproveRefund,
+            Permission.GetSupportAnalytics);
 
         builder
             .HasMany<Role>()
@@ -72,6 +79,10 @@ internal sealed class PermissionConfiguration : IEntityTypeConfiguration<Permiss
                     // Track their own order's delivery. Ownership-scoped in the handler: a customer may
                     // only read a delivery for an order they placed.
                     CreateRolePermission(Role.Customer, Permission.GetDeliveries),
+                    // Support: open a ticket and read their own. Ownership is enforced in the Support
+                    // handlers — a customer reading someone else's ticket gets a 404, not a 403.
+                    CreateRolePermission(Role.Customer, Permission.OpenSupportTicket),
+                    CreateRolePermission(Role.Customer, Permission.GetSupportTickets),
                     // Admin permissions
                     CreateRolePermission(Role.Administrator, Permission.GetUser),
                     CreateRolePermission(Role.Administrator, Permission.ModifyUser),
@@ -106,6 +117,16 @@ internal sealed class PermissionConfiguration : IEntityTypeConfiguration<Permiss
                     CreateRolePermission(Role.Administrator, Permission.GetDeliveries),
                     CreateRolePermission(Role.Administrator, Permission.ManageDeliveries),
                     CreateRolePermission(Role.Administrator, Permission.AdministerDeliveries),
+                    // Support oversight: everything an agent can do, plus refunds:approve — the
+                    // segregation-of-duties permission an agent must never hold, since the agent who
+                    // requests a refund cannot be the one who approves it.
+                    CreateRolePermission(Role.Administrator, Permission.OpenSupportTicket),
+                    CreateRolePermission(Role.Administrator, Permission.GetSupportTickets),
+                    CreateRolePermission(Role.Administrator, Permission.ManageSupportTickets),
+                    CreateRolePermission(Role.Administrator, Permission.AssignSupportTickets),
+                    CreateRolePermission(Role.Administrator, Permission.RequestRefund),
+                    CreateRolePermission(Role.Administrator, Permission.ApproveRefund),
+                    CreateRolePermission(Role.Administrator, Permission.GetSupportAnalytics),
                     // RestaurantManager: manage only their own restaurant/menu (ownership-enforced in handlers)
                     // + their own profile. No CreateRestaurant/ProvisionUsers. Seeded now, exercised in later milestones.
                     CreateRolePermission(Role.RestaurantManager, Permission.GetRestaurants),
@@ -129,10 +150,19 @@ internal sealed class PermissionConfiguration : IEntityTypeConfiguration<Permiss
                     CreateRolePermission(Role.DeliveryDriver, Permission.GetUser),
                     CreateRolePermission(Role.DeliveryDriver, Permission.ModifyUser),
                     // SupportAgent: the RealTime support dashboard's live global activity feed (Milestone
-                    // D), plus their own profile. No operational permissions — support is read-only.
+                    // D), plus their own profile, plus the operational ticketing set (Feature 3.6): read
+                    // any ticket, drive its status, claim/assign it, request a refund and read the
+                    // analytics summary. Deliberately NOT refunds:approve — that is admin-only, so the
+                    // agent who requests a refund can never approve their own request. Also deliberately
+                    // NOT support-tickets:open, which is the customer-facing "open a ticket" code.
                     CreateRolePermission(Role.SupportAgent, Permission.ViewSupportDashboard),
                     CreateRolePermission(Role.SupportAgent, Permission.GetUser),
-                    CreateRolePermission(Role.SupportAgent, Permission.ModifyUser));
+                    CreateRolePermission(Role.SupportAgent, Permission.ModifyUser),
+                    CreateRolePermission(Role.SupportAgent, Permission.GetSupportTickets),
+                    CreateRolePermission(Role.SupportAgent, Permission.ManageSupportTickets),
+                    CreateRolePermission(Role.SupportAgent, Permission.AssignSupportTickets),
+                    CreateRolePermission(Role.SupportAgent, Permission.RequestRefund),
+                    CreateRolePermission(Role.SupportAgent, Permission.GetSupportAnalytics));
             });
     }
 

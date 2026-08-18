@@ -42,6 +42,17 @@ public sealed class Permission
     // existing signal, so it gets its own marker permission.
     public static readonly Permission ViewSupportDashboard = new("support:dashboard");
 
+    // Support & ticketing (Phase 3, Feature 3.6). NB: the existing `tickets:read` / `tickets:check-in`
+    // above are event-ticketing leftovers from the Evently heritage and are granted to every Customer —
+    // they are NOT these. Support codes are namespaced `support-*` for exactly that reason.
+    public static readonly Permission OpenSupportTicket = new("support-tickets:open");        // customer: open a ticket, reply on their own
+    public static readonly Permission GetSupportTickets = new("support-tickets:read");        // agent: read any; customer: read their own (ownership-scoped in the handler)
+    public static readonly Permission ManageSupportTickets = new("support-tickets:manage");   // agent: status transitions, internal notes, audit log
+    public static readonly Permission AssignSupportTickets = new("support-tickets:assign");   // agent: claim; admin: assign to anyone
+    public static readonly Permission RequestRefund = new("refunds:request");                 // agent
+    public static readonly Permission ApproveRefund = new("refunds:approve");                 // admin only — segregation of duties
+    public static readonly Permission GetSupportAnalytics = new("support-analytics:read");
+
     public Permission(string code)
     {
         Code = code;
