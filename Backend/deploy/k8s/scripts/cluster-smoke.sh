@@ -69,17 +69,30 @@ assert_status() {  # $1 = URL, $2..$n = acceptable codes
   return 1
 }
 
-assert_post_status() {  # $1 = URL, $2..$n = acceptable codes
-  local url="$1"; shift
-  local actual
-  actual="$(status_of_post "$url")"
-  for expected in "$@"; do
-    if [ "$actual" = "$expected" ]; then
-      echo "    POST $url -> $actual"
-      return 0
-    fi
+await_post_status() {  # $1 = URL, $2 = timeout seconds, $3..$n = acceptable codes
+  # Bounded rather than single-shot, and for the same reason `await_endpoints_empty` is: this is the
+  # one check that leaves the host and traverses the cluster's own plumbing — CoreDNS resolving the
+  # Service name for the first time, kube-proxy's rules for its endpoints, the pod still being a
+  # ready endpoint. Every one of those settles on its own schedule, none of them on ours, and any of
+  # them missing for one second answers 502 (no connection) where the platform is in fact fine. A
+  # loaded CI runner hits that window; an idle laptop does not, which is exactly the kind of failure
+  # that only ever appears in CI. Retrying with a deadline keeps the assertion honest — a route that
+  # is genuinely unwired never answers 400 and still fails the run.
+  local url="$1" timeout="$2"; shift 2
+  local deadline actual
+  deadline=$((SECONDS + timeout))
+  while :; do
+    actual="$(status_of_post "$url")"
+    for expected in "$@"; do
+      if [ "$actual" = "$expected" ]; then
+        echo "    POST $url -> $actual"
+        return 0
+      fi
+    done
+    [ $SECONDS -lt $deadline ] || break
+    sleep 3
   done
-  echo "FAIL: POST $url returned $actual, expected one of: $*" >&2
+  echo "FAIL: POST $url returned $actual within ${timeout}s, expected one of: $*" >&2
   return 1
 }
 
@@ -128,6 +141,14 @@ for deployment in "${DEPLOYMENTS[@]}"; do
   echo "    $deployment"
 done
 
+# `rollout status` answers "the rollout finished", which is a statement about the Deployment's
+# history and not about this instant: it is satisfied by a Deployment whose pod has since gone
+# NotReady. Every check below sends real traffic, so re-assert the thing those checks actually
+# depend on — that every pod is Ready *now*, backing services included.
+kubectl -n "$NAMESPACE" wait --for=condition=Ready pod \
+  -l app.kubernetes.io/part-of=fooddeliveryservice --timeout=5m >/dev/null
+echo "    all pods Ready"
+
 echo "==> 2. the Gateway is reachable and proxies downstream"
 assert_status "$GATEWAY_URL/health/ready" 200
 # An empty body on the anonymous registration route: 400 means YARP forwarded it and Users rejected
@@ -135,7 +156,9 @@ assert_status "$GATEWAY_URL/health/ready" 200
 # A 404 here would mean the route never matched — the failure mode the Gateway's config had.
 # It has to be a POST: `users/register` is a MapPost endpoint, so a GET answers 405 and proves
 # only that something downstream owns the path, not that the request reached the handler.
-assert_post_status "$GATEWAY_URL/users/register" 400 415 422
+# A 502 is the *transient* answer here — the Gateway could not open a connection to the Users
+# Service — so it is waited out rather than failed on. See `await_post_status`.
+await_post_status "$GATEWAY_URL/users/register" 90 400 415 422
 
 echo "==> 3. Identity serves discovery"
 assert_status "$IDENTITY_URL/.well-known/openid-configuration" 200

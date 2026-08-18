@@ -135,6 +135,16 @@ jobs:
         if: failure()
         run: |
           kubectl -n fooddeliveryservice get pods -o wide || true
+          # Which Services actually had a ready endpoint. A smoke failure that reads as a routing
+          # fault (the Gateway answers 502) is usually an empty endpoint list, and nothing else in
+          # this dump distinguishes the two.
+          kubectl -n fooddeliveryservice get endpointslices || true
           kubectl -n fooddeliveryservice describe pods || true
-          kubectl -n fooddeliveryservice logs -l app.kubernetes.io/name=fooddeliveryservice-orders-api --tail=200 || true
-          kubectl -n fooddeliveryservice logs -l app.kubernetes.io/name=fooddeliveryservice-identity --tail=200 || true
+          # Restarts, evictions and failed probes, newest last — the trigger behind a pod that was
+          # Ready a moment ago and is not now.
+          kubectl -n fooddeliveryservice get events --sort-by=.lastTimestamp || true
+          for service in gateway users-api orders-api identity; do
+            echo "::group::logs $service"
+            kubectl -n fooddeliveryservice logs -l "app.kubernetes.io/name=fooddeliveryservice-$service" --tail=200 || true
+            echo "::endgroup::"
+          done
