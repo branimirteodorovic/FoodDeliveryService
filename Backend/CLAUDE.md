@@ -5,7 +5,7 @@ A Food Delivery Service built as **.NET 9 microservices behind a YARP API gatewa
 Follows Domain-Driven Design, CQRS, Railway-Oriented Programming, and Event-Driven patterns.
 Namespace prefix is `FoodDeliveryService.*`. All paths below are relative to `Backend/`.
 
-> The old `evently_source_code` reference folder is gone. The reference implementation is now the codebase itself — the **Users module** is the most complete example; study it before implementing a feature.
+> There is no external reference folder. The reference implementation is the codebase itself — the **Users module** is the most complete example; study it before implementing a feature.
 
 ## Solution Topology
 ```
