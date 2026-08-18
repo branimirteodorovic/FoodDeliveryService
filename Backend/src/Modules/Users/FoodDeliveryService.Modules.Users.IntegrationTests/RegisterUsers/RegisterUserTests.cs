@@ -22,7 +22,7 @@ public class RegisterUserTests : BaseIntegrationTest
         var request = new RegisterUser.Request
         {
             Email = UniqueEmail(),
-            Password = Faker.Internet.Password(length: 12),
+            Password = StrongPassword,
             FirstName = Faker.Name.FirstName(),
             LastName = Faker.Name.LastName(),
         };
@@ -47,7 +47,7 @@ public class RegisterUserTests : BaseIntegrationTest
         var request = new RegisterUser.Request
         {
             Email = "not-an-email",
-            Password = Faker.Internet.Password(length: 12),
+            Password = StrongPassword,
             FirstName = Faker.Name.FirstName(),
             LastName = Faker.Name.LastName(),
         };
@@ -69,7 +69,7 @@ public class RegisterUserTests : BaseIntegrationTest
         var request = new RegisterUser.Request
         {
             Email = UniqueEmail(),
-            Password = Faker.Internet.Password(length: 12),
+            Password = StrongPassword,
             FirstName = Faker.Name.FirstName(),
             LastName = Faker.Name.LastName(),
         };
