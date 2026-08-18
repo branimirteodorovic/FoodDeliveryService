@@ -21,7 +21,7 @@ public class AcceptInvitationTests : BaseIntegrationTest
         {
             Email = UniqueEmail(),
             Token = Guid.NewGuid().ToString("N"),
-            NewPassword = Faker.Internet.Password(length: 12),
+            NewPassword = StrongPassword,
         };
 
         // Act
