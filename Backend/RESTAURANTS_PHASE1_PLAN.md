@@ -54,7 +54,7 @@ Seed all roles in `RoleConfiguration.HasData(...)`.
 > `User.Create` currently hard-codes `Role.Member` (now `Role.Customer`). Change it to accept the role to assign (see §2.4).
 
 ### 2.2 Permissions (`Domain/Users/Permission.cs`)
-Add the restaurant/menu set plus an account-provisioning permission (leave the leftover Evently ticketing codes for a later cleanup):
+Add the restaurant/menu set plus an account-provisioning permission (leave the leftover event-ticketing codes for a later cleanup):
 ```csharp
 public static readonly Permission GetRestaurants   = new("restaurants:read");
 public static readonly Permission CreateRestaurant = new("restaurants:create");   // = onboard restaurant + manager

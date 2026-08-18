@@ -10,7 +10,7 @@ Decisions locked in for this plan:
 - **The order history on a ticket comes from a replica, never a cross-service read.** Support subscribes to the eight order/delivery lifecycle events that already exist and projects them into an `OrderSnapshot` + `OrderTimelineEntry` pair. Hard rule #5 (never query another service's tables) is not negotiable, and hard rule #9 means every event already carries the full snapshot needed.
 - **Refunds are a request record, full stop.** `RefundRequest` lives in Support, is requested by an agent and approved by an administrator (segregation of duties — a different permission), and publishes an integration event so Notifications can email the customer. Nothing consumes it in Orders, because no money moves. This is exactly what the project plan specifies.
 - **Ticket claim and refund approval take the `IDistributedLock`.** Both are textbook check-then-act on state another caller can change (read status → decide → write), and no aggregate in this codebase carries an optimistic concurrency token, so the database will not reject the second write. See `CLAUDE.md` § Distributed Locking.
-- **The permission codes are `support-tickets:*`, not `tickets:*`.** `tickets:read` / `tickets:check-in` already exist in `Permission.cs` as event-ticketing leftovers from the Evently heritage, and are granted to every Customer. Reusing them would silently hand support access to the entire customer base.
+- **The permission codes are `support-tickets:*`, not `tickets:*`.** `tickets:read` / `tickets:check-in` used to exist in `Permission.cs` as leftovers from the original event-ticketing scaffold, granted to every Customer; reusing them would have silently handed support access to the entire customer base. Milestone A deleted that whole scaffold set (`events:*`, `ticket-types:*`, `categories:*`, `tickets:*`, `event-statistics:read`) — the `support-*` namespace stands on its own.
 - Reference implementations to mirror: **Delivery** for a new service skeleton + the distributed lock, **Orders** for replicas fed by integration events, **Notifications** for an audit-log-shaped aggregate and the email channel, **RealTime** for the support dashboard group that already exists.
 
 ---
@@ -66,9 +66,8 @@ No new synchronous cross-service call is introduced. Support is a consumer of th
 
 ### 2.1 Permissions (`Users.Domain/Users/Permission.cs`)
 ```csharp
-// Support & ticketing (Phase 3, Feature 3.6). NB: the existing `tickets:read` / `tickets:check-in`
-// are event-ticketing leftovers from the Evently heritage and are granted to every Customer —
-// they are NOT these. Support codes are namespaced `support-*` for exactly that reason.
+// Support & ticketing (Phase 3, Feature 3.6). Namespaced `support-*` so they can never be
+// confused with anything else; the platform has no other notion of a "ticket".
 public static readonly Permission OpenSupportTicket    = new("support-tickets:open");    // customer: open a ticket, reply on their own
 public static readonly Permission GetSupportTickets    = new("support-tickets:read");    // agent: read any; customer: read their own (ownership-scoped in the handler)
 public static readonly Permission ManageSupportTickets = new("support-tickets:manage");  // agent: status transitions, internal notes, audit log
@@ -87,7 +86,7 @@ public static readonly Permission GetSupportAnalytics  = new("support-analytics:
 Migration: `Add_Support_Role_Permissions`.
 
 ### 2.3 Tests
-- *Unit* (`Users.UnitTests`): a guard test that no `support-*` code collides with an existing `tickets:*` code — cheap, and it catches the exact copy-paste regression this naming decision exists to prevent.
+- *Unit* (`Users.UnitTests`): guard tests that codes stay unique and that no code revives a removed event-ticketing namespace (`events:`, `ticket-types:`, `categories:`, bare `tickets:`, `event-statistics:`) — cheap, and it catches the exact copy-paste regression this naming decision exists to prevent.
 - *Integration* (`Users.IntegrationTests`): provision a `SupportAgent`, activate the invitation, assert `GetUserPermissionsRequest` returns the five agent permissions and **not** `refunds:approve`; assert a `Customer` gets `support-tickets:open`/`:read` and none of the others.
 
 ---

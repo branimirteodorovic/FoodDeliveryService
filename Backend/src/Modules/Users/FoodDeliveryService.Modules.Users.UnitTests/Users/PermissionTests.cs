@@ -6,10 +6,11 @@ using FoodDeliveryService.Modules.Users.UnitTests.Abstractions;
 namespace FoodDeliveryService.Modules.Users.UnitTests.Users;
 
 /// <summary>
-/// Guards the Feature 3.6 naming decision. The pre-existing <c>tickets:read</c> /
-/// <c>tickets:check-in</c> codes are event-ticketing leftovers from the Evently heritage and are
-/// granted to every Customer; reusing them for support ticketing would silently hand support access
-/// to the entire customer base. These tests are cheap and catch exactly that copy-paste regression.
+/// Guards the permission catalogue. The original event-ticketing scaffold's codes
+/// (<c>events:*</c>, <c>ticket-types:*</c>, <c>categories:*</c>, <c>tickets:*</c>,
+/// <c>event-statistics:read</c>) were removed — this platform delivers food, and
+/// <c>tickets:read</c> in particular was granted to every Customer, so reviving it would silently
+/// hand support access to the entire customer base.
 /// </summary>
 public class PermissionTests : BaseTest
 {
@@ -26,29 +27,18 @@ public class PermissionTests : BaseTest
         All.Select(p => p.Code).Should().OnlyHaveUniqueItems();
     }
 
-    [Fact]
-    public void SupportCodes_ShouldNotCollideWithEventTicketingCodes()
+    [Theory]
+    [InlineData("events:")]
+    [InlineData("ticket-types:")]
+    [InlineData("categories:")]
+    [InlineData("tickets:")]
+    [InlineData("event-statistics:")]
+    public void Codes_ShouldNotReviveEventTicketingNamespaces(string prefix)
     {
-        // Arrange — every code the support feature introduces.
-        Permission[] supportPermissions =
-        [
-            Permission.OpenSupportTicket,
-            Permission.GetSupportTickets,
-            Permission.ManageSupportTickets,
-            Permission.AssignSupportTickets,
-            Permission.RequestRefund,
-            Permission.ApproveRefund,
-            Permission.GetSupportAnalytics
-        ];
-
-        // Assert — none of them is one of the customer-granted event-ticketing codes…
-        string[] eventTicketingCodes = [Permission.GetTickets.Code, Permission.CheckInTicket.Code];
-        supportPermissions.Select(p => p.Code).Should().NotIntersectWith(eventTicketingCodes);
-
-        // …and none of them sits in the bare `tickets:` namespace at all.
-        supportPermissions.Should().AllSatisfy(p =>
-            p.Code.StartsWith("tickets:", StringComparison.Ordinal).Should().BeFalse(
-                $"{p.Code} must not live in the event-ticketing namespace"));
+        // Assert — note `support-tickets:` must not trip the bare `tickets:` case.
+        All.Should().AllSatisfy(p =>
+            p.Code.StartsWith(prefix, StringComparison.Ordinal).Should().BeFalse(
+                $"{p.Code} belongs to the removed event-ticketing scaffold"));
     }
 
     [Fact]

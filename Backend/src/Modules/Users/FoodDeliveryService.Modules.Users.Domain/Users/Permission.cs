@@ -4,22 +4,12 @@ public sealed class Permission
 {
     public static readonly Permission GetUser = new("users:read");
     public static readonly Permission ModifyUser = new("users:update");
-    public static readonly Permission GetEvents = new("events:read");
-    public static readonly Permission SearchEvents = new("events:search");
-    public static readonly Permission ModifyEvents = new("events:update");
-    public static readonly Permission GetTicketTypes = new("ticket-types:read");
-    public static readonly Permission ModifyTicketTypes = new("ticket-types:update");
-    public static readonly Permission GetCategories = new("categories:read");
-    public static readonly Permission ModifyCategories = new("categories:update");
     public static readonly Permission GetCart = new("carts:read");
     public static readonly Permission AddToCart = new("carts:add");
     public static readonly Permission RemoveFromCart = new("carts:remove");
     public static readonly Permission GetOrders = new("orders:read");
     public static readonly Permission CreateOrder = new("orders:create");
     public static readonly Permission ManageOrders = new("orders:manage"); // accept/reject/advance order status
-    public static readonly Permission GetTickets = new("tickets:read");
-    public static readonly Permission CheckInTicket = new("tickets:check-in");
-    public static readonly Permission GetEventStatistics = new("event-statistics:read");
 
     // Restaurants / menu (Phase 1). Assigned to roles in PermissionConfiguration.
     public static readonly Permission GetRestaurants = new("restaurants:read");
@@ -42,9 +32,8 @@ public sealed class Permission
     // existing signal, so it gets its own marker permission.
     public static readonly Permission ViewSupportDashboard = new("support:dashboard");
 
-    // Support & ticketing (Phase 3, Feature 3.6). NB: the existing `tickets:read` / `tickets:check-in`
-    // above are event-ticketing leftovers from the Evently heritage and are granted to every Customer —
-    // they are NOT these. Support codes are namespaced `support-*` for exactly that reason.
+    // Support & ticketing (Phase 3, Feature 3.6). Namespaced `support-*` so they can never be
+    // confused with anything else; the platform has no other notion of a "ticket".
     public static readonly Permission OpenSupportTicket = new("support-tickets:open");        // customer: open a ticket, reply on their own
     public static readonly Permission GetSupportTickets = new("support-tickets:read");        // agent: read any; customer: read their own (ownership-scoped in the handler)
     public static readonly Permission ManageSupportTickets = new("support-tickets:manage");   // agent: status transitions, internal notes, audit log
