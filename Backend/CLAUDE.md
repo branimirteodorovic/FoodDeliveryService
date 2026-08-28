@@ -38,12 +38,13 @@ src/
 | **Orders** | Order lifecycle (cart → placed → delivered/canceled), local replica of user data | Order lifecycle events (as added) | `UserRegistered`, `UserProfileUpdated` |
 | **Restaurants** | Restaurants, menus, availability | Restaurant/menu events (as added) | (as needed) |
 | **Notifications** | Sending notifications in reaction to events | — | Events from other services (as added) |
+| **Support** | Support tickets and their lifecycle (agent assignment, audit trail and refund requests follow) | `SupportTicketOpenedIntegrationEvent`, `SupportTicketResolvedIntegrationEvent` | (replicas of customer/agent/order data, as added) |
 | **Identity** | Credentials, token issuance (Duende). NOT a module — plain host with local API `api/users` for user provisioning | — | — |
 
 When implementing a feature, first decide: **which service owns the state being changed?** That module gets the command/endpoint. Then ask: **does any other service care about this state change?** If yes, publish an integration event and add consumers there — never call another service's API or database directly.
 
 ## Request Flow
-1. Client → **Gateway** (`:3000`). YARP validates the JWT (Duende), then routes by path prefix: `orders/**`, `restaurants/**`, `users/**`, `notifications/**` → the matching service. `users/register` is anonymous. Between authentication and routing sits the **edge rate limiter** (`app.UseEdgeRateLimiting()`, `Common.Presentation/RateLimiting`): a global concurrency limit plus a per-client fixed window partitioned by subject (IP when anonymous), sized per route tier so browsing is shed before an order or delivery lifecycle transition is. Counters live in the shared Redis — per-pod buckets would multiply the limit by the replica count. `/health/*` and `hubs/**` are exempt. Rejections are `429` + `Retry-After`. It is **edge-only**: never add a limiter to a module host. `docs/rate-limiting.md`
+1. Client → **Gateway** (`:3000`). YARP validates the JWT (Duende), then routes by path prefix: `orders/**`, `restaurants/**`, `users/**`, `notifications/**`, `delivery/**`, `support/**`, `hubs/**` → the matching service. `users/register` is anonymous. Between authentication and routing sits the **edge rate limiter** (`app.UseEdgeRateLimiting()`, `Common.Presentation/RateLimiting`): a global concurrency limit plus a per-client fixed window partitioned by subject (IP when anonymous), sized per route tier so browsing is shed before an order or delivery lifecycle transition is. Counters live in the shared Redis — per-pod buckets would multiply the limit by the replica count. `/health/*` and `hubs/**` are exempt. Rejections are `429` + `Retry-After`. It is **edge-only**: never add a limiter to a module host. `docs/rate-limiting.md`
 2. Service validates the JWT again, `CustomClaimsTransformation` resolves permissions via `IPermissionService` (in non-Users services this is a **MassTransit request/response call to Users**, cached in Redis for 5 min).
 3. Minimal API endpoint → `ISender.Send(command/query)` → `result.Match(Results.Ok, ApiResults.Problem)`.
 
@@ -146,13 +147,13 @@ Discovered via `AddEndpoints(Presentation.AssemblyReference.Assembly)`, mapped b
 - **Application RED**: `RequestMetricsBehavior` records `app.requests` / `app.request.duration` / `app.request.failures` for every command and query, tagged by request type and by the outcome derived from the returned `Result` (`ApplicationDiagnostics`). Handlers stay pure — never hand-record a request metric. It is registered **second**, outside `QueryCachingBehavior`, so a cache hit is still measured
 - **Business metrics** are emitted where the state change is already owned — a counter next to an existing domain-event handler, recorded **last** so an outbox retry of a failed handler doesn't double-count. Reference: `OrdersDiagnostics` (`orders.placed`, `orders.state_transition`), `DeliveryAssignmentDiagnostics` (`delivery.assignment.outcome`/`.duration`)
 - **Logging**: Serilog → Console + Seq (`:5341`, UI `:8081`); `UseSerilogRequestLogging()`
-- **Correlation**: one shared `app.UseRequestCorrelation()` (`Common.Presentation/Correlation`) on all eight hosts, placed before `UseSerilogRequestLogging()`. It resolves `X-Correlation-Id` — inbound value preserved (the Gateway stamps it and YARP forwards it), otherwise **defaulted to the W3C trace id** so one string finds both the Seq logs and the Jaeger trace — echoes it on the response, and pushes `TraceId` + `SpanId` + `ServiceName` + the route's business id (`orders/{id}` → `OrderId`) into the Serilog `LogContext`. Never mint a competing id scheme, and never re-implement this per host: seven near-identical copies is what it replaced
+- **Correlation**: one shared `app.UseRequestCorrelation()` (`Common.Presentation/Correlation`) on all nine hosts, placed before `UseSerilogRequestLogging()`. It resolves `X-Correlation-Id` — inbound value preserved (the Gateway stamps it and YARP forwards it), otherwise **defaulted to the W3C trace id** so one string finds both the Seq logs and the Jaeger trace — echoes it on the response, and pushes `TraceId` + `SpanId` + `ServiceName` + the route's business id (`orders/{id}` → `OrderId`) into the Serilog `LogContext`. Never mint a competing id scheme, and never re-implement this per host: seven near-identical copies is what it replaced
 - **Correlation across the outbox/inbox boundary**: the same id survives the two database handoffs, so it covers the asynchronous legs too. The middleware also pushes the id + the request's `traceparent` into `CorrelationContext` (ambient, injected, `Common.Presentation/Correlation`); `InsertOutboxMessagesInterceptor` and `IntegrationEventConsumer` stamp them onto the nullable `correlation_id` / `trace_parent` **columns** of `outbox_messages` / `inbox_messages`; a MassTransit publish/consume filter pair carries the id over the broker on a header (not the envelope `CorrelationId`, which is a `Guid`); and every `ProcessOutboxJob`/`ProcessInboxJob` opens a `MessageDispatchScope` per message, which restores the id into the `LogContext`, adds the event's own business ids, and starts a dispatch span **linked** to the originating trace (a batch belongs to N requests, so it is deliberately a new root, not a child). Read the columns rather than re-deriving anything, and if a job is ever added, it opens that scope — do not write the logic a twelfth time
 - **Health probes**: every host maps `/health/live` (process only), `/health/ready` (dependencies) and `/health` (aggregate) via the shared `app.MapHealthProbes()`; dependency checks are tagged `HealthCheckTags.Ready` and `.AddLivenessCheck()` adds the `live` self check. Contract: `docs/health-probe-contract.md`
 - New API hosts must replicate this setup; new external calls must be instrumented
 
 ## Data
-- One PostgreSQL server, **one database per service**: `fooddeliveryservice_{identity|users|orders|restaurants|notifications}`
+- One PostgreSQL server, **one database per service**: `fooddeliveryservice_{identity|users|orders|restaurants|notifications|delivery|realtime|support}`
 - Snake_case naming (`UseSnakeCaseNamingConvention`), default (`public`) schema — custom schemas were removed
 - Each module has its own `DbContext` (implements the module's `IUnitOfWork`) + `InsertOutboxMessagesInterceptor`
 - Migrations live in `Infrastructure/Database/Migrations` and are auto-applied at startup via `app.ApplyMigrations()`
@@ -182,6 +183,7 @@ Discovered via `AddEndpoints(Presentation.AssemblyReference.Assembly)`, mapped b
 8. **Duende IdentityServer** for authentication — not Keycloak
 9. **Integration events carry full snapshots** — consumers must never need to call back for data
 10. **All external traffic goes through the Gateway** — services are not exposed to clients directly
+11. **When the build diverges from its implementation plan, update the plan in the same change** — see § Implementation Plans
 
 ## Reference Files (in this repo)
 | Pattern | Reference File |
@@ -205,6 +207,19 @@ Discovered via `AddEndpoints(Presentation.AssemblyReference.Assembly)`, mapped b
 ## Testing
 - **Unit tests** (`{Module}.UnitTests`, references Domain only): xUnit v3 + AwesomeAssertions + Bogus. Cover an aggregate's factory, business methods, invariants, and the domain events they raise (or must NOT raise on a no-op). No DI/DB/HTTP. Use `/write-unit-tests {Module} {Aggregate}`.
 - **Integration tests** (`{Module}.IntegrationTests`): drive the real HTTP endpoint through the full pipeline against ephemeral Postgres/Redis/RabbitMQ Testcontainers, with real Duende JWTs (needs `fooddeliveryservice.identity` up on `:18080`). Host other modules' APIs in-process to assert cross-service event propagation. Use `/write-integration-tests {Module} {Feature}`.
+
+## Implementation Plans
+Each feature is specified in a `{FEATURE}_PHASE{n}_PLAN.md` at the repo root (`RESTAURANTS_PHASE1_PLAN.md`, `ORDERS_PHASE1_PLAN.md`, `NOTIFICATIONS_PHASE1_PLAN.md`, `DELIVERY_PHASE2_PLAN.md`, `REALTIME_PHASE2_PLAN.md`, `CACHING_PHASE2_PLAN.md`, `TELEMETRY_PHASE2_PLAN.md`, `KUBERNETES_PHASE2_PLAN.md`, `LOADTESTING_PHASE3_PLAN.md`, `SUPPORT_PHASE3_PLAN.md`), broken into lettered milestones of roughly one PR each. Read the whole plan before starting a milestone, and the milestone you are building twice.
+
+**The plan is a living document, not a fixed contract.** Building a milestone regularly surfaces something the plan could not know: a rule that is unimplementable as written, an ordering that leaves code unreachable, a gotcha that cost an hour to diagnose. **Write it back into the plan as part of the same change that discovered it** — a plan that silently drifts from the code is worse than no plan, because the next milestone is built against it.
+
+What is worth writing back:
+- **A decision that departs from what the plan says.** State the departure, why the literal reading did not work, and what was done instead. Do not quietly implement something different.
+- **A constraint the next milestone must honour.** If this milestone built a seam, an interface or an invariant that a later one has to use rather than reinvent, say so in *that* milestone's section — that is where it will be read.
+- **A gotcha with a real cost.** A generated file that needs hand-editing to satisfy the analyzers, a config that lives in two places, a test that needs a service running. Anything you had to discover by failing.
+- **What the milestone actually shipped**, where it differs from the sketch — endpoint names, test counts, instruments declared.
+
+What is not: status banners, changelogs, or restating what the code already says. These plans carry no "shipped" markers — milestone status lives in the memory directory, not here. Cross-reference sections by number (`§3.3`, `§4.2`) so a decision recorded in one milestone is findable from the one it constrains, and keep edits surgical — the diff should be the new knowledge, nothing else.
 
 ## Build & Run
 ```bash

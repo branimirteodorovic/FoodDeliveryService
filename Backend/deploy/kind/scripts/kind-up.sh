@@ -30,6 +30,7 @@ IMAGES=(
   "delivery-api:FoodDeliveryService.Delivery.Api"
   "notifications-api:FoodDeliveryService.Notifications.Api"
   "realtime-api:FoodDeliveryService.RealTime.Api"
+  "support-api:FoodDeliveryService.Support.Api"
 )
 
 # Every Deployment, in the order they are waited on.
@@ -41,6 +42,7 @@ DEPLOYMENTS=(
   fooddeliveryservice-delivery-api
   fooddeliveryservice-notifications-api
   fooddeliveryservice-realtime-api
+  fooddeliveryservice-support-api
   fooddeliveryservice-gateway
 )
 

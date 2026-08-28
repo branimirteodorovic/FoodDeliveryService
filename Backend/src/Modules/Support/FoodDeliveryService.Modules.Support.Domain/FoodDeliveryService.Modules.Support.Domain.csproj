@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Common\FoodDeliveryService.Common.Domain\FoodDeliveryService.Common.Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Ticket.SetAssignedAgent is the internal assignee write path. The unit tests need it to
+         build the assignment-dependent half of the state machine (InProgress, Resolved, Closed);
+         no production caller exists until the assignment milestone adds Claim/AssignTo. -->
+    <InternalsVisibleTo Include="FoodDeliveryService.Modules.Support.UnitTests" />
+  </ItemGroup>
+
+</Project>

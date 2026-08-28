@@ -1,6 +1,6 @@
 # The config every host shares, in two objects.
 #
-# Splitting it this way is what keeps the eight Deployment files short: each one lists only what is
+# Splitting it this way is what keeps the nine Deployment files short: each one lists only what is
 # genuinely its own (its database, its module settings) and pulls the rest in with `envFrom`. It is
 # also the reason no password appears in a Deployment.
 #
@@ -26,7 +26,7 @@ data:
   # fails to start. The Dockerfiles' EXPOSE 8081 is inert here.
   ASPNETCORE_HTTP_PORTS: "8080"
 
-  # JWT validation, identical on all eight hosts (the Gateway validates, then each service validates
+  # JWT validation, identical on all nine hosts (the Gateway validates, then each service validates
   # again). The first issuer is what Identity actually stamps into a token; the second is there for
   # tokens fetched from the host through the Identity NodePort, mirroring compose.
   Authentication__Audience: fooddeliveryservice.api
@@ -55,7 +55,7 @@ type: Opaque
 # readable. Base64 is not encryption either way — the protection is that these values are worthless
 # outside a local cluster.
 stringData:
-  # Shared by all six module hosts — and, since Feature 3.5 Milestone G, by the Gateway, whose edge
+  # Shared by all seven module hosts — and, since Feature 3.5 Milestone G, by the Gateway, whose edge
   # rate limiter keeps its counters here so they survive a replica count above 1 (§5.4).
   ConnectionStrings__Cache: fooddeliveryservice-redis:6379
   ConnectionStrings__Queue: amqp://fooddeliveryservice-queue:5672
@@ -66,10 +66,10 @@ stringData:
   #
   # `Maximum Pool Size` is explicit and it is not decoration. Npgsql defaults to 100 per pool and
   # every module host builds two pools from this string — the shared NpgsqlDataSource for Dapper and
-  # the outbox/inbox jobs, and EF Core's own — so seven unbounded hosts can demand 1,400 connections
+  # the outbox/inbox jobs, and EF Core's own — so eight unbounded hosts can demand 1,600 connections
   # from a server whose default ceiling is 100. Feature 3.5 Milestone F measured what that costs:
   # 192 `53300: sorry, too many clients already` in Orders alone inside one 3-minute ramp. Bounded,
-  # the worst case is 6 × 20 + 20 = 140. **A replica count above 1 multiplies this** — two Orders
+  # the worst case is 7 × 20 + 20 = 160. **A replica count above 1 multiplies this** — two Orders
   # pods are 40 connections, not 20 — so raising replicas means revisiting this line and the
   # server's max_connections together (see KUBERNETES_PHASE2_PLAN.md §5.1).
   Database__Identity: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_identity;Username=postgres;Password=postgres;Maximum Pool Size=20
@@ -79,6 +79,7 @@ stringData:
   Database__Delivery: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_delivery;Username=postgres;Password=postgres;Maximum Pool Size=10
   Database__Notifications: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_notifications;Username=postgres;Password=postgres;Maximum Pool Size=10
   Database__RealTime: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_realtime;Username=postgres;Password=postgres;Maximum Pool Size=10
+  Database__Support: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_support;Username=postgres;Password=postgres;Maximum Pool Size=10
 
   # The client-credentials secret Users presents to Identity's api/users provisioning endpoint —
   # the one sanctioned service-to-service HTTP call in the system. Both sides read the same value,

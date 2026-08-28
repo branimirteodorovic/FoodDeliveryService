@@ -1,0 +1,131 @@
+using FoodDeliveryService.Common.Application.Authorization;
+using FoodDeliveryService.Common.Application.EventBus;
+using FoodDeliveryService.Common.Application.Messaging;
+using FoodDeliveryService.Common.Infrastructure.Outbox;
+using FoodDeliveryService.Common.Presentation.Endpoints;
+using FoodDeliveryService.Modules.Support.Application.Abstractions.Authentication;
+using FoodDeliveryService.Modules.Support.Application.Abstractions.Data;
+using FoodDeliveryService.Modules.Support.Domain.Tickets;
+using FoodDeliveryService.Modules.Support.Infrastructure.Authentication;
+using FoodDeliveryService.Modules.Support.Infrastructure.Authorization;
+using FoodDeliveryService.Modules.Support.Infrastructure.Database;
+using FoodDeliveryService.Modules.Support.Infrastructure.Inbox;
+using FoodDeliveryService.Modules.Support.Infrastructure.Outbox;
+using FoodDeliveryService.Modules.Support.Infrastructure.Tickets;
+using FoodDeliveryService.Modules.Users.IntegrationEvents;
+using MassTransit;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+
+namespace FoodDeliveryService.Modules.Support.Infrastructure;
+
+public static class SupportModule
+{
+    public static IServiceCollection AddSupportModule(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        services.AddDomainEventHandlers();
+
+        services.AddIntegrationEventHandlers();
+
+        services.AddInfrastructure(configuration);
+
+        services.AddEndpoints(Presentation.AssemblyReference.Assembly);
+
+        return services;
+    }
+
+    public static Action<IRegistrationConfigurator, string, string> ConfigureConsumers()
+    {
+        return (registration, _, _) =>
+        {
+            // No integration event consumers yet — the customer, agent and order-history replicas
+            // arrive in the later milestones, each as an added AddConsumer line here. What Support
+            // does need from day one is the authorization RPC below.
+            //
+            // The explicit request client is not optional: without it MassTransit's implicit
+            // IRequestClient<T> resolution silently fails to route the request and every
+            // permission lookup times out, which surfaces as a blanket 403 rather than as an error.
+            registration.AddRequestClient<GetUserPermissionsRequest>();
+        };
+    }
+
+    private static void AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddDbContext<SupportDbContext>((sp, options) =>
+            options
+                .UseNpgsql(
+                    configuration.GetConnectionString("Database"),
+                    npgsqlOptions => npgsqlOptions
+                        .MigrationsHistoryTable(HistoryRepository.DefaultTableName))
+                .UseSnakeCaseNamingConvention()
+                .AddInterceptors(sp.GetRequiredService<InsertOutboxMessagesInterceptor>()));
+
+        services.AddScoped<IUnitOfWork>(sp => sp.GetRequiredService<SupportDbContext>());
+
+        services.AddScoped<ITicketsRepository, TicketsRepository>();
+
+        services.AddScoped<ISupportContext, SupportContext>();
+
+        services.AddScoped<IPermissionService, PermissionService>();
+
+        services.Configure<OutboxOptions>(configuration.GetSection("MessageProcessor:Outbox"));
+
+        services.ConfigureOptions<ConfigureProcessOutboxJob>();
+
+        services.Configure<InboxOptions>(configuration.GetSection("MessageProcessor:Inbox"));
+
+        services.ConfigureOptions<ConfigureProcessInboxJob>();
+    }
+
+    private static void AddDomainEventHandlers(this IServiceCollection services)
+    {
+        Type[] domainEventHandlers = Application.AssemblyReference.Assembly
+            .GetTypes()
+            .Where(t => t.IsAssignableTo(typeof(IDomainEventHandler)))
+            .ToArray();
+
+        foreach (Type domainEventHandler in domainEventHandlers)
+        {
+            services.TryAddScoped(domainEventHandler);
+
+            Type domainEvent = domainEventHandler
+                .GetInterfaces()
+                .Single(i => i.IsGenericType)
+                .GetGenericArguments()
+                .Single();
+
+            Type closedIdempotentHandler = typeof(IdempotentDomainEventHandler<>).MakeGenericType(domainEvent);
+
+            services.Decorate(domainEventHandler, closedIdempotentHandler);
+        }
+    }
+
+    private static void AddIntegrationEventHandlers(this IServiceCollection services)
+    {
+        Type[] integrationEventHandlers = Presentation.AssemblyReference.Assembly
+            .GetTypes()
+            .Where(t => t.IsAssignableTo(typeof(IIntegrationEventHandler)))
+            .ToArray();
+
+        foreach (Type integrationEventHandler in integrationEventHandlers)
+        {
+            services.TryAddScoped(integrationEventHandler);
+
+            Type integrationEvent = integrationEventHandler
+                .GetInterfaces()
+                .Single(i => i.IsGenericType)
+                .GetGenericArguments()
+                .Single();
+
+            Type closedIdempotentHandler =
+                typeof(IdempotentIntegrationEventHandler<>).MakeGenericType(integrationEvent);
+
+            services.Decorate(integrationEventHandler, closedIdempotentHandler);
+        }
+    }
+}

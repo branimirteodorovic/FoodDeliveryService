@@ -28,6 +28,7 @@ DEPLOYMENTS=(
   fooddeliveryservice-delivery-api
   fooddeliveryservice-notifications-api
   fooddeliveryservice-realtime-api
+  fooddeliveryservice-support-api
   fooddeliveryservice-gateway
 )
 

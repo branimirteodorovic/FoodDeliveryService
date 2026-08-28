@@ -13,6 +13,7 @@
     <Project Path="src/API/FoodDeliveryService.Orders.Api/FoodDeliveryService.Orders.Api.csproj" Id="ff85b2e4-c9f8-4a42-8134-09dcbfc83180" />
     <Project Path="src/API/FoodDeliveryService.RealTime.Api/FoodDeliveryService.RealTime.Api.csproj" />
     <Project Path="src/API/FoodDeliveryService.Restaurants.Api/FoodDeliveryService.Restaurants.Api.csproj" Id="4b2d32b4-9350-435b-aff2-66abef175bc9" />
+    <Project Path="src/API/FoodDeliveryService.Support.Api/FoodDeliveryService.Support.Api.csproj" />
     <Project Path="src/API/FoodDeliveryService.Users.Api/FoodDeliveryService.Users.Api.csproj" Id="4e5ee342-c65d-465c-bca0-925aba19973c" />
   </Folder>
   <Folder Name="/src/Common/">
@@ -75,6 +76,17 @@
   <Folder Name="/src/Modules/Restaurants/test/">
     <Project Path="src/Modules/Restaurants/FoodDeliveryService.Modules.Restaurants.IntegrationTests/FoodDeliveryService.Modules.Restaurants.IntegrationTests.csproj" Id="8b02561b-8ae8-428b-8142-d419f37ac1a1" />
     <Project Path="src/Modules/Restaurants/FoodDeliveryService.Modules.Restaurants.UnitTests/FoodDeliveryService.Modules.Restaurants.UnitTests.csproj" Id="3eb03f94-94e9-498a-9fee-f650be5f2537" />
+  </Folder>
+  <Folder Name="/src/Modules/Support/">
+    <Project Path="src/Modules/Support/FoodDeliveryService.Modules.Support.Application/FoodDeliveryService.Modules.Support.Application.csproj" />
+    <Project Path="src/Modules/Support/FoodDeliveryService.Modules.Support.Domain/FoodDeliveryService.Modules.Support.Domain.csproj" />
+    <Project Path="src/Modules/Support/FoodDeliveryService.Modules.Support.Infrastructure/FoodDeliveryService.Modules.Support.Infrastructure.csproj" />
+    <Project Path="src/Modules/Support/FoodDeliveryService.Modules.Support.IntegrationEvents/FoodDeliveryService.Modules.Support.IntegrationEvents.csproj" />
+    <Project Path="src/Modules/Support/FoodDeliveryService.Modules.Support.Presentation/FoodDeliveryService.Modules.Support.Presentation.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Support/test/">
+    <Project Path="src/Modules/Support/FoodDeliveryService.Modules.Support.IntegrationTests/FoodDeliveryService.Modules.Support.IntegrationTests.csproj" />
+    <Project Path="src/Modules/Support/FoodDeliveryService.Modules.Support.UnitTests/FoodDeliveryService.Modules.Support.UnitTests.csproj" />
   </Folder>
   <Folder Name="/src/Modules/Users/">
     <Project Path="src/Modules/Users/FoodDeliveryService.Modules.Users.Application/FoodDeliveryService.Modules.Users.Application.csproj" Id="3b7d59d0-7c6c-431a-a7ff-884f8a6bfaa4" />

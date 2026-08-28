@@ -61,6 +61,16 @@ services:
       - 5600:8080
       - 5601:8081
 
+  fooddeliveryservice.support.api:
+    image: ${DOCKER_REGISTRY-}fooddeliveryservicesupportapi
+    container_name: FoodDeliveryService.Support.Api
+    build:
+      context: .
+      dockerfile: src/API/FoodDeliveryService.Support.Api/Dockerfile
+    ports:
+      - 5700:8080
+      - 5701:8081
+
   fooddeliveryservice.gateway:
     image: ${DOCKER_REGISTRY-}fooddeliveryservicegateway
     container_name: FoodDeliveryService.Gateway
@@ -94,8 +104,8 @@ services:
     # The real fix is on the client side: every service's connection string now carries an explicit
     # `Maximum Pool Size` (10 per module host, 20 for Identity). Each module host builds two pools
     # from that string — the shared NpgsqlDataSource for Dapper and the outbox/inbox jobs, and EF
-    # Core's own — so its worst case is 20, six module hosts are 120, Identity adds 20, and the
-    # bounded total is 140. This raises the server's ceiling to 200 so that total has real headroom
+    # Core's own — so its worst case is 20, seven module hosts are 140, Identity adds 20, and the
+    # bounded total is 160. This raises the server's ceiling to 200 so that total has real headroom
     # and a psql session or the seeder can still get in when everything is at its limit.
     #
     # Both halves are needed. Raising the ceiling alone just moves an unbounded pool's collision

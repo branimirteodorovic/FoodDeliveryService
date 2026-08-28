@@ -47,8 +47,8 @@ jobs:
         run: dotnet build "$SOLUTION" --configuration Release --no-restore
 
       # Suites excluded here need the `fooddeliveryservice.identity` host on :18080 for real
-      # Duende JWTs (Users, Orders, Restaurants, Delivery, RealTime integration tests). They are
-      # re-enabled in Milestone G's KinD job, where Identity runs in the cluster.
+      # Duende JWTs (Users, Orders, Restaurants, Delivery, RealTime, Support integration tests).
+      # They are re-enabled in Milestone G's KinD job, where Identity runs in the cluster.
       # Notifications' integration suite is purely event-driven, so it runs here on the runner's
       # Docker via Testcontainers.
       - name: Test (unit suites + Identity-independent integration suites)
@@ -61,6 +61,7 @@ jobs:
             "Backend/src/Modules/Orders/FoodDeliveryService.Modules.Orders.UnitTests/FoodDeliveryService.Modules.Orders.UnitTests.csproj"
             "Backend/src/Modules/RealTime/FoodDeliveryService.Modules.RealTime.UnitTests/FoodDeliveryService.Modules.RealTime.UnitTests.csproj"
             "Backend/src/Modules/Restaurants/FoodDeliveryService.Modules.Restaurants.UnitTests/FoodDeliveryService.Modules.Restaurants.UnitTests.csproj"
+            "Backend/src/Modules/Support/FoodDeliveryService.Modules.Support.UnitTests/FoodDeliveryService.Modules.Support.UnitTests.csproj"
             "Backend/src/Modules/Users/FoodDeliveryService.Modules.Users.UnitTests/FoodDeliveryService.Modules.Users.UnitTests.csproj"
             "Backend/src/Modules/Notifications/FoodDeliveryService.Modules.Notifications.IntegrationTests/FoodDeliveryService.Modules.Notifications.IntegrationTests.csproj"
           )
@@ -106,7 +107,7 @@ jobs:
   cluster:
     name: KinD cluster smoke
     runs-on: ubuntu-latest
-    # Builds eight .NET images and stands up the whole platform, so it takes far longer than the
+    # Builds nine .NET images and stands up the whole platform, so it takes far longer than the
     # rest of CI. It runs on pushes to the long-lived branches and on demand, not on every PR —
     # the two fast gates above already cover the manifests themselves.
     if: github.event_name != 'pull_request'
@@ -122,7 +123,7 @@ jobs:
           cluster_name: fooddeliveryservice
           config: Backend/deploy/kind/kind-cluster.yaml
 
-      # kind-up detects the cluster the action just created, then builds and loads all eight images
+      # kind-up detects the cluster the action just created, then builds and loads all nine images
       # and applies the manifests. Scripts are invoked through bash so a missing exec bit on a
       # Windows-authored file cannot fail the job.
       - name: Build images and deploy (kind-up)

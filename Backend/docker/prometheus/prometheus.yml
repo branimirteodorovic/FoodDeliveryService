@@ -19,7 +19,7 @@ rule_files:
   - /etc/prometheus/rules/*.yml
 
 scrape_configs:
-  # Everything the eight hosts emit over OTLP: http.server.*, the app.* RED signal, orders.*,
+  # Everything the nine hosts emit over OTLP: http.server.*, the app.* RED signal, orders.*,
   # delivery.assignment.* and cache.hits/misses, each carrying service_name from the OTel resource.
   - job_name: otel-collector
     # The collector republishes each service's own job/instance (from service.name and
@@ -45,6 +45,7 @@ scrape_configs:
           - http://fooddeliveryservice.users.api:8080/health/live
           - http://fooddeliveryservice.delivery.api:8080/health/live
           - http://fooddeliveryservice.realtime.api:8080/health/live
+          - http://fooddeliveryservice.support.api:8080/health/live
     relabel_configs: &probe_relabel
       # The scrape goes to the blackbox exporter; the "target" is what the exporter is asked to
       # probe. This three-step swap is the documented blackbox pattern.
@@ -78,4 +79,5 @@ scrape_configs:
           - http://fooddeliveryservice.users.api:8080/health/ready
           - http://fooddeliveryservice.delivery.api:8080/health/ready
           - http://fooddeliveryservice.realtime.api:8080/health/ready
+          - http://fooddeliveryservice.support.api:8080/health/ready
     relabel_configs: *probe_relabel

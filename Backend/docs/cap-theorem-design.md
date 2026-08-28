@@ -1,6 +1,6 @@
 # CAP, consistency and failure behaviour
 
-> How the eight services trade consistency against availability, where each choice was made
+> How the nine services trade consistency against availability, where each choice was made
 > deliberately, and what actually happens when a given dependency goes away.
 
 ## 1. The short version
@@ -77,7 +77,7 @@ Redis is not a cache in this topology; for one bounded context it is a system of
 
 ### Postgres down
 
-Total outage. All eight services share one instance in `docker-compose.yml` — separate schemas, not
+Total outage. All nine services share one instance in `docker-compose.yml` — separate schemas, not
 separate clusters. Logical isolation without physical isolation. Adequate for the current stage; the
 honest statement is "schema-per-service, ready to split, not yet split."
 

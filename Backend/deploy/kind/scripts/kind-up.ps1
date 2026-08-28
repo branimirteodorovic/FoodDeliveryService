@@ -41,6 +41,7 @@ $images = [ordered]@{
     'delivery-api'      = 'FoodDeliveryService.Delivery.Api'
     'notifications-api' = 'FoodDeliveryService.Notifications.Api'
     'realtime-api'      = 'FoodDeliveryService.RealTime.Api'
+    'support-api'       = 'FoodDeliveryService.Support.Api'
 }
 
 $deployments = @(
@@ -51,6 +52,7 @@ $deployments = @(
     'fooddeliveryservice-delivery-api'
     'fooddeliveryservice-notifications-api'
     'fooddeliveryservice-realtime-api'
+    'fooddeliveryservice-support-api'
     'fooddeliveryservice-gateway'
 )
 

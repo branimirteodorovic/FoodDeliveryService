@@ -1,7 +1,7 @@
 # `deploy/` — running the solution on Kubernetes
 
-All eight services (Gateway, Identity, Users, Orders, Restaurants, Delivery, Notifications,
-RealTime) plus PostgreSQL, Redis and RabbitMQ, deployed to a local Kubernetes cluster with plain
+All nine services (Gateway, Identity, Users, Orders, Restaurants, Delivery, Notifications,
+RealTime, Support) plus PostgreSQL, Redis and RabbitMQ, deployed to a local Kubernetes cluster with plain
 manifests and `kubectl`. No Helm, no Kustomize, no extra tooling to learn.
 
 ```
@@ -29,7 +29,7 @@ Backend/deploy/kind/scripts/kind-up.sh
 Backend\deploy\kind\scripts\kind-up.ps1
 ```
 
-Creates the cluster, builds all eight images from the existing Dockerfiles, loads them onto the
+Creates the cluster, builds all nine images from the existing Dockerfiles, loads them onto the
 nodes, applies everything and waits until each service reports Ready. First run is roughly 10–15
 minutes, nearly all of it image builds; `--no-build` / `-NoBuild` redeploys in seconds using the
 images already on the nodes.
@@ -56,9 +56,9 @@ kubectl -n fooddeliveryservice port-forward svc/fooddeliveryservice-orders-api 5
 shares (environment name, HTTP port, JWT validation, Identity's health URL) and one `Secret` holds
 the credentials (connection strings, the client secret, the admin password). Each Deployment pulls
 the ConfigMap in wholesale with `envFrom` and names only the handful of settings that are genuinely
-its own — which is why the eight service files are short and nearly identical.
+its own — which is why the nine service files are short and nearly identical.
 
-**`services/orders.yaml` is the one to read.** The other five module hosts are the same file with a
+**`services/orders.yaml` is the one to read.** The other six module hosts are the same file with a
 different name, image and database key, and say so in their header. Only three files differ in
 substance: `users.yaml` (extra Duende settings — it is the only service that calls another over
 HTTP), `identity.yaml` (issues the tokens, published on 18080) and `gateway.yaml` (the routing
@@ -100,7 +100,7 @@ table, published on 8000).
 |---|---|---|
 | Schema | `kubeconform -strict deploy/k8s` | invalid Kubernetes YAML |
 | Shape | `python3 deploy/k8s/scripts/policy-check.py deploy/k8s` | `:latest` images, missing resource limits, a credential pasted as a literal, a missing or wrong probe path, a stray `ASPNETCORE_HTTPS_PORTS` |
-| Behaviour | `deploy/k8s/scripts/cluster-smoke.sh` | all eight Ready; the Gateway proxies downstream; Identity serves discovery; and the probe split under a real outage |
+| Behaviour | `deploy/k8s/scripts/cluster-smoke.sh` | all nine Ready; the Gateway proxies downstream; Identity serves discovery; and the probe split under a real outage |
 
 That last one is the interesting one. It scales Redis to zero and asserts that Orders'
 `/health/ready` goes `503` while `/health/live` stays `200`, that the pod leaves the Service
@@ -109,4 +109,4 @@ on its own. The liveness/readiness split only means something once a kubelet is 
 that is where it is observed.
 
 The first two run on every pull request. The smoke test runs on pushes to `development`/`main` and
-on demand — it builds eight .NET images, so it is too slow for per-PR feedback.
+on demand — it builds nine .NET images, so it is too slow for per-PR feedback.

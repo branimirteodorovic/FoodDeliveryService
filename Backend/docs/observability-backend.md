@@ -32,7 +32,7 @@ milestone is the other end of that pipe.
 ```
 
 Everything is config. The only application-side change this milestone makes is the value of
-`OTEL_EXPORTER_OTLP_ENDPOINT` in the eight `appsettings.Development.json` files, which now reads
+`OTEL_EXPORTER_OTLP_ENDPOINT` in the nine `appsettings.Development.json` files, which now reads
 `http://fooddeliveryservice.otel-collector:4317`. A regression test pins it
 (`ObservabilityAssetTests.Host_Should_ExportOtlpToTheCollector_NotStraightToJaeger`) — a new host
 copied from an old one and left pointing at Jaeger would emit metrics nothing collects, which is the
