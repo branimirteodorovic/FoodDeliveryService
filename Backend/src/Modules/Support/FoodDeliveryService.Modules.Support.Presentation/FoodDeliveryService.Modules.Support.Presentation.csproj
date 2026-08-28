@@ -3,6 +3,10 @@
   <ItemGroup>
     <ProjectReference Include="..\..\..\Common\FoodDeliveryService.Common.Presentation\FoodDeliveryService.Common.Presentation.csproj" />
     <ProjectReference Include="..\FoodDeliveryService.Modules.Support.Application\FoodDeliveryService.Modules.Support.Application.csproj" />
+    <!-- Users integration event contracts only. The agent replica handlers live in this assembly,
+         and a module may reference nothing of another module but its IntegrationEvents project
+         (hard rule #4). -->
+    <ProjectReference Include="..\..\Users\FoodDeliveryService.Modules.Users.IntegrationEvents\FoodDeliveryService.Modules.Users.IntegrationEvents.csproj" />
   </ItemGroup>
 
   <ItemGroup>

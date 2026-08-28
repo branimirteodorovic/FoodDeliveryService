@@ -53,6 +53,24 @@ public class IntegrationTestWebAppFactory : WebApplicationFactory<Program>, IAsy
     /// <summary>A second customer, so the "someone else's ticket is a 404" case is real.</summary>
     public string OtherCustomerUserEmail { get; private set; } = string.Empty;
 
+    /// <summary>
+    /// A second support agent, so "assigning a ticket to somebody else" has a real target and the
+    /// agent replica has more than one row to pick the wrong one from.
+    /// </summary>
+    public string OtherAgentUserEmail { get; private set; } = string.Empty;
+
+    /// <summary>
+    /// An administrator. The only caller holding support-tickets:administer, which is what
+    /// separates routing another agent's ticket from claiming your own.
+    /// </summary>
+    public string AdminUserEmail { get; private set; } = string.Empty;
+
+    /// <summary>The seeded agent's module-side user id — the assignment target these tests name.</summary>
+    public Guid AgentUserId { get; private set; }
+
+    /// <summary>The second agent's user id.</summary>
+    public Guid OtherAgentUserId { get; private set; }
+
     /// <summary>Shared password for every user this suite seeds.</summary>
     public string TestUserPassword { get; } = "Support-Tests-P@ssw0rd";
 
@@ -94,12 +112,34 @@ public class IntegrationTestWebAppFactory : WebApplicationFactory<Program>, IAsy
 
         await _usersApiFactory.InitializeAsync();
 
-        // Seeding touches UsersApi.Services, so the Users host is fully built (migrations applied,
-        // MassTransit receive endpoints bound) before the Support host builds and before any test
-        // sends the permissions RPC it is expected to answer.
-        AgentUserEmail = await SeedTestUserAsync(Role.SupportAgent);
-        CustomerUserEmail = await SeedTestUserAsync(Role.Customer);
-        OtherCustomerUserEmail = await SeedTestUserAsync(Role.Customer);
+        // Both hosts are built BEFORE the first user is seeded, and the order matters in both
+        // directions.
+        //
+        // Users first: seeding writes straight to its database, and its MassTransit receive
+        // endpoints have to be bound before any test sends the permissions RPC it answers.
+        //
+        // Support second, but still before seeding — this is the part that is easy to get wrong.
+        // Seeding a user raises UserRegisteredDomainEvent, and the Users outbox job publishes the
+        // integration event from it within a second. MassTransit publishes to an exchange, so a
+        // message with no queue bound to it is dropped, not queued: seed before Support's consumers
+        // exist and the agent replica is simply never built, with nothing anywhere reporting an
+        // error. Touching Services is what forces each host to build.
+        _ = _usersApiFactory.Services;
+        _ = Services;
+
+        (AgentUserEmail, Guid agentUserId) = await SeedTestUserAsync(Role.SupportAgent);
+        AgentUserId = agentUserId;
+
+        (OtherAgentUserEmail, Guid otherAgentUserId) = await SeedTestUserAsync(Role.SupportAgent);
+        OtherAgentUserId = otherAgentUserId;
+
+        // Role.Administrator is deliberately absent from Role.Assignable — nobody can be provisioned
+        // as one — but User.Create takes a Role directly, so the test host can seed one. That is the
+        // only way to exercise the administrator bypass without a seeded-admin bootstrap here.
+        (AdminUserEmail, _) = await SeedTestUserAsync(Role.Administrator);
+
+        (CustomerUserEmail, _) = await SeedTestUserAsync(Role.Customer);
+        (OtherCustomerUserEmail, _) = await SeedTestUserAsync(Role.Customer);
     }
 
     public override async ValueTask DisposeAsync()
@@ -121,7 +161,7 @@ public class IntegrationTestWebAppFactory : WebApplicationFactory<Program>, IAsy
     /// a matching Users-module row inserted directly into the Users test host's own ephemeral
     /// database. The module-side row is what carries the role, and therefore the permissions.
     /// </summary>
-    private async Task<string> SeedTestUserAsync(Role role)
+    private async Task<(string Email, Guid UserId)> SeedTestUserAsync(Role role)
     {
         // Identity's store is real and persistent (not a testcontainer), so a fixed email would
         // collide across repeated local runs — a unique one keeps registration
@@ -141,7 +181,7 @@ public class IntegrationTestWebAppFactory : WebApplicationFactory<Program>, IAsy
 
         await unitOfWork.SaveChangesAsync();
 
-        return email;
+        return (email, user.Id);
     }
 
     private static async Task<string> RegisterIdentityUserAsync(string email, string password)

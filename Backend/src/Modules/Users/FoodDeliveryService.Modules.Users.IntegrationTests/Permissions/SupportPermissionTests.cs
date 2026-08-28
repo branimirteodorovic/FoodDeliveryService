@@ -57,6 +57,11 @@ public class SupportPermissionTests : BaseIntegrationTest
         permissions.Permissions.Should().NotContain("refunds:approve");
         // And the customer-facing "open a ticket" code is not an agent's either.
         permissions.Permissions.Should().NotContain("support-tickets:open");
+        // The assignment ownership bypass is admin-only: an agent holds support-tickets:assign, so
+        // they can claim their own work and hand it back, but routing somebody else's ticket needs
+        // this code. Asserted separately from the set above because a leak here is silent — the
+        // agent would simply start being able to reassign, with no error anywhere to notice.
+        permissions.Permissions.Should().NotContain("support-tickets:administer");
     }
 
     [Fact]

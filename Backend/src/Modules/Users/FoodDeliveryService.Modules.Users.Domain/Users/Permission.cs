@@ -37,7 +37,13 @@ public sealed class Permission
     public static readonly Permission OpenSupportTicket = new("support-tickets:open");        // customer: open a ticket, reply on their own
     public static readonly Permission GetSupportTickets = new("support-tickets:read");        // agent: read any; customer: read their own (ownership-scoped in the handler)
     public static readonly Permission ManageSupportTickets = new("support-tickets:manage");   // agent: status transitions, internal notes, audit log
-    public static readonly Permission AssignSupportTickets = new("support-tickets:assign");   // agent: claim; admin: assign to anyone
+    public static readonly Permission AssignSupportTickets = new("support-tickets:assign");   // agent: claim/hand back their own; admin: the same
+    // Admin-only marker, mirroring deliveries:administer — the ownership bypass that separates an
+    // administrator from an agent, who holds every other support-tickets code. It gates assigning a
+    // ticket to somebody OTHER than yourself. A dedicated code rather than inferring "administrator"
+    // from refunds:approve: that would silently hand out ticket routing the day a senior agent is
+    // granted refund approval.
+    public static readonly Permission AdministerSupportTickets = new("support-tickets:administer");
     public static readonly Permission RequestRefund = new("refunds:request");                 // agent
     public static readonly Permission ApproveRefund = new("refunds:approve");                 // admin only — segregation of duties
     public static readonly Permission GetSupportAnalytics = new("support-analytics:read");

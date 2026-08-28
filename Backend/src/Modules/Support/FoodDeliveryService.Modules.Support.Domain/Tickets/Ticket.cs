@@ -1,4 +1,4 @@
-using FoodDeliveryService.Common.Domain;
+﻿using FoodDeliveryService.Common.Domain;
 
 namespace FoodDeliveryService.Modules.Support.Domain.Tickets;
 
@@ -12,10 +12,9 @@ namespace FoodDeliveryService.Modules.Support.Domain.Tickets;
 /// resolved ticket) is a failure too, and deliberately raises no domain event — a redundant call
 /// must not put an integration event on the bus.
 ///
-/// Note for this milestone: nothing assigns an agent yet (Claim/AssignTo arrive with the
-/// assignment milestone), so the transitions that require an assignee are reachable only once that
-/// ships. Escalate is the one agent transition that works today, by design — it is the only one
-/// whose meaning does not depend on somebody owning the ticket.
+/// Assignment (Claim/AssignTo/Unassign) is part of the same state, but deliberately not part of
+/// the status machine: claiming a ticket says who owns it, not that work has started. All three go
+/// through one internal setter, so there is exactly one place the assignee is ever written.
 /// </summary>
 public sealed class Ticket : Entity
 {
@@ -247,12 +246,109 @@ public sealed class Ticket : Entity
     }
 
     /// <summary>
-    /// The single write path for the assignee field. Internal on purpose: no command handler can
-    /// reach it, so this milestone ships no way for an agent to take a ticket — that is the
-    /// assignment milestone, where the public Claim/AssignTo/Unassign methods wrap this with their
-    /// own guards and the distributed lock that keeps two agents from claiming the same ticket.
-    /// Adding it now keeps that from becoming a second, unguarded write path later, and lets the
-    /// unit tests reach the assignment-dependent half of the state machine.
+    /// An agent takes an unassigned ticket out of the queue for themselves. Status is untouched —
+    /// claiming says who owns the ticket, StartProgress says work has begun, and conflating them
+    /// would make "assigned but not yet started" unrepresentable.
+    /// <para>
+    /// The unassigned check here is the rule of record. The distributed lock the handler takes
+    /// around it only makes two concurrent claims observe this guard in sequence; it never replaces
+    /// it, and a future write path that skips the lock still cannot double-assign.
+    /// </para>
+    /// </summary>
+    public Result Claim(Guid agentId)
+    {
+        if (Status is not (TicketStatus.Open or TicketStatus.Escalated))
+        {
+            return Result.Failure(TicketErrors.NotClaimable(Status));
+        }
+
+        if (AssignedAgentId is not null)
+        {
+            return Result.Failure(TicketErrors.AlreadyAssigned);
+        }
+
+        SetAssignedAgent(agentId);
+
+        Raise(new TicketClaimedDomainEvent(Id, agentId));
+
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Assignment by somebody other than the new owner — the administrator override, which unlike
+    /// <see cref="Claim"/> may take a ticket off the agent who currently holds it. Whether the
+    /// caller is allowed to name an agent other than themselves is an authorization question the
+    /// application layer answers; the aggregate only enforces what makes a ticket assignable.
+    /// </summary>
+    public Result AssignTo(Guid agentId, Guid actorId)
+    {
+        if (agentId == Guid.Empty)
+        {
+            return Result.Failure(TicketErrors.AgentRequired);
+        }
+
+        if (Status is not (TicketStatus.Open or TicketStatus.InProgress or TicketStatus.Escalated))
+        {
+            return Result.Failure(TicketErrors.NotAssignable(Status));
+        }
+
+        // A no-op must not raise an event: re-sending the same assignment would otherwise put a
+        // second "assigned" entry in the audit log for something that did not happen.
+        if (AssignedAgentId == agentId)
+        {
+            return Result.Failure(TicketErrors.AlreadyAssignedToAgent);
+        }
+
+        Guid? previousAgentId = AssignedAgentId;
+
+        SetAssignedAgent(agentId);
+
+        Raise(new TicketAssignedDomainEvent(Id, agentId, actorId, previousAgentId));
+
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Returns the ticket to the queue. The reason is required because this is the one assignment
+    /// action whose "why" cannot be inferred from the outcome — an unexplained hand-back is exactly
+    /// what the audit log exists to make impossible.
+    /// </summary>
+    public Result Unassign(Guid actorId, string reason)
+    {
+        if (Status is not (TicketStatus.Open or TicketStatus.InProgress or TicketStatus.Escalated))
+        {
+            return Result.Failure(TicketErrors.NotAssignable(Status));
+        }
+
+        if (AssignedAgentId is null)
+        {
+            return Result.Failure(TicketErrors.NotAssigned);
+        }
+
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            return Result.Failure(TicketErrors.UnassignReasonRequired);
+        }
+
+        Guid previousAgentId = AssignedAgentId.Value;
+
+        SetAssignedAgent(null);
+
+        Raise(new TicketUnassignedDomainEvent(Id, actorId, previousAgentId, reason));
+
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// The single write path for the assignee field. Internal on purpose: the only callers are the
+    /// three guarded methods above, which is what makes "every assignment went through a guard" a
+    /// property of the code rather than a convention — a second, direct write to this field is
+    /// precisely the unguarded race the claim lock exists to close.
+    /// <para>
+    /// It stays visible to the unit tests as well, which use it to build tickets in the
+    /// assignment-dependent states (InProgress, Resolved, Closed) without walking the whole
+    /// lifecycle first.
+    /// </para>
     /// </summary>
     internal void SetAssignedAgent(Guid? agentId) => AssignedAgentId = agentId;
 }

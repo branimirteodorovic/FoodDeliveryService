@@ -38,7 +38,7 @@ src/
 | **Orders** | Order lifecycle (cart → placed → delivered/canceled), local replica of user data | Order lifecycle events (as added) | `UserRegistered`, `UserProfileUpdated` |
 | **Restaurants** | Restaurants, menus, availability | Restaurant/menu events (as added) | (as needed) |
 | **Notifications** | Sending notifications in reaction to events | — | Events from other services (as added) |
-| **Support** | Support tickets and their lifecycle (agent assignment, audit trail and refund requests follow) | `SupportTicketOpenedIntegrationEvent`, `SupportTicketResolvedIntegrationEvent` | (replicas of customer/agent/order data, as added) |
+| **Support** | Support tickets and their lifecycle: agent assignment (claim/assign/unassign, guarded by `IDistributedLock`) and the append-only `SupportAuditEntry` log written in the same transaction as the change it records; refund requests follow | `SupportTicketOpenedIntegrationEvent`, `SupportTicketResolvedIntegrationEvent` | `UserRegistered`, `UserProfileUpdated` (support agent replica); order/customer replicas as added |
 | **Identity** | Credentials, token issuance (Duende). NOT a module — plain host with local API `api/users` for user provisioning | — | — |
 
 When implementing a feature, first decide: **which service owns the state being changed?** That module gets the command/endpoint. Then ask: **does any other service care about this state change?** If yes, publish an integration event and add consumers there — never call another service's API or database directly.

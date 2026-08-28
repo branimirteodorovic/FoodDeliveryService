@@ -39,6 +39,7 @@ internal sealed class PermissionConfiguration : IEntityTypeConfiguration<Permiss
             Permission.GetSupportTickets,
             Permission.ManageSupportTickets,
             Permission.AssignSupportTickets,
+            Permission.AdministerSupportTickets,
             Permission.RequestRefund,
             Permission.ApproveRefund,
             Permission.GetSupportAnalytics);
@@ -100,6 +101,10 @@ internal sealed class PermissionConfiguration : IEntityTypeConfiguration<Permiss
                     CreateRolePermission(Role.Administrator, Permission.GetSupportTickets),
                     CreateRolePermission(Role.Administrator, Permission.ManageSupportTickets),
                     CreateRolePermission(Role.Administrator, Permission.AssignSupportTickets),
+                    // The support ownership bypass: assigning a ticket to an agent other than
+                    // yourself. Agents claim and hand back their own work; routing somebody else's
+                    // is an administrator action, and this is the code that says so.
+                    CreateRolePermission(Role.Administrator, Permission.AdministerSupportTickets),
                     CreateRolePermission(Role.Administrator, Permission.RequestRefund),
                     CreateRolePermission(Role.Administrator, Permission.ApproveRefund),
                     CreateRolePermission(Role.Administrator, Permission.GetSupportAnalytics),

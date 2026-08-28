@@ -1,8 +1,10 @@
-using FoodDeliveryService.Common.Application.Clock;
+﻿using FoodDeliveryService.Common.Application.Clock;
 using FoodDeliveryService.Common.Application.Messaging;
 using FoodDeliveryService.Common.Domain;
+using FoodDeliveryService.Modules.Support.Application.Abstractions.Audit;
 using FoodDeliveryService.Modules.Support.Application.Abstractions.Authentication;
 using FoodDeliveryService.Modules.Support.Application.Abstractions.Data;
+using FoodDeliveryService.Modules.Support.Domain.Audit;
 using FoodDeliveryService.Modules.Support.Domain.Tickets;
 
 namespace FoodDeliveryService.Modules.Support.Application.Tickets.ChangeTicketStatus;
@@ -14,6 +16,7 @@ internal sealed class ChangeTicketStatusCommandHandler(
     ITicketsRepository ticketsRepository,
     ISupportContext supportContext,
     IDateTimeProvider dateTimeProvider,
+    ISupportAuditWriter auditWriter,
     IUnitOfWork unitOfWork)
     : ICommandHandler<ChangeTicketStatusCommand>
 {
@@ -30,6 +33,10 @@ internal sealed class ChangeTicketStatusCommandHandler(
         DateTime utcNow = dateTimeProvider.UtcNow;
 
         var target = Enum.Parse<TicketStatus>(request.Status, ignoreCase: true);
+
+        // Captured before the transition, because afterwards the field holds the new value and the
+        // "from" half of the audit entry would be lost.
+        TicketStatus from = ticket.Status;
 
         Result transition = target switch
         {
@@ -52,6 +59,19 @@ internal sealed class ChangeTicketStatusCommandHandler(
         {
             return transition;
         }
+
+        // In the same SaveChangesAsync as the transition itself, not in a domain-event handler: the
+        // outbox runs on its own schedule, so a handler-written entry could fail after the status
+        // change had already committed — a ticket whose history has a hole in it is exactly what
+        // this log exists to prevent. The status recorded is the one the aggregate ended up in
+        // rather than the one requested: a reopen is asked for as InProgress, and only the ticket's
+        // own state decides which of the two roads there it actually took.
+        auditWriter.Record(
+            ticket.Id,
+            SupportAuditAction.StatusChanged,
+            from.ToString(),
+            ticket.Status.ToString(),
+            request.Reason);
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
 

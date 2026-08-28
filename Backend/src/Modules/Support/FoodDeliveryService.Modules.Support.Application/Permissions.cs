@@ -1,4 +1,4 @@
-namespace FoodDeliveryService.Modules.Support.Application;
+﻿namespace FoodDeliveryService.Modules.Support.Application;
 
 /// <summary>
 /// Permission codes used by this module's endpoints. They must match the codes seeded in the Users
@@ -26,4 +26,24 @@ public static class Permissions
     /// customer, so it doubles as the marker that the caller is staff.
     /// </summary>
     public const string ManageTickets = "support-tickets:manage";
+
+    /// <summary>
+    /// Agent: claim a ticket out of the queue, and hand one back. Administrator: additionally
+    /// assign a ticket to somebody other than themselves, which is gated on
+    /// <see cref="AdministerTickets"/> below rather than on this code.
+    /// </summary>
+    public const string AssignTickets = "support-tickets:assign";
+
+    /// <summary>
+    /// The administrator ownership bypass, mirroring <c>deliveries:administer</c>: the marker that
+    /// separates an administrator from an agent, both of whom hold every other code here.
+    /// <para>
+    /// A dedicated code rather than reusing <c>refunds:approve</c> — the only other admin-only
+    /// support permission. Inferring "is an administrator" from the refund permission would silently
+    /// hand out ticket-routing authority the day a senior agent is granted refund approval, and a
+    /// privilege that leaks through an unrelated grant is exactly the trap the <c>support-*</c>
+    /// namespace was carved out to avoid.
+    /// </para>
+    /// </summary>
+    public const string AdministerTickets = "support-tickets:administer";
 }

@@ -39,6 +39,15 @@ internal sealed class UsersApiTestFactory(string redisConnectionString, string r
         Environment.SetEnvironmentVariable("ConnectionStrings:Cache", redisConnectionString);
         Environment.SetEnvironmentVariable("ConnectionStrings:Queue", rabbitMqConnectionString);
 
+        // Seeding a user raises UserRegisteredDomainEvent, and it is the Users host's outbox job that
+        // turns it into the integration event Support's agent replica is built from. At the
+        // production interval the replica would not exist for most of a test run, so every
+        // assignment assertion would race it. Set here as well as in IntegrationTestWebAppFactory,
+        // because this host is built first — during seeding, before Support's own ConfigureWebHost
+        // has run and set them.
+        Environment.SetEnvironmentVariable("MessageProcessor:Outbox:IntervalInSeconds", "1");
+        Environment.SetEnvironmentVariable("MessageProcessor:Inbox:IntervalInSeconds", "1");
+
         // appsettings.Development.json points the Duende provisioning client at the docker-internal
         // hostname (fooddeliveryservice.identity:8080), which a plain "dotnet test" process cannot
         // resolve. Support does not provision anyone, but the Users host resolves this client at

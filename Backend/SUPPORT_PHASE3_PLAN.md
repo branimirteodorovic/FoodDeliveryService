@@ -77,6 +77,8 @@ public static readonly Permission ApproveRefund        = new("refunds:approve");
 public static readonly Permission GetSupportAnalytics  = new("support-analytics:read");
 ```
 
+*Added when C was built (2026-08-28):* one more code, `support-tickets:administer`, granted to **Administrator only** — migration `Add_Support_Ticket_Administer_Permission`. §4.5 requires the caller to be an administrator to assign a ticket to a *different* agent, and no code in the set above expresses that: agents and administrators both hold `support-tickets:assign`. The only other admin-only support code is `refunds:approve`, and inferring "is an administrator" from it would silently hand out ticket routing the day a senior agent is granted refund approval — a privilege leaking through an unrelated grant, which is the trap the `support-*` namespace was carved out to avoid. This mirrors `deliveries:administer` exactly, which is the ownership-bypass shape §4.5 was already pointing at.
+
 ### 2.2 Seeding (`Users.Infrastructure/Users/PermissionConfiguration.cs`)
 - **SupportAgent**: `support-tickets:read`, `:manage`, `:assign`, `refunds:request`, `support-analytics:read` — on top of the `support:dashboard`, `users:read`, `users:update` it already holds. This ends the *"No operational permissions — support is read-only"* comment currently on that block; update it rather than leaving it lying.
 - **Administrator**: all of the above **plus** `refunds:approve` and `support-tickets:open`.
@@ -142,7 +144,7 @@ Standard shape: private ctor, `private set` throughout, static `Create`, guarded
 
 Every illegal transition returns `Result.Failure(TicketErrors.InvalidTransition(from, to))` — **never throws**. A no-op (resolving an already-`Resolved` ticket) returns failure and raises **no** domain event; test that explicitly.
 
-The signatures above drop the `utcNow` parameter wherever the method does not stamp a timestamp — `StartProgress(agentId)` and `Escalate(agentId, reason)`. An unused parameter is a build error under this repo's `TreatWarningsAsErrors` + `AnalysisMode=All`.
+The signatures above drop the `utcNow` parameter wherever the method does not stamp a timestamp — `StartProgress(agentId)` and `Escalate(agentId, reason)`. An unused parameter is a build error under this repo's `TreatWarningsAsErrors` + `AnalysisMode=All`. The same applies to all three §4.2 signatures — none of them stamps a timestamp either, so they were built as `Claim(agentId)`, `AssignTo(agentId, actorId)` and `Unassign(actorId, reason)`. Every domain event carries `OccurredOnUtc` from the `DomainEvent` base, so nothing is lost.
 
 **The assignment seam — resolved when B was built (2026-08-19).** Four of these six transitions require an assigned agent, and nothing in this milestone can assign one: `Claim`/`AssignTo`/`Unassign` are §4.2. Taken literally, B would ship `StartProgress`, `Resolve`, `Reopen` and `Close` as unreachable *and* untestable code, and §3.7's "every legal move" would be unwritable. The fix is a single internal write path on the aggregate:
 
@@ -184,7 +186,9 @@ This is the part that gets forgotten. All of it belongs in this PR:
 
 **What `SupportDiagnostics` carries in B, and why it is only two instruments.** `SupportDiagnostics` lives in `Support.Application/Diagnostics/` over the shared `AppDiagnostics` (the Application layer, because the domain-event handlers that record business measurements cannot reference `Common.Infrastructure`). B declares `support.tickets.opened` — a counter tagged by category, which is what reads the queue as a product-quality signal rather than a staffing one — and `support.tickets.resolution.duration`, a histogram computed from the two timestamps the resolved event already carries, so a message dispatched minutes late still reports the duration the customer experienced. Both are recorded **last** in their handler, after the publish, because `IdempotentDomainEventHandler` only writes its consumer row once `Handle` returns and a handler that throws is re-run whole.
 
-A lifecycle *transition* counter is deliberately **not** here, even though Orders has one. Most of this state machine cannot be driven until §4.2 ships assignment, so the series would graph as a permanently flat line — which reads as "nothing is happening" rather than as "this is not built yet". Add it in the milestone that makes those transitions reachable.
+A lifecycle *transition* counter is deliberately **not** here, even though Orders has one. Most of this state machine cannot be driven until §4.2 ships assignment, so the series would graph as a permanently flat line — which reads as "nothing is happening" rather than as "this is not built yet".
+
+*Resolved when C was built:* C makes those transitions reachable but still does **not** add the counter — it lands in §8.2 with the rest of the instrument set. `ObservabilityAssetTests` fails the build if a dashboard names a metric nothing emits, so the instrument and its Grafana panel want to be in one PR, and G is where that panel is. C's endpoints are covered meanwhile by `RequestMetricsBehavior`, which measures every command without any handler recording anything.
 
 ### 3.7 Tests
 - *Unit* (`Support.UnitTests`, new project): the full transition table above — every legal move, every illegal move returning the right `Error`, the no-op-raises-no-event cases, `Reopen` outside the 7-day window, `Create` validation, and the `OrderNotReceived → High` priority rule. The assignment-dependent half is reachable through the `SetAssignedAgent` seam (§3.3); add the boundary cases the table implies but does not spell out — `Reopen` on the *last* day of the window, a subject of exactly 200 characters, and one test that walks every transition against a `Closed` ticket to prove the terminal state is terminal. **35 tests as built.**
@@ -201,6 +205,10 @@ A lifecycle *transition* counter is deliberately **not** here, even though Order
 
 ### 4.1 `SupportAgentReplica` (`Domain/Agents/`)
 Consume `UserRegisteredIntegrationEvent` / `UserProfileUpdatedIntegrationEvent` in `Support.Presentation/Agents/`, keeping a row **only** where the role is `SupportAgent` or `Administrator`. Id, first/last name, email, active flag. This is what lets a ticket list render "assigned to Jane Doe" without a cross-service call, and what validates that an assignment target exists.
+
+Built as `support_agents` (the `Replica` suffix describes how the row arrived, not what the table holds), fed by `UpsertSupportAgentCommand` / `UpdateSupportAgentCommand` — the Orders `Customer` shape, with the update no-opping for the overwhelming majority of users who are not staff. The two consumers are registered in `SupportModule.ConfigureConsumers`, which is what turned its discarded `instanceId` parameter into a used one.
+
+`Support.Presentation` gained a project reference to `Users.IntegrationEvents` for them — the first one it has; Infrastructure already had it for the permissions RPC.
 
 ### 4.2 Assignment on the aggregate
 ```csharp
@@ -225,6 +233,10 @@ if (handle is null) return Result.Failure(TicketErrors.ClaimInProgress);
 
 Keys and TTL live in **one** shared static — `Application/Abstractions/Locking/SupportLocks.cs` — so the read and write sides cannot drift onto different names. TTL 5 s: comfortably longer than the critical section, far shorter than any business window. A lost acquisition returns a failure the agent's UI retries; it strands nothing, because the ticket is still sitting in the queue.
 
+**All three assignment paths take it, under the same key** — not just `Claim`. `AssignTo` and `Unassign` write the very field `Claim` races over, so leaving either outside would reopen the race from a second door, and a *different* key per operation would fail to serialize an admin assignment against an agent's simultaneous claim. One key, `SupportLocks.Ticket(ticketId)`, one TTL.
+
+The §4.6 concurrency test asserts on `Tickets.ClaimInProgress` **or** `Tickets.AlreadyAssigned`, not on one of them: the loser hits the lock if it arrives while the winner holds it and the aggregate guard if it arrives after the winner commits. Both are correct, and pinning the test to one makes it a test of timing.
+
 ### 4.4 `SupportAuditEntry` (`Domain/Audit/`)
 Append-only. No update path, no delete path, no domain events (it *is* the record).
 
@@ -241,19 +253,32 @@ public DateTime OccurredOnUtc { get; }
 
 **Written in the same `SaveChangesAsync` as the state change it records.** Not in a domain-event handler — the outbox lag would let a transition commit while its audit row fails independently, which is precisely the accountability hole the log exists to close. A small `ISupportAuditWriter` in the Application layer, called by each command handler immediately before `SaveChangesAsync`, keeps that from being re-derived per handler.
 
+*As built:* the **interface** is in `Application/Abstractions/Audit/`, the implementation in `Infrastructure/Audit/SupportAuditWriter.cs` — an Application-layer implementation cannot be `internal` and still be registered from `SupportModule`, and every other abstraction here already splits that way (`ISupportContext` → `Infrastructure/Authentication/SupportContext`). It is synchronous and `void`: it only stages the entity, and the `SaveChangesAsync` the handler was already going to call is what commits it, so there is no second transaction to get wrong. `ActorId` and `OccurredOnUtc` are deliberately not parameters — resolving them inside from `ISupportContext` and `IDateTimeProvider` is what makes them unforgeable by a request body.
+
+`support_audit_entries` carries **no foreign key to `tickets`**. A cascade is the one thing that could ever delete an audit row, and an append-only log must have no delete path at all, transitive included; the audit read checks the ticket exists with its own statement instead — an untouched ticket has an empty history, which is a different answer from a ticket that does not exist.
+
+`FromValue`/`ToValue`/`Reason` are truncated in `SupportAuditEntry.Create` rather than rejected: a failed audit write would roll back the state change it was recording, turning a cosmetic over-length problem into a refused agent action.
+
 Retrofit the Milestone B status endpoint to write one too.
 
 ### 4.5 Endpoints
 | Endpoint | Permission |
 |---|---|
 | `POST support/tickets/{id}/claim` | `support-tickets:assign` |
-| `POST support/tickets/{id}/assign` | `support-tickets:assign`, **and** the caller must be an Administrator to name a different agent — the ownership-bypass shape Orders already uses to let an admin act on any restaurant's order |
+| `POST support/tickets/{id}/assign` | `support-tickets:assign`, **and** the caller must be an Administrator to name a different agent — enforced in the handler against the new admin-only `support-tickets:administer` (see §2.1), because the route policy cannot see the body. An agent naming *themselves* is allowed: it is the assign-side equivalent of a claim, and unlike `Claim` it can take over an `InProgress` ticket |
 | `POST support/tickets/{id}/unassign` | `support-tickets:assign` |
 | `GET support/tickets/{id}/audit` | `support-tickets:manage` — agents and admins only; **never** exposed to the customer, since internal reasons appear here. Dapper, newest first. |
 
 ### 4.6 Tests
-- *Unit*: `Claim` on unassigned succeeds and raises the event; on assigned returns `AlreadyAssigned` and raises nothing; `AssignTo` reassigns; `Unassign` requires a reason.
-- *Integration*: two concurrent `claim` calls for one ticket → exactly one `200`, one clean failure, and exactly **one** assignment audit row (assert on the audit table, not just on the responses — that is what actually proves the lock); the audit endpoint returns entries for a status change; a customer gets `403` on the audit endpoint; an agent replica row appears after a `UserRegisteredIntegrationEvent` with role `SupportAgent` and does **not** for a `Customer`.
+- *Unit* (`TicketAssignmentTests`, its own file — assignment is not part of the status machine): `Claim` on unassigned succeeds and raises the event; on assigned returns `AlreadyAssigned` and raises nothing; the three non-queue statuses each return `NotClaimable`; `AssignTo` reassigns and carries the outgoing agent on the event; re-assigning to the current assignee is a no-op failure that raises nothing; `Unassign` requires a reason and leaves the ticket claimable again. **31 tests as built (54 in the project).**
+- *Integration*: two concurrent `claim` calls for one ticket → exactly one `204`, one clean failure, and exactly **one** `Claimed` audit row (assert on the audit table, not just on the responses — that is what actually proves the lock); the audit endpoint returns entries for a status change, newest first; a customer gets `403` on the audit endpoint **even for their own ticket** (a `403` and not a `404` here on purpose — the customer already knows that ticket exists); an agent replica row appears after a `UserRegisteredIntegrationEvent` with role `SupportAgent` and does **not** for a `Customer`; an admin reassignment records both halves; assigning to a non-agent id is a `404`. **14 tests as built (24 in the project).**
+
+**Two harness gotchas this milestone cost real time on, and the next replica milestone (§5) will hit both.**
+
+1. **Both hosts must be built before the first user is seeded.** Seeding raises `UserRegisteredDomainEvent`, the Users outbox publishes from it within a second, and MassTransit publishes to an *exchange* — a message with no queue bound to it is **dropped, not queued**. Seed before Support's consumers exist and the replica is simply never built, with no error anywhere. `IntegrationTestWebAppFactory.InitializeAsync` now touches `_usersApiFactory.Services` and `Services` before seeding, in that order.
+2. **`UsersApiTestFactory` needs the 1-second outbox/inbox intervals too.** It is built first — during seeding — so the env vars `IntegrationTestWebAppFactory.ConfigureWebHost` sets have not been applied to it yet, and at the production interval every replica assertion races the projection.
+
+Also: `Role.Administrator` is absent from `Role.Assignable`, so nobody can be *provisioned* as one — but `User.Create` takes a `Role` directly, which is how the fixture seeds the administrator the bypass test needs. And the CA2025 analyzer rejects an `HttpClient` in a `using` scope being handed to a task that is not awaited in the same statement, so the concurrency test awaits `Task.WhenAll(...)` on the call expressions directly rather than storing the two tasks first.
 
 ---
 
@@ -405,7 +430,7 @@ A `{Module}Diagnostics` static over `AppDiagnostics`, registered with `AddModule
 | Instrument | Tags | Recorded where |
 |---|---|---|
 | `support.tickets.opened` (counter) | `category`, `source` | beside the `TicketOpened` domain-event handler, **last**, so an outbox retry cannot double-count |
-| `support.tickets.transition` (counter) | `from`, `to` | the status-change handler |
+| `support.tickets.transition` (counter) | `from`, `to` | the status-change handler — reachable since §4.2 shipped assignment, and deliberately left here rather than added there, so the instrument and its Grafana panel land in one PR (§3.6) |
 | `support.ticket.resolution_time` (histogram, seconds) | `category` | the resolve handler |
 | `support.refunds.decided` (counter) | `outcome` | the refund decision handlers |
 

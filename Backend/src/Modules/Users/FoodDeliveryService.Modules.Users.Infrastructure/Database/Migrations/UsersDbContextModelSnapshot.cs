@@ -275,6 +275,10 @@ namespace FoodDeliveryService.Modules.Users.Infrastructure.Database.Migrations
                         },
                         new
                         {
+                            Code = "support-tickets:administer"
+                        },
+                        new
+                        {
                             Code = "refunds:request"
                         },
                         new
@@ -558,6 +562,11 @@ namespace FoodDeliveryService.Modules.Users.Infrastructure.Database.Migrations
                         new
                         {
                             PermissionCode = "support-tickets:assign",
+                            RoleName = "Administrator"
+                        },
+                        new
+                        {
+                            PermissionCode = "support-tickets:administer",
                             RoleName = "Administrator"
                         },
                         new

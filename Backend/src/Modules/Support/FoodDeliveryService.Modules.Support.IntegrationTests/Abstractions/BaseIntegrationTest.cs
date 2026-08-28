@@ -19,6 +19,8 @@ public class BaseIntegrationTest : IDisposable
     private static string? _cachedAgentAccessToken;
     private static string? _cachedCustomerAccessToken;
     private static string? _cachedOtherCustomerAccessToken;
+    private static string? _cachedOtherAgentAccessToken;
+    private static string? _cachedAdminAccessToken;
 
     protected static readonly Faker Faker = new();
     private readonly IServiceScope _scope;
@@ -91,6 +93,44 @@ public class BaseIntegrationTest : IDisposable
         }
 
         return CreateClientWithToken(_cachedOtherCustomerAccessToken);
+    }
+
+    /// <summary>A client for the second seeded SupportAgent — the "somebody else" of assignment.</summary>
+    protected async Task<HttpClient> CreateOtherAgentClientAsync()
+    {
+        await TokenLock.WaitAsync();
+
+        try
+        {
+            _cachedOtherAgentAccessToken ??=
+                await GetAccessTokenAsync(Factory.OtherAgentUserEmail, Factory.TestUserPassword);
+        }
+        finally
+        {
+            TokenLock.Release();
+        }
+
+        return CreateClientWithToken(_cachedOtherAgentAccessToken);
+    }
+
+    /// <summary>
+    /// A client for the seeded Administrator — the only caller holding support-tickets:administer,
+    /// and therefore the only one who can assign a ticket to an agent other than themselves.
+    /// </summary>
+    protected async Task<HttpClient> CreateAdminClientAsync()
+    {
+        await TokenLock.WaitAsync();
+
+        try
+        {
+            _cachedAdminAccessToken ??= await GetAccessTokenAsync(Factory.AdminUserEmail, Factory.TestUserPassword);
+        }
+        finally
+        {
+            TokenLock.Release();
+        }
+
+        return CreateClientWithToken(_cachedAdminAccessToken);
     }
 
     /// <summary>Opens a ticket through the real endpoint and returns its id.</summary>

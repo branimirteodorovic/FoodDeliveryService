@@ -5,9 +5,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Ticket.SetAssignedAgent is the internal assignee write path. The unit tests need it to
-         build the assignment-dependent half of the state machine (InProgress, Resolved, Closed);
-         no production caller exists until the assignment milestone adds Claim/AssignTo. -->
+    <!-- Ticket.SetAssignedAgent is the internal assignee write path, wrapped by the guarded
+         Claim/AssignTo/Unassign methods. The unit tests also reach it directly, to build tickets in
+         the assignment-dependent states (InProgress, Resolved, Closed) without walking the whole
+         lifecycle first. -->
     <InternalsVisibleTo Include="FoodDeliveryService.Modules.Support.UnitTests" />
   </ItemGroup>
 

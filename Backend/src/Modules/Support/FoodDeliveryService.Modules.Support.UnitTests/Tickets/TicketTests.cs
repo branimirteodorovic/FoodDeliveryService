@@ -33,8 +33,9 @@ public class TicketTests : BaseTest
     }
 
     /// <summary>
-    /// Puts a ticket into InProgress the way the assignment milestone will: an agent is put on it,
-    /// then starts work. SetAssignedAgent is the internal seam Claim/AssignTo will wrap.
+    /// Puts a ticket into InProgress: an agent is put on it, then starts work. Reaches the internal
+    /// SetAssignedAgent seam directly rather than going through Claim — the assignment rules have
+    /// their own suite in TicketAssignmentTests, and this file is about the status machine.
     /// </summary>
     private static Ticket CreateInProgressTicket(Guid agentId)
     {

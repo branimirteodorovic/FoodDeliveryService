@@ -1,11 +1,16 @@
-using FoodDeliveryService.Common.Application.Authorization;
+﻿using FoodDeliveryService.Common.Application.Authorization;
 using FoodDeliveryService.Common.Application.EventBus;
 using FoodDeliveryService.Common.Application.Messaging;
 using FoodDeliveryService.Common.Infrastructure.Outbox;
 using FoodDeliveryService.Common.Presentation.Endpoints;
+using FoodDeliveryService.Modules.Support.Application.Abstractions.Audit;
 using FoodDeliveryService.Modules.Support.Application.Abstractions.Authentication;
 using FoodDeliveryService.Modules.Support.Application.Abstractions.Data;
+using FoodDeliveryService.Modules.Support.Domain.Agents;
+using FoodDeliveryService.Modules.Support.Domain.Audit;
 using FoodDeliveryService.Modules.Support.Domain.Tickets;
+using FoodDeliveryService.Modules.Support.Infrastructure.Agents;
+using FoodDeliveryService.Modules.Support.Infrastructure.Audit;
 using FoodDeliveryService.Modules.Support.Infrastructure.Authentication;
 using FoodDeliveryService.Modules.Support.Infrastructure.Authorization;
 using FoodDeliveryService.Modules.Support.Infrastructure.Database;
@@ -41,12 +46,16 @@ public static class SupportModule
 
     public static Action<IRegistrationConfigurator, string, string> ConfigureConsumers()
     {
-        return (registration, _, _) =>
+        return (registration, instanceId, _) =>
         {
-            // No integration event consumers yet — the customer, agent and order-history replicas
-            // arrive in the later milestones, each as an added AddConsumer line here. What Support
-            // does need from day one is the authorization RPC below.
-            //
+            // The agent replica: who a ticket can be assigned to, and whose name a ticket list
+            // renders. Both handlers skip users that are not support staff. The customer and
+            // order-history replicas arrive in the context milestone as further AddConsumer lines.
+            registration.AddConsumer<IntegrationEventConsumer<UserRegisteredIntegrationEvent>>()
+                .Endpoint(c => c.InstanceId = instanceId);
+            registration.AddConsumer<IntegrationEventConsumer<UserProfileUpdatedIntegrationEvent>>()
+                .Endpoint(c => c.InstanceId = instanceId);
+
             // The explicit request client is not optional: without it MassTransit's implicit
             // IRequestClient<T> resolution silently fails to route the request and every
             // permission lookup times out, which surfaces as a blanket 403 rather than as an error.
@@ -68,6 +77,15 @@ public static class SupportModule
         services.AddScoped<IUnitOfWork>(sp => sp.GetRequiredService<SupportDbContext>());
 
         services.AddScoped<ITicketsRepository, TicketsRepository>();
+
+        services.AddScoped<ISupportAgentRepository, SupportAgentRepository>();
+
+        services.AddScoped<ISupportAuditRepository, SupportAuditRepository>();
+
+        // One implementation, called by every command handler that changes a ticket. Registered
+        // here rather than discovered, because "the audit entry commits with the change" is a
+        // property of there being exactly one of these.
+        services.AddScoped<ISupportAuditWriter, SupportAuditWriter>();
 
         services.AddScoped<ISupportContext, SupportContext>();
 

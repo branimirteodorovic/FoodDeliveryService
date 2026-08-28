@@ -1,4 +1,4 @@
-using FoodDeliveryService.Modules.Support.Application.Abstractions.Authentication;
+﻿using FoodDeliveryService.Modules.Support.Application.Abstractions.Authentication;
 
 namespace FoodDeliveryService.Modules.Support.Application.Tickets;
 
@@ -14,4 +14,12 @@ namespace FoodDeliveryService.Modules.Support.Application.Tickets;
 internal static class TicketAccess
 {
     internal static bool IsStaff(ISupportContext context) => context.HasPermission(Permissions.ManageTickets);
+
+    /// <summary>
+    /// True for an administrator. Both agents and administrators hold <c>support-tickets:assign</c>,
+    /// so claiming and handing back are open to either; naming a <em>different</em> agent is the one
+    /// assignment action that needs this stricter check.
+    /// </summary>
+    internal static bool IsAdministrator(ISupportContext context) =>
+        context.HasPermission(Permissions.AdministerTickets);
 }

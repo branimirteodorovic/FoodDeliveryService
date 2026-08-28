@@ -166,6 +166,86 @@ namespace FoodDeliveryService.Modules.Support.Infrastructure.Database.Migrations
                     b.ToTable("outbox_message_consumers", (string)null);
                 });
 
+            modelBuilder.Entity("FoodDeliveryService.Modules.Support.Domain.Agents.SupportAgentReplica", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("email");
+
+                    b.Property<string>("FirstName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("first_name");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active");
+
+                    b.Property<string>("LastName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("last_name");
+
+                    b.HasKey("Id")
+                        .HasName("pk_support_agents");
+
+                    b.ToTable("support_agents", (string)null);
+                });
+
+            modelBuilder.Entity("FoodDeliveryService.Modules.Support.Domain.Audit.SupportAuditEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("Action")
+                        .HasColumnType("integer")
+                        .HasColumnName("action");
+
+                    b.Property<Guid>("ActorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_id");
+
+                    b.Property<string>("FromValue")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("from_value");
+
+                    b.Property<DateTime>("OccurredOnUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("occurred_on_utc");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("reason");
+
+                    b.Property<Guid>("TicketId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("ticket_id");
+
+                    b.Property<string>("ToValue")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("to_value");
+
+                    b.HasKey("Id")
+                        .HasName("pk_support_audit_entries");
+
+                    b.HasIndex("TicketId", "OccurredOnUtc")
+                        .HasDatabaseName("ix_support_audit_entries_ticket_id_occurred_on_utc");
+
+                    b.ToTable("support_audit_entries", (string)null);
+                });
+
             modelBuilder.Entity("FoodDeliveryService.Modules.Support.Domain.Tickets.Ticket", b =>
                 {
                     b.Property<Guid>("Id")
