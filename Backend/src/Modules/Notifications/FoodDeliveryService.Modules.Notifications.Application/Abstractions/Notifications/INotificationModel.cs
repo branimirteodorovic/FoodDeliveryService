@@ -1,4 +1,4 @@
-using FoodDeliveryService.Modules.Notifications.Domain.Notifications;
+﻿using FoodDeliveryService.Modules.Notifications.Domain.Notifications;
 
 namespace FoodDeliveryService.Modules.Notifications.Application.Abstractions.Notifications;
 
@@ -19,4 +19,18 @@ public sealed record OrderConfirmationModel(
     decimal Subtotal) : INotificationModel
 {
     public NotificationType Type => NotificationType.OrderConfirmation;
+}
+
+/// <summary>
+/// The agent's reply as the email renders it. <paramref name="Preview"/> is already truncated by
+/// Support — this module does not hold the full message and deliberately does not ask for it, so the
+/// email links the customer back to the thread rather than reproducing it.
+/// </summary>
+public sealed record SupportTicketReplyModel(
+    string FirstName,
+    string TicketReference,
+    string TicketSubject,
+    string Preview) : INotificationModel
+{
+    public NotificationType Type => NotificationType.SupportTicketReply;
 }

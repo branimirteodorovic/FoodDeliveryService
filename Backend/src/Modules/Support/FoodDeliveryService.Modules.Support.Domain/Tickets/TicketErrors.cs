@@ -43,6 +43,28 @@ public static class TicketErrors
         "Tickets.InvalidTransition",
         $"The ticket cannot move from status {from} to status {to}");
 
+    // ---- Messages ------------------------------------------------------------------------
+    public static readonly Error MessageBodyRequired = Error.Problem(
+        "Tickets.MessageBodyRequired",
+        "A ticket message needs a body");
+
+    public static readonly Error MessageBodyTooLong = Error.Problem(
+        "Tickets.MessageBodyTooLong",
+        $"A ticket message cannot be longer than {TicketMessage.BodyMaxLength} characters");
+
+    // Closed is terminal for the thread as well as for the status. A resolved ticket still accepts
+    // messages — that is how a customer reopens a conversation — so this names Closed alone.
+    public static readonly Error ClosedToMessages = Error.Problem(
+        "Tickets.ClosedToMessages",
+        "A closed ticket cannot accept new messages");
+
+    // A data-integrity rule, not an authorization one, which is why the aggregate refuses it rather
+    // than the endpoint quietly downgrading the visibility: a note the customer never sees, written
+    // by the customer, is a row nobody would ever think to look for.
+    public static readonly Error CustomerCannotPostInternalNote = Error.Problem(
+        "Tickets.CustomerCannotPostInternalNote",
+        "A customer can only post a customer-visible message");
+
     // ---- Assignment ----------------------------------------------------------------------
     // The aggregate guard behind Claim. The distributed lock in the handler makes two concurrent
     // claims observe it in sequence; this is what actually refuses the second one.

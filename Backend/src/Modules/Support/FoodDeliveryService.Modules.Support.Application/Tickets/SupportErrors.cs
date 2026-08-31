@@ -19,6 +19,13 @@ internal static class SupportErrors
         "Support.NotAuthorizedToAssignAnotherAgent",
         "Only an administrator may assign a ticket to another agent");
 
+    // An internal note is agent-to-agent commentary, so writing one is a staff action. Refused
+    // rather than downgraded to a customer-visible message: the author would otherwise learn what
+    // they had actually published only from the customer's reply to it.
+    internal static readonly Error NotAuthorizedToPostInternalNote = Error.Problem(
+        "Support.NotAuthorizedToPostInternalNote",
+        "Only a support agent may post an internal note");
+
     // Checked against the local agent replica, not against Users — a NotFound here means the id
     // names nobody this module knows to be a support agent or administrator.
     internal static Error AgentNotFound(Guid agentId) => Error.NotFound(

@@ -1,4 +1,4 @@
-using FoodDeliveryService.Modules.Support.Domain.Tickets;
+﻿using FoodDeliveryService.Modules.Support.Domain.Tickets;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -27,6 +27,17 @@ internal sealed class TicketConfiguration : IEntityTypeConfiguration<Ticket>
 
         // A customer's own list, and the ownership predicate on every single-ticket read.
         builder.HasIndex(t => t.CustomerId);
+
+        // The thread is part of this aggregate, so it is configured from the parent's side. Cascade
+        // is nominal — nothing deletes a ticket — but leaving the default would make the FK optional
+        // and permit an orphan message, which is a row no read in this module would ever return.
+        builder.HasMany(t => t.Messages)
+            .WithOne()
+            .HasForeignKey(m => m.TicketId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // Messages exposes a defensive copy; EF must track the backing field.
+        builder.Navigation(t => t.Messages).UsePropertyAccessMode(PropertyAccessMode.Field);
 
         // Reserved for the AI assistant escalation transcript. jsonb rather than text because that
         // is the shape it will arrive in, and changing a column type later costs a table rewrite.

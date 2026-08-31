@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <IsPackable>false</IsPackable>
@@ -30,6 +30,12 @@
          Aliased because both hosts declare a top-level Program class. -->
     <ProjectReference Include="..\..\..\API\FoodDeliveryService.Users.Api\FoodDeliveryService.Users.Api.csproj">
       <Aliases>UsersApi</Aliases>
+    </ProjectReference>
+    <!-- The real Notifications host, in-process: the customer-notification half of the ticket
+         thread is a claim about what crosses the broker, so it is asserted in the consuming
+         service's own database. Aliased for the same duplicate-Program reason. -->
+    <ProjectReference Include="..\..\..\API\FoodDeliveryService.Notifications.Api\FoodDeliveryService.Notifications.Api.csproj">
+      <Aliases>NotificationsApi</Aliases>
     </ProjectReference>
   </ItemGroup>
 

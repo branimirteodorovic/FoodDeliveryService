@@ -1,4 +1,4 @@
-using System.Net.Http.Headers;
+﻿using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 using FoodDeliveryService.Modules.Users.Application.Abstractions.Data;
@@ -34,12 +34,22 @@ public class IntegrationTestWebAppFactory : WebApplicationFactory<Program>, IAsy
 
     private UsersApiTestFactory? _usersApiFactory;
 
+    private NotificationsApiTestFactory? _notificationsApiFactory;
+
     /// <summary>
     /// The in-process Users.Api test host — answers the permissions RPC, so every 200/403 in this
     /// suite is the real seeded permission set rather than a stub.
     /// </summary>
     internal UsersApiTestFactory UsersApi =>
         _usersApiFactory ?? throw new InvalidOperationException("The Users test host has not been initialized.");
+
+    /// <summary>
+    /// The in-process Notifications.Api test host — consumes what Support publishes, so a customer
+    /// notification is asserted where it is actually written rather than by trusting the publisher.
+    /// </summary>
+    internal NotificationsApiTestFactory NotificationsApi =>
+        _notificationsApiFactory
+        ?? throw new InvalidOperationException("The Notifications test host has not been initialized.");
 
     /// <summary>
     /// A support agent: holds support-tickets:read/manage/assign. Notably NOT support-tickets:open,
@@ -70,6 +80,12 @@ public class IntegrationTestWebAppFactory : WebApplicationFactory<Program>, IAsy
 
     /// <summary>The second agent's user id.</summary>
     public Guid OtherAgentUserId { get; private set; }
+
+    /// <summary>
+    /// The seeded customer's user id — the recipient a notification row is keyed on in the
+    /// Notifications database, and the owner of every ticket the customer client opens.
+    /// </summary>
+    public Guid CustomerUserId { get; private set; }
 
     /// <summary>Shared password for every user this suite seeds.</summary>
     public string TestUserPassword { get; } = "Support-Tests-P@ssw0rd";
@@ -112,6 +128,12 @@ public class IntegrationTestWebAppFactory : WebApplicationFactory<Program>, IAsy
 
         await _usersApiFactory.InitializeAsync();
 
+        _notificationsApiFactory = new NotificationsApiTestFactory(
+            _redisContainer.GetConnectionString(),
+            _rabbitMqContainer.GetConnectionString());
+
+        await _notificationsApiFactory.InitializeAsync();
+
         // Both hosts are built BEFORE the first user is seeded, and the order matters in both
         // directions.
         //
@@ -127,6 +149,13 @@ public class IntegrationTestWebAppFactory : WebApplicationFactory<Program>, IAsy
         _ = _usersApiFactory.Services;
         _ = Services;
 
+        // Notifications last, but still before seeding, and for the same reason: it builds its
+        // recipient replica from the very UserRegistered events seeding raises, and a message
+        // published to an exchange with no bound queue is dropped rather than kept. Built after
+        // Support because every host reads the same env-var keys — they must build strictly one
+        // after another, never interleaved.
+        _ = _notificationsApiFactory.Services;
+
         (AgentUserEmail, Guid agentUserId) = await SeedTestUserAsync(Role.SupportAgent);
         AgentUserId = agentUserId;
 
@@ -138,7 +167,8 @@ public class IntegrationTestWebAppFactory : WebApplicationFactory<Program>, IAsy
         // only way to exercise the administrator bypass without a seeded-admin bootstrap here.
         (AdminUserEmail, _) = await SeedTestUserAsync(Role.Administrator);
 
-        (CustomerUserEmail, _) = await SeedTestUserAsync(Role.Customer);
+        (CustomerUserEmail, Guid customerUserId) = await SeedTestUserAsync(Role.Customer);
+        CustomerUserId = customerUserId;
         (OtherCustomerUserEmail, _) = await SeedTestUserAsync(Role.Customer);
     }
 
@@ -152,6 +182,11 @@ public class IntegrationTestWebAppFactory : WebApplicationFactory<Program>, IAsy
         if (_usersApiFactory is not null)
         {
             await _usersApiFactory.DisposeAsync();
+        }
+
+        if (_notificationsApiFactory is not null)
+        {
+            await _notificationsApiFactory.DisposeAsync();
         }
     }
 

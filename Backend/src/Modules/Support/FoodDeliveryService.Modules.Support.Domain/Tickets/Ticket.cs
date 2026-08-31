@@ -27,6 +27,12 @@ public sealed class Ticket : Entity
     /// </summary>
     public const int ReopenWindowInDays = 7;
 
+    /// <summary>
+    /// The conversation, newest-last. Loaded only when a message is being posted — every read of a
+    /// thread goes through Dapper, where the customer-visible filter lives in the SQL.
+    /// </summary>
+    private readonly List<TicketMessage> _messages = [];
+
     private Ticket()
     {
     }
@@ -67,8 +73,8 @@ public sealed class Ticket : Entity
     public DateTime OpenedOnUtc { get; private set; }
 
     /// <summary>
-    /// Stamped by the first customer-visible agent message (the ticket message thread milestone).
-    /// Nothing here sets it — a status change is not a response to the customer.
+    /// Stamped by the first customer-visible agent message, in <see cref="PostMessage"/>. No status
+    /// transition sets it — a status change is not a response to the customer.
     /// </summary>
     public DateTime? FirstRespondedOnUtc { get; private set; }
 
@@ -76,6 +82,9 @@ public sealed class Ticket : Entity
     public DateTime? ResolvedOnUtc { get; private set; }
 
     public DateTime? ClosedOnUtc { get; private set; }
+
+    /// <summary>A defensive copy — the thread is append-only and grows only through PostMessage.</summary>
+    public IReadOnlyCollection<TicketMessage> Messages => _messages.ToList();
 
     public static Result<Ticket> Create(
         string reference,
@@ -337,6 +346,95 @@ public sealed class Ticket : Entity
         Raise(new TicketUnassignedDomainEvent(Id, actorId, previousAgentId, reason));
 
         return Result.Success();
+    }
+
+    /// <summary>
+    /// Adds a message to the thread. Not a status transition, but it can move the ticket: a message
+    /// on a resolved ticket is how a conversation resumes, so the ticket returns to InProgress and
+    /// its resolution timestamp is cleared — the alternative is a ticket that is being actively
+    /// discussed while still counting as resolved in the analytics numerator.
+    /// <para>
+    /// The customer-may-only-write-customer-visible rule is here rather than only at the endpoint on
+    /// purpose. An internal note authored by a customer is a data-integrity bug, not an
+    /// authorization one: it would sit in the table looking like agent-to-agent commentary forever,
+    /// and no amount of endpoint gating added later would find it.
+    /// </para>
+    /// </summary>
+    /// <param name="authorId">The authenticated caller. Never a request-body field.</param>
+    /// <param name="kind">
+    /// Decided by the application layer from the caller's permissions, which is what makes the rule
+    /// above enforceable here — the aggregate has no notion of who is calling.
+    /// </param>
+    public Result<TicketMessage> PostMessage(
+        Guid authorId,
+        TicketAuthorKind kind,
+        string body,
+        TicketMessageVisibility visibility,
+        DateTime utcNow)
+    {
+        // Terminal means terminal. A closed ticket that could still take messages would be a thread
+        // nobody is accountable for: it has no assignee, and no transition puts one back on it.
+        if (Status == TicketStatus.Closed)
+        {
+            return Result.Failure<TicketMessage>(TicketErrors.ClosedToMessages);
+        }
+
+        if (kind == TicketAuthorKind.Customer && visibility != TicketMessageVisibility.CustomerVisible)
+        {
+            return Result.Failure<TicketMessage>(TicketErrors.CustomerCannotPostInternalNote);
+        }
+
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return Result.Failure<TicketMessage>(TicketErrors.MessageBodyRequired);
+        }
+
+        if (body.Length > TicketMessage.BodyMaxLength)
+        {
+            return Result.Failure<TicketMessage>(TicketErrors.MessageBodyTooLong);
+        }
+
+        // Only a message the customer can actually see counts as a response to them: an internal
+        // note is agents talking to each other, and letting it stop the first-response clock would
+        // make the metric measurable without anybody ever replying.
+        bool customerVisibleFromAgent =
+            kind == TicketAuthorKind.Agent && visibility == TicketMessageVisibility.CustomerVisible;
+
+        if (customerVisibleFromAgent)
+        {
+            // ??=, not =: first response means the first one. A later reply must not move it.
+            FirstRespondedOnUtc ??= utcNow;
+        }
+
+        // Deliberately not routed through Reopen: that is the agent-driven "the fix did not hold"
+        // transition with its own 7-day window, and a customer writing on their own resolved ticket
+        // must not be refused because the window lapsed — the message would be lost with it. The
+        // reopen event is raised all the same, so the two paths look identical to every consumer.
+        if (Status == TicketStatus.Resolved)
+        {
+            Status = TicketStatus.InProgress;
+            ResolvedOnUtc = null;
+
+            Raise(new TicketReopenedDomainEvent(Id, authorId));
+        }
+
+        var message = TicketMessage.Create(Id, authorId, kind, body, visibility, utcNow);
+
+        _messages.Add(message);
+
+        Raise(new TicketMessagePostedDomainEvent(
+            Id,
+            Reference,
+            message.Id,
+            CustomerId,
+            authorId,
+            kind,
+            visibility,
+            Subject,
+            message.Body,
+            message.PostedOnUtc));
+
+        return message;
     }
 
     /// <summary>

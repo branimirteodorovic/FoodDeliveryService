@@ -1,4 +1,4 @@
-using FoodDeliveryService.Modules.Notifications.Domain.Notifications;
+﻿using FoodDeliveryService.Modules.Notifications.Domain.Notifications;
 
 namespace FoodDeliveryService.Modules.Notifications.Application.Notifications.SendNotification;
 
@@ -12,7 +12,8 @@ internal static class NotificationChannelRouter
     private static readonly Dictionary<NotificationType, IReadOnlyList<NotificationChannel>> Routes =
         new()
         {
-            [NotificationType.OrderConfirmation] = [NotificationChannel.Email]
+            [NotificationType.OrderConfirmation] = [NotificationChannel.Email],
+            [NotificationType.SupportTicketReply] = [NotificationChannel.Email]
         };
 
     public static IReadOnlyList<NotificationChannel> Resolve(NotificationType type) =>

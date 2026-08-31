@@ -1,4 +1,4 @@
-# Feature 3.6 — Support Service & Ticketing — Implementation Plan
+﻿# Feature 3.6 — Support Service & Ticketing — Implementation Plan
 
 > Tenth implementation plan, after `RESTAURANTS_PHASE1_PLAN.md`, `ORDERS_PHASE1_PLAN.md`, `NOTIFICATIONS_PHASE1_PLAN.md`, `DELIVERY_PHASE2_PLAN.md`, `REALTIME_PHASE2_PLAN.md`, `CACHING_PHASE2_PLAN.md`, `TELEMETRY_PHASE2_PLAN.md`, `KUBERNETES_PHASE2_PLAN.md` and `LOADTESTING_PHASE3_PLAN.md`. This one covers **Feature 3.6 — Support Service & Ticketing** from `FoodDelivery_ProjectPlan.md`.
 
@@ -343,6 +343,10 @@ public Result<TicketMessage> PostMessage(
 
 `TicketMessage`: id, ticket id, author id, author kind (`Customer`/`Agent`/`System`), body, visibility, `PostedOnUtc`.
 
+*As built (2026-08-31):* `PostMessage` does **not** route the resolved-ticket case through `Reopen`. `Reopen` is the agent's "the fix did not hold" transition and carries the 7-day window; a customer writing on their own resolved ticket must not be refused because that window lapsed, because the message would be lost with the refusal. The status move and the `ResolvedOnUtc` clear are done inline and `TicketReopenedDomainEvent` is raised all the same, so the two paths are indistinguishable to every consumer. `System` has no producer — it exists so an automated entry is distinguishable from an agent who typed the same words.
+
+The domain event carries the **full** body; truncation to a preview happens in the domain-event handler, where the event crosses the module boundary. One place decides how much of a support conversation leaves this service, and the domain record is not it.
+
 ### 6.2 Endpoints
 | Endpoint | Permission | Notes |
 |---|---|---|
@@ -351,14 +355,22 @@ public Result<TicketMessage> PostMessage(
 
 Both write a `MessagePosted` audit entry.
 
+*As built:* the write endpoint is gated on `support-tickets:read`, not `:open`. It is the one write a customer performs on a ticket an agent may be managing, and both audiences hold `:read`; `:open` is the customer-only code and would have locked agents out of replying. Who may write *what* is decided further in — the handler refuses an `InternalNote` from a caller without `:manage` (refused, never silently downgraded), and the aggregate refuses one from a customer regardless of how it got there.
+
+A post that resumes a resolved ticket writes a **second** audit entry, `StatusChanged`. A status change with no entry is the hole this log exists to close, and a reader must not have to know that `MessagePosted` can silently also mean "and it was reopened".
+
 ### 6.3 Notifications
 `TicketMessagePostedIntegrationEvent` is published **only** for `CustomerVisible` messages authored by an agent — a customer does not get emailed about their own message, and an internal note must never leave the building. It carries the ticket reference, customer id, subject and a **truncated** body preview.
 
 In Notifications: a new `NotificationType.SupportTicketReply`, a template, and a `TicketMessagePostedIntegrationEventHandler` in `Notifications.Presentation/Support/` that sends through the existing `SendNotificationCommand` path. The `RecipientUser` replica already holds the email address — no new replica needed.
 
+*As built:* the handler carries **no** visibility check of its own, deliberately. Support publishes the event only for customer-visible agent messages, so re-deriving the rule downstream would create a second copy that could drift from the one that matters — and would imply notes are expected to arrive there, which is exactly the assumption the publishing filter makes false. The email contains the preview only and links the customer back to the thread: an inbox is not an access-controlled surface, and a support conversation can carry an address or a refund decision.
+
 ### 6.4 Tests
 - *Unit*: a customer cannot post an `InternalNote`; a `Closed` ticket rejects a message; posting on a `Resolved` ticket moves it to `InProgress`; the first agent reply stamps `FirstRespondedOnUtc` and the second does not.
 - *Integration*: an agent's internal note is absent from the customer's `GET .../messages` and present in the agent's; a customer-visible agent reply produces a `Notification` row of type `SupportTicketReply` in the Notifications database (host Notifications in-process, as the existing cross-module tests do); an internal note produces **no** notification.
+
+*As built:* **10 unit tests** (`Support.UnitTests/Tickets/TicketMessageTests.cs`, suite now 64) and **6 integration tests** (suite now 30, all green). `Support.IntegrationTests` gained a third in-process host, `NotificationsApiTestFactory` — built after Users and Support but still **before** the first user is seeded, for the same reason those two are: it builds its recipient replica from the `UserRegistered` events seeding raises, and a message published to an exchange with no bound queue is dropped rather than kept. The no-notification case is a poller that is expected to time out, and the notification rows are matched on the email subject, which carries the ticket's subject — the fixture is shared by the whole suite, so a per-test unique subject is what makes one test's row identifiable.
 
 ---
 

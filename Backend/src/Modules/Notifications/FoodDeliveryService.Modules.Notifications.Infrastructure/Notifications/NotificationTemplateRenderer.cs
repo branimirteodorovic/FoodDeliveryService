@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using FoodDeliveryService.Modules.Notifications.Application.Abstractions.Notifications;
 
 namespace FoodDeliveryService.Modules.Notifications.Infrastructure.Notifications;
@@ -14,6 +14,7 @@ internal sealed class NotificationTemplateRenderer : INotificationTemplateRender
         model switch
         {
             OrderConfirmationModel m => RenderOrderConfirmation(m),
+            SupportTicketReplyModel m => RenderSupportTicketReply(m),
             _ => throw new ArgumentOutOfRangeException(
                 nameof(model),
                 model.GetType().Name,
@@ -34,6 +35,24 @@ internal sealed class NotificationTemplateRenderer : INotificationTemplateRender
             $"Order: {orderShortId}\n" +
             $"Subtotal: {subtotal}\n\n" +
             "You'll get live updates as your order progresses.";
+
+        return new RenderedTemplate(subject, body);
+    }
+
+    private static RenderedTemplate RenderSupportTicketReply(SupportTicketReplyModel model)
+    {
+        // The reference, not the ticket id: it is the identifier the customer can quote back, and
+        // the subject line is where they will look for it when the thread runs to several replies.
+        string subject = $"Re: {model.TicketSubject} ({model.TicketReference})";
+
+        // The preview only. The full message stays in Support, where the customer reads it behind
+        // their login — an email is not an access-controlled surface, and a support thread can carry
+        // an order address or a refund decision.
+        string body =
+            $"Hi {model.FirstName},\n\n" +
+            $"Our support team has replied to your ticket {model.TicketReference}.\n\n" +
+            $"\"{model.Preview}\"\n\n" +
+            "Sign in to your account to read the full message and reply.";
 
         return new RenderedTemplate(subject, body);
     }

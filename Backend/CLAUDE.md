@@ -1,4 +1,4 @@
-# FoodDeliveryService
+﻿# FoodDeliveryService
 
 ## Overview
 A Food Delivery Service built as **.NET 9 microservices behind a YARP API gateway**.
@@ -37,8 +37,8 @@ src/
 | **Users** | Registration, profiles, roles, permissions | `UserRegisteredIntegrationEvent`, `UserProfileUpdatedIntegrationEvent`; responds to `GetUserPermissionsRequest` (MassTransit request/response) | — |
 | **Orders** | Order lifecycle (cart → placed → delivered/canceled), local replica of user data | Order lifecycle events (as added) | `UserRegistered`, `UserProfileUpdated` |
 | **Restaurants** | Restaurants, menus, availability | Restaurant/menu events (as added) | (as needed) |
-| **Notifications** | Sending notifications in reaction to events | — | Events from other services (as added) |
-| **Support** | Support tickets and their lifecycle: agent assignment (claim/assign/unassign, guarded by `IDistributedLock`) and the append-only `SupportAuditEntry` log written in the same transaction as the change it records; refund requests follow | `SupportTicketOpenedIntegrationEvent`, `SupportTicketResolvedIntegrationEvent` | `UserRegistered`, `UserProfileUpdated` (support agent replica); order/customer replicas as added |
+| **Notifications** | Sending notifications in reaction to events | — | `OrderPlaced` (order confirmation), `TicketMessagePosted` (support reply), `UserRegistered`/`UserProfileUpdated`/`UserInvited` |
+| **Support** | Support tickets and their lifecycle: agent assignment (claim/assign/unassign, guarded by `IDistributedLock`), the append-only `SupportAuditEntry` log written in the same transaction as the change it records, and the agent↔customer `TicketMessage` thread (internal notes filtered in SQL, never in a mapper); refund requests follow | `SupportTicketOpenedIntegrationEvent`, `SupportTicketResolvedIntegrationEvent`, `TicketMessagePostedIntegrationEvent` (customer-visible agent messages only) | `UserRegistered`, `UserProfileUpdated` (support agent replica); order/customer replicas as added |
 | **Identity** | Credentials, token issuance (Duende). NOT a module — plain host with local API `api/users` for user provisioning | — | — |
 
 When implementing a feature, first decide: **which service owns the state being changed?** That module gets the command/endpoint. Then ask: **does any other service care about this state change?** If yes, publish an integration event and add consumers there — never call another service's API or database directly.
