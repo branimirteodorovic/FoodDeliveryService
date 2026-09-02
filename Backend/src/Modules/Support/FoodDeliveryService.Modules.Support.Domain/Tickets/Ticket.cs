@@ -1,4 +1,4 @@
-﻿using FoodDeliveryService.Common.Domain;
+using FoodDeliveryService.Common.Domain;
 
 namespace FoodDeliveryService.Modules.Support.Domain.Tickets;
 
@@ -149,9 +149,11 @@ public sealed class Ticket : Entity
             return Result.Failure(TicketErrors.NotAssigned);
         }
 
+        TicketStatus previousStatus = Status;
+
         Status = TicketStatus.InProgress;
 
-        Raise(new TicketProgressStartedDomainEvent(Id, agentId));
+        Raise(new TicketProgressStartedDomainEvent(Id, agentId, previousStatus));
 
         return Result.Success();
     }
@@ -173,6 +175,8 @@ public sealed class Ticket : Entity
             return Result.Failure(TicketErrors.ResolutionRequired);
         }
 
+        TicketStatus previousStatus = Status;
+
         Status = TicketStatus.Resolved;
         ResolvedOnUtc = utcNow;
 
@@ -185,7 +189,8 @@ public sealed class Ticket : Entity
             Category,
             resolution,
             OpenedOnUtc,
-            utcNow));
+            utcNow,
+            previousStatus));
 
         return Result.Success();
     }
@@ -206,9 +211,11 @@ public sealed class Ticket : Entity
             return Result.Failure(TicketErrors.EscalationReasonRequired);
         }
 
+        TicketStatus previousStatus = Status;
+
         Status = TicketStatus.Escalated;
 
-        Raise(new TicketEscalatedDomainEvent(Id, agentId, reason));
+        Raise(new TicketEscalatedDomainEvent(Id, agentId, reason, previousStatus));
 
         return Result.Success();
     }
@@ -233,7 +240,7 @@ public sealed class Ticket : Entity
         Status = TicketStatus.InProgress;
         ResolvedOnUtc = null;
 
-        Raise(new TicketReopenedDomainEvent(Id, actorId));
+        Raise(new TicketReopenedDomainEvent(Id, actorId, TicketStatus.Resolved));
 
         return Result.Success();
     }
@@ -249,7 +256,7 @@ public sealed class Ticket : Entity
         Status = TicketStatus.Closed;
         ClosedOnUtc = utcNow;
 
-        Raise(new TicketClosedDomainEvent(Id, actorId, utcNow));
+        Raise(new TicketClosedDomainEvent(Id, actorId, utcNow, TicketStatus.Resolved));
 
         return Result.Success();
     }
@@ -415,7 +422,7 @@ public sealed class Ticket : Entity
             Status = TicketStatus.InProgress;
             ResolvedOnUtc = null;
 
-            Raise(new TicketReopenedDomainEvent(Id, authorId));
+            Raise(new TicketReopenedDomainEvent(Id, authorId, TicketStatus.Resolved));
         }
 
         var message = TicketMessage.Create(Id, authorId, kind, body, visibility, utcNow);

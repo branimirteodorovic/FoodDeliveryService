@@ -35,8 +35,8 @@ public class ObservabilityAssetTests
     /// <see cref="KnownMetricNames_Should_MatchTheInstrumentsCommonCreates"/>. The Orders and
     /// Delivery ones cannot be: <c>Common.UnitTests</c> references no module, by the same convention
     /// that keeps <c>{Module}.UnitTests</c> on its own Domain. They are listed from
-    /// <c>OrdersDiagnostics</c> and <c>DeliveryAssignmentDiagnostics</c>, and the integration suites
-    /// in those modules are what assert the instruments still exist.
+    /// <c>OrdersDiagnostics</c>, <c>DeliveryAssignmentDiagnostics</c> and <c>SupportDiagnostics</c>,
+    /// and the integration suites in those modules are what assert the instruments still exist.
     /// </para>
     /// </summary>
     private static readonly HashSet<string> KnownMetrics =
@@ -62,6 +62,16 @@ public class ObservabilityAssetTests
         "delivery_assignment_duration_seconds_bucket",
         "delivery_assignment_duration_seconds_count",
         "delivery_assignment_duration_seconds_sum",
+
+        // SupportDiagnostics (Feature 3.6 Milestone G). Mind the translation: the histogram's unit
+        // is `s`, so it gains `_seconds` before the per-series suffix, while `{ticket}` and
+        // `{transition}` are annotations the exporter drops rather than suffixes.
+        "support_tickets_opened_total",
+        "support_tickets_transition_total",
+        "support_refunds_decided_total",
+        "support_tickets_resolution_duration_seconds_bucket",
+        "support_tickets_resolution_duration_seconds_count",
+        "support_tickets_resolution_duration_seconds_sum",
 
         // CacheDiagnostics (Caching 2.3 Milestone E), collected from Telemetry Milestone A.
         "cache_hits_total",

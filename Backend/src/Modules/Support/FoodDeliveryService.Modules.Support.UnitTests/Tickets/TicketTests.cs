@@ -199,7 +199,15 @@ public class TicketTests : BaseTest
         result.IsSuccess.Should().BeTrue();
         ticket.Status.Should().Be(TicketStatus.InProgress);
 
-        AssertDomainEventWasPublished<TicketProgressStartedDomainEvent>(ticket).AgentId.Should().Be(agentId);
+        TicketProgressStartedDomainEvent progressStarted =
+            AssertDomainEventWasPublished<TicketProgressStartedDomainEvent>(ticket);
+
+        progressStarted.AgentId.Should().Be(agentId);
+
+        // The status moved OUT of. Only the aggregate can know it — by the time a handler sees the
+        // event the ticket has already advanced — and it is what tags the transition counter's
+        // `from`. Work starts from Open or from Escalated, so it is genuinely not a constant.
+        progressStarted.PreviousStatus.Should().Be(TicketStatus.Open);
     }
 
     [Fact]
@@ -270,6 +278,7 @@ public class TicketTests : BaseTest
 
         domainEvent.AgentId.Should().Be(agentId);
         domainEvent.Resolution.Should().Be("Refund issued");
+        domainEvent.PreviousStatus.Should().Be(TicketStatus.InProgress);
 
         // Both ends of the interval travel with the event, so a consumer can compute the
         // resolution time without ever querying Support.
@@ -370,6 +379,7 @@ public class TicketTests : BaseTest
 
         domainEvent.AgentId.Should().Be(agentId);
         domainEvent.Reason.Should().Be("Needs a supervisor");
+        domainEvent.PreviousStatus.Should().Be(TicketStatus.InProgress);
     }
 
     [Fact]
@@ -454,7 +464,10 @@ public class TicketTests : BaseTest
         // Cleared so the analytics numerator stops counting a resolution that was undone.
         ticket.ResolvedOnUtc.Should().BeNull();
 
-        AssertDomainEventWasPublished<TicketReopenedDomainEvent>(ticket).ActorId.Should().Be(actorId);
+        TicketReopenedDomainEvent reopened = AssertDomainEventWasPublished<TicketReopenedDomainEvent>(ticket);
+
+        reopened.ActorId.Should().Be(actorId);
+        reopened.PreviousStatus.Should().Be(TicketStatus.Resolved);
     }
 
     [Fact]
@@ -522,6 +535,7 @@ public class TicketTests : BaseTest
 
         domainEvent.ActorId.Should().Be(actorId);
         domainEvent.ClosedOnUtc.Should().Be(closedOnUtc);
+        domainEvent.PreviousStatus.Should().Be(TicketStatus.Resolved);
     }
 
     [Fact]

@@ -1,5 +1,6 @@
 using FoodDeliveryService.Common.Application.EventBus;
 using FoodDeliveryService.Common.Application.Messaging;
+using FoodDeliveryService.Modules.Support.Application.Diagnostics;
 using FoodDeliveryService.Modules.Support.Domain.Refunds;
 using FoodDeliveryService.Modules.Support.IntegrationEvents;
 
@@ -31,5 +32,10 @@ internal sealed class RefundApprovedDomainEventHandler(IEventBus eventBus)
                 domainEvent.DecisionNote,
                 domainEvent.DecidedOnUtc),
             cancellationToken);
+
+        // Recorded LAST, after the publish, like every other measurement in this module: the
+        // idempotent wrapper only marks the message handled once Handle returns, so counting first
+        // would inflate the series by every outbox retry.
+        SupportDiagnostics.RecordRefundDecision(RefundStatus.Approved);
     }
 }

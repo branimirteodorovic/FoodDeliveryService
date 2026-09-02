@@ -310,6 +310,8 @@ Two properties of the projection matter enough to test:
 
 Put the derivation in a code comment: Orders publishes no `OutForDelivery`/`Delivered` integration event of its own, so those two snapshot states come from **Delivery's** events. Someone will otherwise go looking for them in `Orders.IntegrationEvents`.
 
+This table is also reproduced in `docs/support-ticketing.md` §5, which G shipped ahead of this milestone with a **Built?** column marking all but the `OrderPlaced` row as pending. Flipping those marks and deleting the note beneath the table is part of this milestone, not a follow-up — see §8.3.
+
 **The first row of this table already exists — Milestone F built it.** F was implemented before D, and §7.1's amount ceiling is unimplementable without a replicated subtotal: `OrderPlacedIntegrationEvent` is the only event carrying one, so refusing to build any of D would have shipped F's central invariant as dead code. What exists is `Support.Domain/Orders/OrderSnapshot.cs` (id, customer, restaurant, **subtotal**, placed-on, `LastEventOnUtc`), its `order_snapshots` table with the `customer_id` index §5.3 needs, `UpsertOrderSnapshotCommand`, `Support.Presentation/Orders/OrderPlacedIntegrationEventHandler`, and the consumer registration in `SupportModule.ConfigureConsumers`. `Support.Presentation` and `Support.Infrastructure` both gained a project reference to `Orders.IntegrationEvents`.
 
 D therefore **extends** this rather than starting it: add `Status` and the per-event fields as columns, the seven remaining handlers as siblings in `Support.Presentation/Orders/`, and `OrderTimelineEntry` as a new table. `LastEventOnUtc` is deliberately already recorded and already guarded (`ApplyPlaced` never moves it backwards) so the out-of-order rule above has a value to compare against on the day the second event arrives — do not add a second timestamp for it. `ApplyPlaced` is the upsert half; nothing about the existing row needs revisiting.
@@ -457,25 +459,53 @@ Permission `support-analytics:read`. Parameters `from`/`to`, defaulting to the l
 
 Caching: `ICachedQuery`, **5-minute TTL, no invalidation**. This is a deliberate departure from `CLAUDE.md`'s inline-`RemoveAsync` rule and the reason belongs in a comment: that rule governs entity-keyed reads whose staleness a user experiences as a bug. A 30-day aggregate is not entity-keyed — every ticket write would have to evict it — and a five-minute-old management summary is the norm. Key via a `SupportCacheKeys` convention class built on `CacheKeys.Create`, never concatenated at the call site.
 
+*As built, four things the sketch above could not know:*
+
+1. **The window defaults are applied in the endpoint, not the handler.** `ICachedQuery.CacheKey` is read by `QueryCachingBehavior` *before* any handler runs, so a query still holding `null` bounds keys every window identically and serves one report's numbers for another. `GetSupportSummaryQuery.Create(from, to, utcNow)` resolves the defaults, and the endpoint injects `IDateTimeProvider` to supply the clock — the handler never sees a null bound.
+2. **Both bounds are truncated to the minute**, in that same factory. An unrounded `UtcNow` upper bound gives every request its own key: a 100%-miss cache that still costs a Redis round trip on both sides of every call. The rounding is what makes the TTL mean anything, and the cache test only passes because of it.
+3. **One `QueryMultiple` command, not six round trips**, and every column is CAST in SQL: counts to `integer` (`COUNT(*)` is a `bigint`) and durations to `double precision` (`EXTRACT` returns `numeric`, which arrives as a `decimal`). **Do not CAST the day series to `date`** — Npgsql reads a `date` column as a `DateOnly` and Dapper then demands a constructor taking one. That is a 500 which costs real time to trace, because `ExceptionHandlingPipelineBehavior` wraps it and the endpoint returns a bare ProblemDetails with no detail: the fastest route to the message is a throwaway test that sends the query through `ISender` directly. The `generate_series` output is already midnight-aligned, so leave it a timestamp.
+4. **A max window of 366 days** in the validator, and the window is **half-open** (`>= from AND < to`) in every statement — a closed upper bound double-counts a ticket landing on a boundary that two adjacent monthly reports share.
+
+Response shape as shipped: `SupportSummaryResponse { FromUtc, ToUtc, Totals, TicketsPerDay, ByCategory, ByStatus, ByAgent, Refunds }`, where `Totals` carries `TicketsOpened`, `TicketsResolved`, `TicketsFirstResponded` and the four nullable duration figures. `TicketsResolved` is keyed on `ResolvedOnUtc` and is deliberately **not** a subset of `TicketsOpened` — the two answer "how much arrived" and "how much was got through", and reading one as the other's share is the misinterpretation the field comments exist to prevent.
+
 ### 8.2 Business metrics (`SupportDiagnostics`)
 A `{Module}Diagnostics` static over `AppDiagnostics`, registered with `AddModuleDiagnostics(SupportDiagnostics.Name)` in the host — an unregistered meter records into nothing and never errors.
 
 | Instrument | Tags | Recorded where |
 |---|---|---|
-| `support.tickets.opened` (counter) | `category`, `source` | beside the `TicketOpened` domain-event handler, **last**, so an outbox retry cannot double-count |
-| `support.tickets.transition` (counter) | `from`, `to` | the status-change handler — reachable since §4.2 shipped assignment, and deliberately left here rather than added there, so the instrument and its Grafana panel land in one PR (§3.6) |
-| `support.ticket.resolution_time` (histogram, seconds) | `category` | the resolve handler |
-| `support.refunds.decided` (counter) | `outcome` | the refund decision handlers — reachable since §7 shipped them, and left here for the same reason the transition counter was: `ObservabilityAssetTests` fails the build if a dashboard names a metric nothing emits, so the instrument and its Grafana panel land in one PR |
+| `support.tickets.opened` (counter) | `category` *(no `source` — see below)* | beside the `TicketOpened` domain-event handler, **last**, so an outbox retry cannot double-count |
+| `support.tickets.transition` (counter) | `from`, `to` | five domain-event handlers, one per transition — **not** the command handler |
+| `support.tickets.resolution.duration` (histogram, seconds) | `category` | the resolve handler |
+| `support.refunds.decided` (counter) | `outcome` | the two refund-decision domain-event handlers |
 
 Enum values only — never a ticket id, agent id or free-text reason.
 
 Add a Grafana panel in `docker/grafana`. `ObservabilityAssetTests` fails the build if a dashboard names a metric nothing emits, so the dashboard and the instruments must land in the same PR — and mind the Prometheus rename (`support.tickets.opened` → `support_tickets_opened_total`).
 
+*Three departures from the table as it was first written, each with a reason:*
+
+- **`support.tickets.opened` carries no `source` tag.** Milestone B shipped the counter with `category` only, and every ticket in the tree is `CustomerPortal`: `Chatbot` and `FraudFlag` have no producer (§13) and `AgentCreated` has no endpoint. A tag with one value forever is not a dimension, it is a constant welded onto every series — it goes in when something can actually set it.
+- **The histogram is `support.tickets.resolution.duration`, not `support.ticket.resolution_time`.** Milestone B named it; the dashboards and `ObservabilityAssetTests` now reference the Prometheus translation `support_tickets_resolution_duration_seconds_*`, and renaming a shipped instrument to match a plan sketch buys nothing but a window in which the panel is blank.
+- **The transition counter is fed from domain-event handlers, not from `ChangeTicketStatusCommandHandler`.** Recording it in the command handler would make it the one measurement in the module that a rolled-back `SaveChangesAsync` could still have counted. That needed a **domain change**: `TicketProgressStarted`, `TicketEscalated`, `TicketReopened`, `TicketClosed` and `TicketResolved` all gained a `PreviousStatus`, exactly as `OrderAcceptedDomainEvent` carries one and for the same reason — only the aggregate knows the source status, because by the time a handler sees the event the ticket has already advanced. Four of the five handlers are measurement-only and publish nothing: no consumer outside Support reacts to work starting on a ticket, and an integration event every consumer ignores is worse than none.
+
+Unlike `orders.state_transition` there is deliberately **no `from=none`** value: a ticket cannot be opened into the middle of its lifecycle, so the opening edge is `support.tickets.opened`. The reopen edge (`Resolved → InProgress`) is counted from both roads — the agent-driven `Reopen`, and a customer replying on a resolved ticket, which `Ticket.PostMessage` raises the *same* event for — and its ratio against resolutions is the "did the resolution hold?" signal that no time-to-resolution number can show.
+
+The four panels landed on the existing **Business** dashboard (`fds-business`) as a fourth row rather than in a new file: `Dashboards_Should_BeProvisioned_ForEveryStoryTheMilestonePromises` pins the dashboard uid set by hand, so a new file is a test change as well as an asset one — and support volume belongs beside order volume in any case.
+
 ### 8.3 `docs/support-ticketing.md`
 The reference document, matching `docs/caching.md` / `docs/rate-limiting.md`: the ticket state machine as a diagram, the permission matrix, what the audit log guarantees, the projection table from §5.2, why refunds move no money, and the analytics definitions. Link it from the root `README.md`.
 
+*As built:* nine sections, with the state machine as a Mermaid `stateDiagram-v2` (artifacts render Mermaid natively and GitHub does too, so it needs no image). §5 carries §5.2's projection table with a **Built?** column, because G shipped before D and a reference document that describes an unbuilt timeline as fact is worse than one that omits it — **D updates that column and drops the note under the table rather than rewriting the section.** The permission matrix is the only place the full role/code grid exists in prose; §2.1 here lists the codes, `PermissionConfiguration` seeds them, and neither reads as a matrix.
+
 ### 8.4 Tests
 - *Integration*: seed tickets with known timestamps → counts, mean and median match hand-computed values; a quiet day appears as a zero rather than a missing row; a second identical call inside the TTL is served from cache (assert a stable response across an intervening write, or on the cache-hit counter).
+
+*As built — `Analytics/SupportSummaryTests.cs`, 5 tests (45 in the project, up from 40), plus `PreviousStatus` assertions folded into the five existing transition unit tests (82 unchanged).* Two harness points any later reporting work will hit as well:
+
+- **Every test works in a window years in the past** — 2001, 2002, 2003 and 2004, one per test. The suite shares one database across its collection, so a summary over "the last 30 days" is computed over whatever every other test class happened to have opened. Hand-computed numbers only mean something if nothing else can land in the window.
+- **Tickets are opened through the real endpoint and then back-dated with one `UPDATE`.** Only the three timestamps and the status are written directly; everything the assertions are about still came through the aggregate. There is no alternative: `IDateTimeProvider` is resolved inside the host, and faking it would replace the very clock the resolution arithmetic is being tested on.
+
+The fixture for the headline test is 1 h / 2 h / 6 h — mean 3 h, median 2 h — chosen so the two figures **differ**. A fixture where they agree passes whether or not the median is computed at all.
 
 ---
 

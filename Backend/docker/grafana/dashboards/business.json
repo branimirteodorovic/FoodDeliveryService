@@ -338,6 +338,155 @@
         "mode": "markdown",
         "content": "`delivery.assignment.outcome` and `delivery.assignment.duration` **do not share a denominator.** The histogram measures one turn of `DeliveryAssignmentService.OfferNextAsync`; the counter additionally carries `expired`, which the expiry job records for a *previous* offer that lapsed, and the re-offer it triggers is counted separately on its own turn.\n\nRead the counter **per outcome**, never as a total — a ratio built on `sum(...)` across all outcomes double-counts a delivery that was offered, expired and re-offered."
       }
+    },
+    {
+      "id": 30,
+      "type": "row",
+      "title": "Support & ticketing",
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 36 },
+      "panels": []
+    },
+    {
+      "id": 31,
+      "type": "timeseries",
+      "title": "Tickets opened / min by category",
+      "description": "support.tickets.opened, recorded last in TicketOpenedDomainEventHandler. Read as a product signal before a staffing one: a rising FoodQuality or ItemMissing line is a restaurant problem arriving through the support queue.",
+      "datasource": { "type": "prometheus", "uid": "fooddelivery-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 37 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "stacking": { "mode": "normal", "group": "A" }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "60 * sum by (category) (rate(support_tickets_opened_total[$__rate_interval]))",
+          "legendFormat": "{{category}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "type": "timeseries",
+      "title": "Ticket transitions / min",
+      "description": "support.tickets.transition, tagged with the statuses moved between. Unlike the order graph there is no from=none edge: a ticket cannot be born mid-lifecycle, so the opening edge is the counter above.",
+      "datasource": { "type": "prometheus", "uid": "fooddelivery-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 37 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "stacking": { "mode": "normal", "group": "A" }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "60 * sum by (from, to) (rate(support_tickets_transition_total[$__rate_interval]))",
+          "legendFormat": "{{from}} → {{to}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "type": "timeseries",
+      "title": "Time to resolution p50 / p95",
+      "description": "Both quantiles on purpose, for the same reason the load report leads with p95: the median is the experience a typical customer had, and the gap to p95 is the tail that a mean would hide entirely.",
+      "datasource": { "type": "prometheus", "uid": "fooddelivery-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 45 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": { "drawStyle": "line", "fillOpacity": 0, "lineWidth": 1, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["max"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(support_tickets_resolution_duration_seconds_bucket[$__rate_interval])))",
+          "legendFormat": "p50",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.95, sum by (le, category) (rate(support_tickets_resolution_duration_seconds_bucket[$__rate_interval])))",
+          "legendFormat": "p95 {{category}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 34,
+      "type": "timeseries",
+      "title": "Refund decisions in window",
+      "description": "support.refunds.decided, tagged approved or rejected. The ratio is the signal, not the total: a queue approving everything is not applying a policy, and one approving nothing is not resolving anything. No money moves on any of these — the platform has no payment processing.",
+      "datasource": { "type": "prometheus", "uid": "fooddelivery-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 45 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "stacking": { "mode": "normal", "group": "A" }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["sum"] },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "expr": "sum by (outcome) (increase(support_refunds_decided_total[$__rate_interval]))",
+          "legendFormat": "{{outcome}}",
+          "range": true
+        }
+      ]
     }
   ]
 }

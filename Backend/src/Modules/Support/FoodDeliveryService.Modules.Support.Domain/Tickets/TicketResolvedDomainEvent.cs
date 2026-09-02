@@ -15,7 +15,8 @@ public sealed class TicketResolvedDomainEvent(
     TicketCategory category,
     string resolution,
     DateTime openedOnUtc,
-    DateTime resolvedOnUtc) : DomainEvent
+    DateTime resolvedOnUtc,
+    TicketStatus previousStatus) : DomainEvent
 {
     public Guid TicketId { get; init; } = ticketId;
 
@@ -34,4 +35,11 @@ public sealed class TicketResolvedDomainEvent(
     public DateTime OpenedOnUtc { get; init; } = openedOnUtc;
 
     public DateTime ResolvedOnUtc { get; init; } = resolvedOnUtc;
+
+    /// <summary>
+    /// The status the ticket moved out of — InProgress or Escalated. The `from` tag of the
+    /// transition counter; deliberately not on the integration event, which describes the outcome
+    /// rather than the route taken to it.
+    /// </summary>
+    public TicketStatus PreviousStatus { get; init; } = previousStatus;
 }

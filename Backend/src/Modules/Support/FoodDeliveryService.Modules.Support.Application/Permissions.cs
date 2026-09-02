@@ -1,4 +1,4 @@
-﻿namespace FoodDeliveryService.Modules.Support.Application;
+namespace FoodDeliveryService.Modules.Support.Application;
 
 /// <summary>
 /// Permission codes used by this module's endpoints. They must match the codes seeded in the Users
@@ -60,4 +60,10 @@ public static class Permissions
     /// <c>RefundRequest.Approve</c> refuses the requester regardless of permissions.
     /// </summary>
     public const string ApproveRefund = "refunds:approve";
+
+    /// <summary>
+    /// The management summary. Held by agents and administrators, never by a customer: the numbers
+    /// are platform-wide, so unlike the ticket reads there is nothing here to narrow to an owner.
+    /// </summary>
+    public const string GetAnalytics = "support-analytics:read";
 }

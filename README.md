@@ -383,13 +383,13 @@ Backend/
 ├── docker/                     # OTel Collector, Prometheus rules, provisioned Grafana dashboards, blackbox
 ├── loadtest/                   # k6 harness — journeys, profiles, thresholds, published run artifacts
 ├── tools/                      # The deterministic load-test dataset seeder
-└── docs/                       # Caching, observability, rate limiting, load testing, health probes, ADRs
+└── docs/                       # Caching, observability, rate limiting, load testing, support, health probes, ADRs
 Frontend/                       # Angular SPA (planned)
 ```
 
 Each module follows the same five-project shape, and a module's `IntegrationEvents` project is the **only** thing another service is ever allowed to reference.
 
-Deeper write-ups live in [`Backend/docs/`](Backend/docs/): caching strategy and invalidation model, the observability architecture, the edge rate-limiting design, the full load-testing record, the health-probe contract, CAP-theorem trade-offs for this topology, and the registration-flow architecture decisions.
+Deeper write-ups live in [`Backend/docs/`](Backend/docs/): caching strategy and invalidation model, the observability architecture, the edge rate-limiting design, the full load-testing record, the [support ticketing reference](Backend/docs/support-ticketing.md) (state machine, permission matrix, audit-log guarantees, why refunds move no money), the health-probe contract, CAP-theorem trade-offs for this topology, and the registration-flow architecture decisions.
 
 ---
 

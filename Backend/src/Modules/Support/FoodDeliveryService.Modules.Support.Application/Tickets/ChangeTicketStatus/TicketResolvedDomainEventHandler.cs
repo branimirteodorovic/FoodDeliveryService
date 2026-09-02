@@ -36,5 +36,9 @@ internal sealed class TicketResolvedDomainEventHandler(IEventBus eventBus)
         SupportDiagnostics.RecordResolution(
             domainEvent.Category,
             domainEvent.ResolvedOnUtc - domainEvent.OpenedOnUtc);
+
+        // The resolving edge of the transition graph. Recorded here rather than in a handler of its
+        // own so the two measurements a resolution produces cannot drift apart across a retry.
+        SupportDiagnostics.RecordTransition(domainEvent.PreviousStatus, TicketStatus.Resolved);
     }
 }
