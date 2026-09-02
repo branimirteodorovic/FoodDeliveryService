@@ -4,6 +4,7 @@
     <ProjectReference Include="..\..\..\Common\FoodDeliveryService.Common.Infrastructure\FoodDeliveryService.Common.Infrastructure.csproj" />
     <ProjectReference Include="..\FoodDeliveryService.Modules.Support.Application\FoodDeliveryService.Modules.Support.Application.csproj" />
     <ProjectReference Include="..\FoodDeliveryService.Modules.Support.Presentation\FoodDeliveryService.Modules.Support.Presentation.csproj" />
+    <ProjectReference Include="..\..\Orders\FoodDeliveryService.Modules.Orders.IntegrationEvents\FoodDeliveryService.Modules.Orders.IntegrationEvents.csproj" />
     <ProjectReference Include="..\..\Users\FoodDeliveryService.Modules.Users.IntegrationEvents\FoodDeliveryService.Modules.Users.IntegrationEvents.csproj" />
   </ItemGroup>
 

@@ -3,6 +3,8 @@ using FoodDeliveryService.Common.Infrastructure.Outbox;
 using FoodDeliveryService.Modules.Support.Application.Abstractions.Data;
 using FoodDeliveryService.Modules.Support.Domain.Agents;
 using FoodDeliveryService.Modules.Support.Domain.Audit;
+using FoodDeliveryService.Modules.Support.Domain.Orders;
+using FoodDeliveryService.Modules.Support.Domain.Refunds;
 using FoodDeliveryService.Modules.Support.Domain.Tickets;
 using Microsoft.EntityFrameworkCore;
 
@@ -28,6 +30,19 @@ public sealed class SupportDbContext(DbContextOptions<SupportDbContext> options)
     /// audit endpoint goes through Dapper like every other read.
     /// </summary>
     internal DbSet<SupportAuditEntry> SupportAuditEntries { get; set; }
+
+    /// <summary>
+    /// Refund requests and the decisions on them. Its own aggregate, not a child of the ticket — a
+    /// ticket can be resolved while a refund is still awaiting an administrator.
+    /// </summary>
+    internal DbSet<RefundRequest> RefundRequests { get; set; }
+
+    /// <summary>
+    /// The local order replica, projected from Orders' lifecycle events. Today it carries only what
+    /// the refund ceiling needs; the status, timeline and driver fields land with the ticket-context
+    /// milestone.
+    /// </summary>
+    internal DbSet<OrderSnapshot> OrderSnapshots { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

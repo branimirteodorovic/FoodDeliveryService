@@ -25,4 +25,25 @@ public static class SupportLocks
     /// fail cleanly instead of overwriting it.
     /// </summary>
     public static string Ticket(Guid ticketId) => CacheKeys.Create("support", "ticket-lock", ticketId);
+
+    /// <summary>
+    /// How long a refund decision holds its lock. The same five seconds as a claim, for the same
+    /// reason — one read plus one transaction — and deliberately not longer: an administrator who
+    /// walks away mid-decision must not park the request, and the aggregate refuses the second
+    /// decision anyway once the first has committed.
+    /// </summary>
+    public static readonly TimeSpan DecisionTtl = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// Held while one refund request is being approved or rejected. The same check-then-act shape
+    /// as a claim — read the status, see it undecided, write the decision — over two round trips
+    /// with no concurrency token behind it, except that here the losing write would record a second
+    /// administrator agreeing to money leaving the business.
+    /// <para>
+    /// Keyed on the refund request rather than on its ticket: approve and reject contend with each
+    /// other and with themselves, and nothing about them contends with a claim on the same ticket.
+    /// </para>
+    /// </summary>
+    public static string Refund(Guid refundRequestId) =>
+        CacheKeys.Create("support", "refund-lock", refundRequestId);
 }

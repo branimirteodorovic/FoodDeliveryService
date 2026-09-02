@@ -46,4 +46,18 @@ public static class Permissions
     /// </para>
     /// </summary>
     public const string AdministerTickets = "support-tickets:administer";
+
+    /// <summary>
+    /// Agent (and administrator): raise a refund request against a ticket's order, and read the
+    /// request queue. Asking is not deciding — see <see cref="ApproveRefund"/>.
+    /// </summary>
+    public const string RequestRefund = "refunds:request";
+
+    /// <summary>
+    /// Administrator only, and the reason the refund workflow has two steps at all. Deliberately a
+    /// separate code from <see cref="RequestRefund"/> rather than a stronger version of it: an
+    /// account that holds both can still not decide its own request, because
+    /// <c>RefundRequest.Approve</c> refuses the requester regardless of permissions.
+    /// </summary>
+    public const string ApproveRefund = "refunds:approve";
 }

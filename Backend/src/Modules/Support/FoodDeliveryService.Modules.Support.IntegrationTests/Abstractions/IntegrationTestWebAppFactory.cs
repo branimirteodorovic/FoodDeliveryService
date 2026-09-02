@@ -1,6 +1,7 @@
 ﻿using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
+using FoodDeliveryService.Common.Application.EventBus;
 using FoodDeliveryService.Modules.Users.Application.Abstractions.Data;
 using FoodDeliveryService.Modules.Users.Domain.Users;
 using Microsoft.AspNetCore.Hosting;
@@ -170,6 +171,22 @@ public class IntegrationTestWebAppFactory : WebApplicationFactory<Program>, IAsy
         (CustomerUserEmail, Guid customerUserId) = await SeedTestUserAsync(Role.Customer);
         CustomerUserId = customerUserId;
         (OtherCustomerUserEmail, _) = await SeedTestUserAsync(Role.Customer);
+    }
+
+    /// <summary>
+    /// Publishes an upstream integration event onto the shared broker through Support's own
+    /// <see cref="IEventBus"/> — the same MassTransit path the owning service uses — so this
+    /// module's registered <c>IntegrationEventConsumer&lt;T&gt;</c> receives it into the inbox.
+    /// It is how a test gives Support an order to refund without standing up Orders as well.
+    /// </summary>
+    public async Task PublishAsync<T>(T integrationEvent, CancellationToken cancellationToken = default)
+        where T : IIntegrationEvent
+    {
+        await using AsyncServiceScope scope = Services.CreateAsyncScope();
+
+        var eventBus = scope.ServiceProvider.GetRequiredService<IEventBus>();
+
+        await eventBus.PublishAsync(integrationEvent, cancellationToken);
     }
 
     public override async ValueTask DisposeAsync()

@@ -246,6 +246,119 @@ namespace FoodDeliveryService.Modules.Support.Infrastructure.Database.Migrations
                     b.ToTable("support_audit_entries", (string)null);
                 });
 
+            modelBuilder.Entity("FoodDeliveryService.Modules.Support.Domain.Orders.OrderSnapshot", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("customer_id");
+
+                    b.Property<DateTime>("LastEventOnUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_event_on_utc");
+
+                    b.Property<DateTime>("PlacedOnUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("placed_on_utc");
+
+                    b.Property<Guid>("RestaurantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("restaurant_id");
+
+                    b.Property<decimal>("Subtotal")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("subtotal");
+
+                    b.HasKey("Id")
+                        .HasName("pk_order_snapshots");
+
+                    b.HasIndex("CustomerId")
+                        .HasDatabaseName("ix_order_snapshots_customer_id");
+
+                    b.ToTable("order_snapshots", (string)null);
+                });
+
+            modelBuilder.Entity("FoodDeliveryService.Modules.Support.Domain.Refunds.RefundRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("amount");
+
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("customer_id");
+
+                    b.Property<Guid?>("DecidedByAdminId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("decided_by_admin_id");
+
+                    b.Property<DateTime?>("DecidedOnUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("decided_on_utc");
+
+                    b.Property<string>("DecisionNote")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("decision_note");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("order_id");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("reason");
+
+                    b.Property<Guid>("RequestedByAgentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("requested_by_agent_id");
+
+                    b.Property<DateTime>("RequestedOnUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("requested_on_utc");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("TicketId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("ticket_id");
+
+                    b.Property<string>("TicketReference")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("ticket_reference");
+
+                    b.HasKey("Id")
+                        .HasName("pk_refund_requests");
+
+                    b.HasIndex("OrderId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_refund_requests_order_id")
+                        .HasFilter("status IN (0, 1)");
+
+                    b.HasIndex("Status")
+                        .HasDatabaseName("ix_refund_requests_status");
+
+                    b.HasIndex("TicketId")
+                        .HasDatabaseName("ix_refund_requests_ticket_id");
+
+                    b.ToTable("refund_requests", (string)null);
+                });
+
             modelBuilder.Entity("FoodDeliveryService.Modules.Support.Domain.Tickets.Ticket", b =>
                 {
                     b.Property<Guid>("Id")
@@ -370,6 +483,16 @@ namespace FoodDeliveryService.Modules.Support.Infrastructure.Database.Migrations
                         .HasDatabaseName("ix_ticket_messages_ticket_id_posted_on_utc");
 
                     b.ToTable("ticket_messages", (string)null);
+                });
+
+            modelBuilder.Entity("FoodDeliveryService.Modules.Support.Domain.Refunds.RefundRequest", b =>
+                {
+                    b.HasOne("FoodDeliveryService.Modules.Support.Domain.Tickets.Ticket", null)
+                        .WithMany()
+                        .HasForeignKey("TicketId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_refund_requests_tickets_ticket_id");
                 });
 
             modelBuilder.Entity("FoodDeliveryService.Modules.Support.Domain.Tickets.TicketMessage", b =>

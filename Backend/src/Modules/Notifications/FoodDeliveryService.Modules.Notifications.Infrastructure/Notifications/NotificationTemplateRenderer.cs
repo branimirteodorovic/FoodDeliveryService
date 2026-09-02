@@ -15,6 +15,7 @@ internal sealed class NotificationTemplateRenderer : INotificationTemplateRender
         {
             OrderConfirmationModel m => RenderOrderConfirmation(m),
             SupportTicketReplyModel m => RenderSupportTicketReply(m),
+            RefundDecisionModel m => RenderRefundDecision(m),
             _ => throw new ArgumentOutOfRangeException(
                 nameof(model),
                 model.GetType().Name,
@@ -35,6 +36,37 @@ internal sealed class NotificationTemplateRenderer : INotificationTemplateRender
             $"Order: {orderShortId}\n" +
             $"Subtotal: {subtotal}\n\n" +
             "You'll get live updates as your order progresses.";
+
+        return new RenderedTemplate(subject, body);
+    }
+
+    private static RenderedTemplate RenderRefundDecision(RefundDecisionModel model)
+    {
+        string amount = model.Amount.ToString("F2", CultureInfo.InvariantCulture);
+
+        // The outcome is in the subject line. A customer scanning an inbox for the answer to
+        // "am I getting my money back" should not have to open the message to find it.
+        string subject = model.Approved
+            ? $"Your refund request was approved ({model.TicketReference})"
+            : $"Your refund request was declined ({model.TicketReference})";
+
+        // "Approved", never "sent" or "processed": no payment is made anywhere in this platform,
+        // and an email promising money in the account would be the one place that fiction reached
+        // a customer.
+        string outcome = model.Approved
+            ? $"Your refund request for {amount} has been approved."
+            : $"Your refund request for {amount} was not approved on this occasion.";
+
+        string note = string.IsNullOrWhiteSpace(model.DecisionNote)
+            ? string.Empty
+            : $"\n\nNote from our team:\n\"{model.DecisionNote}\"";
+
+        string body =
+            $"Hi {model.FirstName},\n\n" +
+            $"{outcome}\n\n" +
+            $"Ticket: {model.TicketReference}" +
+            note +
+            "\n\nSign in to your account to see the full conversation or reply to your agent.";
 
         return new RenderedTemplate(subject, body);
     }

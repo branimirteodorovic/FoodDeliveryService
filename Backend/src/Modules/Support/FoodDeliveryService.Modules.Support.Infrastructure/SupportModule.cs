@@ -8,6 +8,8 @@ using FoodDeliveryService.Modules.Support.Application.Abstractions.Authenticatio
 using FoodDeliveryService.Modules.Support.Application.Abstractions.Data;
 using FoodDeliveryService.Modules.Support.Domain.Agents;
 using FoodDeliveryService.Modules.Support.Domain.Audit;
+using FoodDeliveryService.Modules.Support.Domain.Orders;
+using FoodDeliveryService.Modules.Support.Domain.Refunds;
 using FoodDeliveryService.Modules.Support.Domain.Tickets;
 using FoodDeliveryService.Modules.Support.Infrastructure.Agents;
 using FoodDeliveryService.Modules.Support.Infrastructure.Audit;
@@ -15,8 +17,11 @@ using FoodDeliveryService.Modules.Support.Infrastructure.Authentication;
 using FoodDeliveryService.Modules.Support.Infrastructure.Authorization;
 using FoodDeliveryService.Modules.Support.Infrastructure.Database;
 using FoodDeliveryService.Modules.Support.Infrastructure.Inbox;
+using FoodDeliveryService.Modules.Support.Infrastructure.Orders;
 using FoodDeliveryService.Modules.Support.Infrastructure.Outbox;
+using FoodDeliveryService.Modules.Support.Infrastructure.Refunds;
 using FoodDeliveryService.Modules.Support.Infrastructure.Tickets;
+using FoodDeliveryService.Modules.Orders.IntegrationEvents;
 using FoodDeliveryService.Modules.Users.IntegrationEvents;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
@@ -49,11 +54,18 @@ public static class SupportModule
         return (registration, instanceId, _) =>
         {
             // The agent replica: who a ticket can be assigned to, and whose name a ticket list
-            // renders. Both handlers skip users that are not support staff. The customer and
-            // order-history replicas arrive in the context milestone as further AddConsumer lines.
+            // renders. Both handlers skip users that are not support staff. The customer replica
+            // arrives in the context milestone as a further subscription here.
             registration.AddConsumer<IntegrationEventConsumer<UserRegisteredIntegrationEvent>>()
                 .Endpoint(c => c.InstanceId = instanceId);
             registration.AddConsumer<IntegrationEventConsumer<UserProfileUpdatedIntegrationEvent>>()
+                .Endpoint(c => c.InstanceId = instanceId);
+
+            // The order replica. Only the placed event today, because the refund ceiling is the
+            // only fact about an order this service currently needs and that is the event carrying
+            // the subtotal. The other seven lifecycle events join it in the ticket-context
+            // milestone, each as one more subscription here alongside its own handler.
+            registration.AddConsumer<IntegrationEventConsumer<OrderPlacedIntegrationEvent>>()
                 .Endpoint(c => c.InstanceId = instanceId);
 
             // The explicit request client is not optional: without it MassTransit's implicit
@@ -81,6 +93,10 @@ public static class SupportModule
         services.AddScoped<ISupportAgentRepository, SupportAgentRepository>();
 
         services.AddScoped<ISupportAuditRepository, SupportAuditRepository>();
+
+        services.AddScoped<IRefundRequestRepository, RefundRequestRepository>();
+
+        services.AddScoped<IOrderSnapshotRepository, OrderSnapshotRepository>();
 
         // One implementation, called by every command handler that changes a ticket. Registered
         // here rather than discovered, because "the audit entry commits with the change" is a

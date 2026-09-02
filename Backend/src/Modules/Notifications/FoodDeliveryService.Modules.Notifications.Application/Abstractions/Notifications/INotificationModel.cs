@@ -34,3 +34,26 @@ public sealed record SupportTicketReplyModel(
 {
     public NotificationType Type => NotificationType.SupportTicketReply;
 }
+
+/// <summary>
+/// The outcome of a refund request as the email renders it.
+/// <para>
+/// <paramref name="Approved"/> is a bool rather than two models because the two emails differ only
+/// in a sentence: one template arm keeps the amount, the reference and the note formatted the same
+/// way for both, which is what stops a declined-refund email from quietly drifting into a different
+/// shape from the approved one.
+/// </para>
+/// <para>
+/// Approved means an administrator agreed, not that money moved — this platform processes no
+/// payments — so the copy says the decision was made and never that funds are on their way.
+/// </para>
+/// </summary>
+public sealed record RefundDecisionModel(
+    string FirstName,
+    string TicketReference,
+    decimal Amount,
+    bool Approved,
+    string? DecisionNote) : INotificationModel
+{
+    public NotificationType Type => NotificationType.RefundDecision;
+}

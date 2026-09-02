@@ -60,6 +60,14 @@ public static class NotificationsModule
                 .Endpoint(c => c.InstanceId = instanceId);
             registration.AddConsumer<IntegrationEventConsumer<TicketMessagePostedIntegrationEvent>>()
                 .Endpoint(c => c.InstanceId = instanceId);
+
+            // Both refund outcomes. Two subscriptions rather than one, because Support publishes
+            // two contracts — the customer is told either way, and a declined request that arrives
+            // in silence is indistinguishable from one nobody read.
+            registration.AddConsumer<IntegrationEventConsumer<RefundApprovedIntegrationEvent>>()
+                .Endpoint(c => c.InstanceId = instanceId);
+            registration.AddConsumer<IntegrationEventConsumer<RefundRejectedIntegrationEvent>>()
+                .Endpoint(c => c.InstanceId = instanceId);
         };
     }
 

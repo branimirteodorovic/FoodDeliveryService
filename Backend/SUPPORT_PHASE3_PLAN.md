@@ -310,6 +310,10 @@ Two properties of the projection matter enough to test:
 
 Put the derivation in a code comment: Orders publishes no `OutForDelivery`/`Delivered` integration event of its own, so those two snapshot states come from **Delivery's** events. Someone will otherwise go looking for them in `Orders.IntegrationEvents`.
 
+**The first row of this table already exists — Milestone F built it.** F was implemented before D, and §7.1's amount ceiling is unimplementable without a replicated subtotal: `OrderPlacedIntegrationEvent` is the only event carrying one, so refusing to build any of D would have shipped F's central invariant as dead code. What exists is `Support.Domain/Orders/OrderSnapshot.cs` (id, customer, restaurant, **subtotal**, placed-on, `LastEventOnUtc`), its `order_snapshots` table with the `customer_id` index §5.3 needs, `UpsertOrderSnapshotCommand`, `Support.Presentation/Orders/OrderPlacedIntegrationEventHandler`, and the consumer registration in `SupportModule.ConfigureConsumers`. `Support.Presentation` and `Support.Infrastructure` both gained a project reference to `Orders.IntegrationEvents`.
+
+D therefore **extends** this rather than starting it: add `Status` and the per-event fields as columns, the seven remaining handlers as siblings in `Support.Presentation/Orders/`, and `OrderTimelineEntry` as a new table. `LastEventOnUtc` is deliberately already recorded and already guarded (`ApplyPlaced` never moves it backwards) so the out-of-order rule above has a value to compare against on the day the second event arrives — do not add a second timestamp for it. `ApplyPlaced` is the upsert half; nothing about the existing row needs revisiting.
+
 ### 5.3 `GET support/tickets/{id}/context`
 Permission `support-tickets:read`, ownership-scoped like the ticket read. Returns, one Dapper round trip per section:
 - the ticket's order snapshot + its full timeline (when `OrderId` is set),
@@ -378,6 +382,8 @@ In Notifications: a new `NotificationType.SupportTicketReply`, a template, and a
 
 **PR size: small-to-medium.** Self-contained; depends on D for the order subtotal.
 
+*As built (2026-08-31), F shipped before D.* The dependency is real and was met by building the one slice of D that F needs — the `OrderSnapshot` fed by `OrderPlacedIntegrationEvent`, which is the only event carrying a subtotal. See §5.2 for exactly what exists and how D extends it. The alternative readings were both worse: dropping the ceiling would have removed the aggregate's most important rule, and refusing a refund whenever no snapshot exists would have shipped the whole milestone as untestable code, which is the trap §3.3 already had to dig this plan out of once.
+
 ### 7.1 `RefundRequest` aggregate (`Domain/Refunds/`)
 ```csharp
 public Guid Id { get; }
@@ -399,6 +405,12 @@ public DateTime? DecidedOnUtc { get; }
 - **`RequestedByAgentId != adminId`** — enforced in the aggregate. Segregation of duties is a domain invariant here, not a policy checkbox, and stating it that way is the point of the feature.
 - At most one non-rejected request per order — a unique partial index plus an aggregate check, since two agents on two tickets for the same order is a plausible race.
 
+*As built:* the aggregate reaches for nothing, so both facts it cannot know are handler-supplied parameters — `orderSubtotal` from the `OrderSnapshot` and `orderHasActiveRefundRequest` from `IRefundRequestRepository.HasActiveForOrderAsync`. That is what makes the ceiling and the one-per-order rule unit-testable with no database at all. The partial index is `status IN (0, 1)` (Requested, Approved); a *rejected* request deliberately does not block a second, better-argued attempt, and the repository predicate is written to match the index exactly — if the read ever narrows further, the handler starts admitting rows the database will then refuse.
+
+The residual race is worth naming rather than papering over: two agents passing the pre-check in the same instant leaves the loser hitting the unique index, which surfaces as a `500` rather than the `409` the pre-check produces. The record stays correct — that is what the index is for — and no lock was added, because a third lock key would guard a window measured in milliseconds against an outcome that is already impossible. The Application layer cannot translate it into a clean failure without referencing EF Core, which is why the fix is not simply a catch block.
+
+`RefundRequest` also carries **`TicketReference`**, which §7.1's field list does not. All three events have to carry it — it is the identifier the customer's decision email quotes — and the alternative is a read-back from the domain-event handler, which runs inside `ProcessOutboxJob` with no authenticated caller and therefore cannot use the ownership-scoped ticket query at all. A reference is immutable for the life of a ticket, so the usual objection to a denormalized copy does not apply.
+
 ### 7.2 The lock on the decision
 `Approve`/`Reject` is check-then-act on `Status` with no concurrency token, and a double approval is the one outcome here with real-world consequences. Same `IDistributedLock` shape as §4.3, key `SupportLocks.Refund(refundRequestId)`.
 
@@ -412,12 +424,21 @@ public DateTime? DecidedOnUtc { get; }
 
 All four write audit entries. Publishes `RefundRequestedIntegrationEvent`, `RefundApprovedIntegrationEvent`, `RefundRejectedIntegrationEvent`.
 
+*As built:* `GET support/refund-requests` is gated on `refunds:request`, not `refunds:approve` — an agent needs to see that what they asked for was decided, and reading a queue is not deciding on it. No customer holds either code, so the list never reaches one; a customer learns their outcome from the email and their ticket thread. The audit entries are keyed on the **ticket**, like every other entry, so a refund decision appears in the history of the case it came from rather than in a second place a reviewer would have to know to look. The requester check is enforced in the aggregate for both verbs, which is what covers the one case the admin-only permission cannot see: an administrator who also holds `refunds:request`, requests a refund, and then decides it.
+
 ### 7.4 Notifications
 `NotificationType.RefundDecision` + template; a handler on the approved/rejected events emails the customer. **Nothing in Orders consumes these** — say so in a comment on the events themselves, because the natural assumption on reading `RefundApproved` is that money moved. It did not: this platform has no payment processing by design, and the record exists so a real payment integration could be added behind it later.
 
+**The gotcha that cost this milestone a debugging round, and that the next `NotificationType` will hit too: adding the enum member and the template arm is two thirds of the change.** The third is a route in `NotificationChannelRouter.Routes`. A type missing from that map makes `Resolve` return an empty channel list, the send loop runs zero times, `SendNotificationCommand` returns **success**, and the inbox message is marked processed with no error recorded anywhere — the only symptom is an email that never arrives, with a completely clean outbox, inbox and consumer trail. The router now carries a comment saying so, and `CLAUDE.md`'s Notifications row says "three things, not two".
+
+*Also as built:* one command and one model (`SendRefundDecisionCommand`, `RefundDecisionModel`) with an `Approved` flag serve both outcomes, because the two emails are the same message with a different verdict and splitting them would let the declined copy drift. The **handlers** stay separate, mirroring the two contracts Support publishes: a single handler branching on an outcome field is one inverted boolean away from telling a customer the opposite of what was decided. The outcome is in the subject line, and the copy says "approved", never "sent" or "processed" — this email is the one place the no-payments design would otherwise reach a customer as a false promise.
+
 ### 7.5 Tests
-- *Unit*: an amount over the subtotal fails; zero/negative fails; the requesting agent approving their own request fails; a second decision fails; approve from `Rejected` fails.
+- *Unit*: an amount over the subtotal fails; zero/negative fails; the requesting agent approving their own request fails; a second decision fails; approve from `Rejected` fails. Plus the boundary the ceiling turns on — an amount *equal* to the subtotal succeeds, since a full refund is the ordinary outcome of "the food never arrived" — the reason and no-order rules, the one-live-request rule, `Reject` refusing its own requester too, and every refused decision leaving the request untouched and raising no event. **18 tests as built (`Support.UnitTests/Refunds/RefundRequestTests.cs`; suite now 82).**
 - *Integration*: agent requests → admin approves → a `RefundDecision` notification is sent and two audit rows exist; an agent without `refunds:approve` gets `403` on approve; two concurrent approvals yield exactly one `Approved` and one clean failure.
+  Five more the list implies and F added: the rejection path emails the customer too (the same claim as approval, and the one a "we only notify on good news" refactor would quietly break); the administrator who requested a refund is refused at the *aggregate* when approving it, which is the case the `403` test cannot reach; an amount over the replicated subtotal is a `400`; a second request for the same order from a second ticket is a `409`; and the queue renders `RequestedByAgentName` from the local replica. **10 tests as built (suite now 40, all green.)**
+  Every test seeds its own order by publishing `OrderPlacedIntegrationEvent` through a new `IntegrationTestWebAppFactory.PublishAsync` and polling until Support's projection has the snapshot — the same path production takes, and the only version of the ceiling test that proves the subtotal is not being read from somewhere hard rule #5 forbids.
+  The concurrency test asserts on `Approved` **or** the lock failure, not on one of them, for the reason §4.3 gives — and the assertion that actually proves the lock is **one** `RefundApproved` audit row, not the pair of status codes.
 
 ---
 
@@ -444,7 +465,7 @@ A `{Module}Diagnostics` static over `AppDiagnostics`, registered with `AddModule
 | `support.tickets.opened` (counter) | `category`, `source` | beside the `TicketOpened` domain-event handler, **last**, so an outbox retry cannot double-count |
 | `support.tickets.transition` (counter) | `from`, `to` | the status-change handler — reachable since §4.2 shipped assignment, and deliberately left here rather than added there, so the instrument and its Grafana panel land in one PR (§3.6) |
 | `support.ticket.resolution_time` (histogram, seconds) | `category` | the resolve handler |
-| `support.refunds.decided` (counter) | `outcome` | the refund decision handlers |
+| `support.refunds.decided` (counter) | `outcome` | the refund decision handlers — reachable since §7 shipped them, and left here for the same reason the transition counter was: `ObservabilityAssetTests` fails the build if a dashboard names a metric nothing emits, so the instrument and its Grafana panel land in one PR |
 
 Enum values only — never a ticket id, agent id or free-text reason.
 

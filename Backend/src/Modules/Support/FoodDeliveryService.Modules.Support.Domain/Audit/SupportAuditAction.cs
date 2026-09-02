@@ -20,12 +20,15 @@ public enum SupportAuditAction
     /// <summary>Reserved for the ticket message thread milestone.</summary>
     MessagePosted = 4,
 
-    /// <summary>Reserved for the refund workflow milestone.</summary>
+    /// <summary>An agent asked for a customer to be refunded for an order.</summary>
     RefundRequested = 5,
 
-    /// <summary>Reserved for the refund workflow milestone.</summary>
+    /// <summary>
+    /// An administrator agreed to the refund. Never the same actor as the RefundRequested entry on
+    /// the same ticket — the two rows side by side are what makes segregation of duties auditable
+    /// rather than merely asserted.
+    /// </summary>
     RefundApproved = 6,
 
-    /// <summary>Reserved for the refund workflow milestone.</summary>
     RefundRejected = 7
 }

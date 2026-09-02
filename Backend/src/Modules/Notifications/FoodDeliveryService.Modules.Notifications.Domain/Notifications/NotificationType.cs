@@ -11,5 +11,13 @@ public enum NotificationType
     /// messages get here — Support decides that before publishing, so an internal note never reaches
     /// this module at all.
     /// </summary>
-    SupportTicketReply = 2
+    SupportTicketReply = 2,
+
+    /// <summary>
+    /// An administrator approved or declined a refund the customer's support agent asked for. One
+    /// type for both outcomes, unlike the two integration events behind it: the customer receives
+    /// one kind of message here — the answer — and splitting the type would only make "how many
+    /// refund decisions did we send" a two-row query.
+    /// </summary>
+    RefundDecision = 3
 }
