@@ -19,26 +19,28 @@ internal sealed class GetDeliveryQueryHandler(
     {
         await using DbConnection connection = await dbConnectionFactory.OpenConnectionAsync();
 
+        // The ownership check is part of the WHERE clause, not a branch after the read: a caller who
+        // is neither the customer, the assigned driver nor an administrator gets no row, and so the
+        // 404 below. Returning a distinguishable "not yours" here would confirm that the id exists,
+        // which is exactly what somebody guessing delivery ids is trying to learn.
         const string sql =
             $"""
              {DeliveryDetailRow.SelectSql}
-             WHERE d.id = @DeliveryId
+             WHERE d.id = @DeliveryId AND {DeliveryAccess.VisibleToCallerSql}
              """;
 
         DeliveryDetailRow? row = await connection.QuerySingleOrDefaultAsync<DeliveryDetailRow>(
             sql,
-            new { request.DeliveryId });
+            new
+            {
+                request.DeliveryId,
+                deliveryContext.UserId,
+                IsAdmin = DeliveryAccess.CanViewAnyDelivery(deliveryContext)
+            });
 
         if (row is null)
         {
             return Result.Failure<DeliveryResponse>(DeliveryErrors.NotFound(request.DeliveryId));
-        }
-
-        Result access = DeliveryAccess.EnsureCanView(row.CustomerId, row.DriverId, deliveryContext);
-
-        if (access.IsFailure)
-        {
-            return Result.Failure<DeliveryResponse>(access.Error);
         }
 
         // The live position is only meaningful while the driver is on this delivery; once it is

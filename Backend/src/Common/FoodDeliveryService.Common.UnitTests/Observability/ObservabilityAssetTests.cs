@@ -425,28 +425,11 @@ public class ObservabilityAssetTests
             new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
 
     /// <summary>
-    /// These assets live in the repository, not in the test output, so the tests walk up from the
-    /// assembly location to the one directory that owns both <c>docker-compose.yml</c> and
-    /// <c>docker/</c>.
+    /// These assets live in the repository, not in the test output, so the path is resolved by
+    /// walking up to the Backend root. The walk itself is shared with the Milestone A security
+    /// suites, which read the Gateway's configuration and the Kubernetes manifests the same way.
     /// </summary>
-    private static string BackendPath(params string[] segments)
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-
-        while (directory is not null)
-        {
-            if (File.Exists(Path.Combine(directory.FullName, "docker-compose.yml")) &&
-                Directory.Exists(Path.Combine(directory.FullName, "docker")))
-            {
-                return Path.Combine([directory.FullName, .. segments]);
-            }
-
-            directory = directory.Parent;
-        }
-
-        throw new DirectoryNotFoundException(
-            $"No Backend root (docker-compose.yml + docker/) above {AppContext.BaseDirectory}.");
-    }
+    private static string BackendPath(params string[] segments) => RepositoryPaths.Backend(segments);
 
     private sealed class InstrumentRecorder : IDisposable
     {

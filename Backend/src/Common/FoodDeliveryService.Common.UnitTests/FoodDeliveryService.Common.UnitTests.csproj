@@ -37,6 +37,23 @@
     <ProjectReference Include="..\FoodDeliveryService.Common.Presentation\FoodDeliveryService.Common.Presentation.csproj" />
   </ItemGroup>
 
+  <!-- Feature 3.7 Milestone A. EndpointAuthorizationTests maps every module's real route table, so it
+       needs the Presentation assemblies themselves: the endpoints are `internal sealed` and reach the
+       route table only through AddEndpoints' reflection, which no source scan replaces. Users.Domain
+       comes along for `Permission` — the seeded list every RequireAuthorization policy name is checked
+       against. These are the only module references in the project and they are test-only; nothing in
+       Common's product code may reference a module. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\Modules\Delivery\FoodDeliveryService.Modules.Delivery.Presentation\FoodDeliveryService.Modules.Delivery.Presentation.csproj" />
+    <ProjectReference Include="..\..\Modules\Notifications\FoodDeliveryService.Modules.Notifications.Presentation\FoodDeliveryService.Modules.Notifications.Presentation.csproj" />
+    <ProjectReference Include="..\..\Modules\Orders\FoodDeliveryService.Modules.Orders.Presentation\FoodDeliveryService.Modules.Orders.Presentation.csproj" />
+    <ProjectReference Include="..\..\Modules\RealTime\FoodDeliveryService.Modules.RealTime.Presentation\FoodDeliveryService.Modules.RealTime.Presentation.csproj" />
+    <ProjectReference Include="..\..\Modules\Restaurants\FoodDeliveryService.Modules.Restaurants.Presentation\FoodDeliveryService.Modules.Restaurants.Presentation.csproj" />
+    <ProjectReference Include="..\..\Modules\Support\FoodDeliveryService.Modules.Support.Presentation\FoodDeliveryService.Modules.Support.Presentation.csproj" />
+    <ProjectReference Include="..\..\Modules\Users\FoodDeliveryService.Modules.Users.Presentation\FoodDeliveryService.Modules.Users.Presentation.csproj" />
+    <ProjectReference Include="..\..\Modules\Users\FoodDeliveryService.Modules.Users.Domain\FoodDeliveryService.Modules.Users.Domain.csproj" />
+  </ItemGroup>
+
   <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>

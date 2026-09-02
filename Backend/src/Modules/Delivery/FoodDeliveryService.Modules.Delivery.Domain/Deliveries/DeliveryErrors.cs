@@ -24,12 +24,6 @@ public static class DeliveryErrors
         "Deliveries.NoDriversAvailable",
         "No available drivers were found within the search radius");
 
-    // Read-guard for a single delivery: only the order's customer, the assigned driver, or an admin
-    // may view it.
-    public static readonly Error NotAuthorizedToView = Error.Problem(
-        "Deliveries.NotAuthorizedToView",
-        "You are not authorized to view this delivery");
-
     // Distributed-lock contention on the assignment path: another trigger is offering this same
     // delivery, or the chosen driver is being handed another one, right now. Deliberately a
     // failure and not a silent success — the delivery is still Pending, and only the caller's

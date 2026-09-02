@@ -195,11 +195,14 @@ public class PickupDeliveryTests(IntegrationTestWebAppFactory factory) : BaseInt
             TestContext.Current.CancellationToken);
         adminResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        // A bystanding driver is neither the customer nor the assigned driver → rejected.
+        // A bystanding driver is neither the customer nor the assigned driver → 404, deliberately
+        // the same answer as for a delivery id that does not exist. The ownership predicate is part
+        // of the query's WHERE clause, so there is no path on which they could be told apart, and
+        // an id they guessed right stays indistinguishable from one they guessed wrong.
         HttpResponseMessage bystanderResponse = await otherDriverClient.GetAsync(
             new Uri($"delivery/deliveries/{delivery.Id}", UriKind.Relative),
             TestContext.Current.CancellationToken);
-        bystanderResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        bystanderResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]

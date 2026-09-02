@@ -20,26 +20,27 @@ internal sealed class GetDeliveryByOrderQueryHandler(
     {
         await using DbConnection connection = await dbConnectionFactory.OpenConnectionAsync();
 
+        // Ownership lives in the WHERE clause here too — see GetDeliveryQueryHandler. Tracking by
+        // order id is the path a customer actually uses, so it is the one most worth not turning
+        // into an existence oracle over other people's orders.
         const string sql =
             $"""
              {DeliveryDetailRow.SelectSql}
-             WHERE d.order_id = @OrderId
+             WHERE d.order_id = @OrderId AND {DeliveryAccess.VisibleToCallerSql}
              """;
 
         DeliveryDetailRow? row = await connection.QuerySingleOrDefaultAsync<DeliveryDetailRow>(
             sql,
-            new { request.OrderId });
+            new
+            {
+                request.OrderId,
+                deliveryContext.UserId,
+                IsAdmin = DeliveryAccess.CanViewAnyDelivery(deliveryContext)
+            });
 
         if (row is null)
         {
             return Result.Failure<DeliveryResponse>(DeliveryErrors.NotFoundForOrder(request.OrderId));
-        }
-
-        Result access = DeliveryAccess.EnsureCanView(row.CustomerId, row.DriverId, deliveryContext);
-
-        if (access.IsFailure)
-        {
-            return Result.Failure<DeliveryResponse>(access.Error);
         }
 
         DriverLocation? currentLocation = null;

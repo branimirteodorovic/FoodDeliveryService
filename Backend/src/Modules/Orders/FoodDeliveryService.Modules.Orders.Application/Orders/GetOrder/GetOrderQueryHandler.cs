@@ -12,6 +12,10 @@ namespace FoodDeliveryService.Modules.Orders.Application.Orders.GetOrder;
 // Access is ownership-scoped: the customer who placed the order, the manager of its restaurant, or
 // an administrator. The manager id is read from the local Restaurant replica (hard rule #5 — Orders
 // never queries the Restaurants database).
+//
+// The scope is a WHERE clause rather than a branch after the read, so a caller who is none of the
+// three gets no row and therefore the 404 — the platform's convention is 404, not 403, when the
+// resource is not the caller's, because a distinguishable "not yours" confirms the id exists.
 internal sealed class GetOrderQueryHandler(
     IDbConnectionFactory dbConnectionFactory,
     IOrdersContext ordersContext)
@@ -27,7 +31,6 @@ internal sealed class GetOrderQueryHandler(
                  o.id AS {nameof(OrderHeader.Id)},
                  o.customer_id AS {nameof(OrderHeader.CustomerId)},
                  o.restaurant_id AS {nameof(OrderHeader.RestaurantId)},
-                 r.manager_user_id AS {nameof(OrderHeader.ManagerUserId)},
                  o.status AS {nameof(OrderHeader.Status)},
                  o.payment_method AS {nameof(OrderHeader.PaymentMethod)},
                  o.subtotal AS {nameof(OrderHeader.Subtotal)},
@@ -40,7 +43,8 @@ internal sealed class GetOrderQueryHandler(
                  o.placed_on_utc AS {nameof(OrderHeader.PlacedOnUtc)}
              FROM orders o
              LEFT JOIN restaurants r ON r.id = o.restaurant_id
-             WHERE o.id = @OrderId;
+             WHERE o.id = @OrderId
+               AND (@IsAdmin OR o.customer_id = @UserId OR r.manager_user_id = @UserId);
 
              SELECT
                  id AS {nameof(OrderItemResponse.Id)},
@@ -54,18 +58,22 @@ internal sealed class GetOrderQueryHandler(
              ORDER BY name;
              """;
 
-        await using var reader = await connection.QueryMultipleAsync(sql, new { request.OrderId });
+        // The items query is unconditional, but it is keyed on the same order id the header query
+        // scoped — a caller who cannot read the header never reaches the second grid.
+        await using var reader = await connection.QueryMultipleAsync(
+            sql,
+            new
+            {
+                request.OrderId,
+                ordersContext.UserId,
+                IsAdmin = ordersContext.HasPermission(Permissions.Administer)
+            });
 
         OrderHeader? header = await reader.ReadSingleOrDefaultAsync<OrderHeader>();
 
         if (header is null)
         {
             return Result.Failure<OrderResponse>(OrderErrors.NotFound(request.OrderId));
-        }
-
-        if (!CanRead(header))
-        {
-            return Result.Failure<OrderResponse>(OrderErrors.NotOwner);
         }
 
         var items = (await reader.ReadAsync<OrderItemResponse>()).ToList();
@@ -87,18 +95,11 @@ internal sealed class GetOrderQueryHandler(
             items);
     }
 
-    private bool CanRead(OrderHeader header) =>
-        header.CustomerId == ordersContext.UserId ||
-        header.ManagerUserId == ordersContext.UserId ||
-        ordersContext.HasPermission(Permissions.Administer);
-
-    // Row-mapping shape only — carries the restaurant manager id for the ownership check, which is
-    // never surfaced in the response DTO.
+    // Row-mapping shape only — never surfaced as-is in the response DTO.
     private sealed record OrderHeader(
         Guid Id,
         Guid CustomerId,
         Guid RestaurantId,
-        Guid? ManagerUserId,
         OrderStatus Status,
         PaymentMethod PaymentMethod,
         decimal Subtotal,
