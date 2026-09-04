@@ -1,4 +1,4 @@
----
+﻿---
 name: presentation-messaging-rules
 description: Rules for FoodDeliveryService Presentation layer, IntegrationEvents contracts, and API hosts (endpoints, consumers, YARP, auth)
 paths: ["**/Presentation/**/*.cs", "**/*.IntegrationEvents/**/*.cs", "src/API/**/*.cs", "src/API/**/appsettings*.json"]
@@ -64,6 +64,7 @@ Each host runs exactly one module. Follow `FoodDeliveryService.Orders.Api/Progra
 - `AddApplication([{Module}.Application.AssemblyReference.Assembly])`
 - `AddInfrastructure(DiagnosticsConfig.ServiceName, [{Module}Module.ConfigureConsumers], rabbitMqSettings, dbConnString, redisConnString)` — wires auth, MassTransit, OTel traces + metrics (OTLP), Dapper, Redis
 - `Add{Module}Module(builder.Configuration)`, health checks, Serilog + Seq, `app.ApplyMigrations()`, `app.UseRequestCorrelation()`, `app.MapEndpoints()`
+- Security response headers are two shared calls, not a per-host header list: `builder.Services.AddSecurityHeaders(builder.Configuration)` (the Add half exists only because Kestrel's `Server` header cannot be turned off from the pipeline) and `app.UseSecurityHeaders()` placed before `UseRequestCorrelation()`. `SecurityHeaderCoverageTests` fails a host missing either. CORS and forwarded headers are **Gateway-only** and the same test fails a module host that adds them — see `docs/security.md` §5
 - Health checks follow the probe contract in `docs/health-probe-contract.md`: `.AddLivenessCheck()` plus every dependency (Npgsql, Redis, RabbitMQ, Duende) tagged `HealthCheckTags.Ready`, then one `app.MapHealthProbes()` call for `/health/live` + `/health/ready` + `/health`. An untagged dependency check is invisible to both probes
 - Connection string targets the service's OWN database: `fooddeliveryservice_{module}`
 - Never expose a service port publicly — clients go through the Gateway (:3000)

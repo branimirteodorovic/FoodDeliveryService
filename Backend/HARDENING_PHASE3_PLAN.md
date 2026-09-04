@@ -266,6 +266,101 @@ The Angular SPA (`Frontend/FRONTEND_PLAN.md`) names CORS as a backend prerequisi
 ### 5.4 Tests
 `Common.UnitTests/Security/SecurityHeadersTests.cs` — headers present on a 200, on a 404, and on the `ApiResults.Problem` path (a middleware that only decorates success responses is a common miss); HSTS absent over HTTP and present over HTTPS; the Swagger carve-out returns a CSP that actually permits the UI.
 
+### 5.5 What Milestone D shipped
+
+`Common.Presentation/Security/` — `SecurityHeadersOptions` + `SecurityHeadersMiddleware` +
+`SecurityHeadersExtensions`, `EdgeCorsOptions` + `EdgeCorsExtensions`, `EdgeForwardedHeadersOptions`
++ `EdgeForwardedHeadersExtensions`, and `ConfiguredArray`; two lines in each of the nine hosts and
+four more in the Gateway; `Cors` + `ForwardedHeaders` sections in the Gateway's `appsettings.json`
+and the SPA's dev origins in `appsettings.Development.json`; four test classes in
+`Common.UnitTests/Security` plus the shared `RecordingResponseFeature`; `docs/security.md` §5 and a
+cross-reference in `docs/rate-limiting.md` §2. `Common.UnitTests` goes 240 → **276** green.
+
+Departures from §5.1–§5.4, and the reasons:
+
+- **Two calls per host, not one.** §5.1's "nine one-line host edits" is nine *two*-line edits:
+  `builder.Services.AddSecurityHeaders(builder.Configuration)` alongside `app.UseSecurityHeaders()`.
+  The split is forced by exactly one thing — `KestrelServerOptions.AddServerHeader` is read when the
+  server starts and cannot be set from the pipeline — so removing the `Server` header is what costs
+  the second line. Everything else the `Add` does could have lived in the `Use`.
+- **The headers are written from `Response.OnStarting`, not before `next`.** A header set on the way
+  in is discarded by anything that resets the response, which is what `GlobalExceptionHandler` and
+  the rate limiter's 429 path both do — so the naive implementation decorates the 200s and leaves the
+  error responses bare. `SecurityHeadersTests.Invoke_Should_StampTheHeaders_WhenTheResponseIsResetDownstream`
+  is that property, and it is the reason `RecordingResponseFeature` moved out of
+  `CorrelationIdMiddlewareTests` into a shared file: `DefaultHttpContext` drops `OnStarting`
+  callbacks, so without the double the property is invisible to a unit test.
+- **The documentation carve-out matches whole path segments.** `StartsWith("/swagger")` also matches
+  `/swaggerish` — caught by a test written to assert the opposite — and a carve-out that leaks onto a
+  neighbouring route is a relaxed CSP on an endpoint nobody meant to relax. The match is now
+  `path == prefix || path.StartsWith(prefix + "/")`.
+- **§5.1's carve-out guards a UI that does not exist yet.** No host maps Swagger UI or Scalar today —
+  only `MapOpenApi()`, and only in Development. Shipping the CSP first is deliberate: added after the
+  UI, it breaks the UI in the PR that adds the CSP. Milestone G inherits a working carve-out and
+  should not need to touch it.
+- **`ConfigurationBinder.Bind` appends to arrays, it does not replace them.** A property whose default
+  is non-empty (`DocumentationPathPrefixes`, `ExposedHeaders`) silently ends up with the defaults
+  *plus* whatever a deployment configured — so narrowing either list is impossible through `Bind`
+  alone. `ConfiguredArray.Replace` re-reads those two keys and replaces. **Expect this in every
+  options class in this solution that defaults an array to something non-empty**; the ones with empty
+  defaults (`AllowedOrigins`, `KnownProxies`, `KnownNetworks`) are unaffected and read naturally.
+  Found by a failing assertion, not by reading the binder.
+- **CORS is applied as one named policy through `UseCors(name)`, and no YARP route was touched.** No
+  route in either routing copy sets `CorsPolicy`, so the middleware's named policy covers the whole
+  table — which is what gives `hubs/**` its `AllowCredentials` without editing the routing table in
+  both of the places `GatewayRouteTests` compares. §5.3's "apply the policy to the proxied SignalR
+  route specifically" is therefore satisfied by covering everything, and the hub needed no special
+  case.
+- **§5.3's SignalR verification through `RealTime.IntegrationTests` was not run**, and would not have
+  proven anything: that suite drives the hub host directly, not through the Gateway, and CORS exists
+  only at the Gateway. Nothing in the repository exercises a browser against the edge. The policy's
+  `SupportsCredentials`, origins and exposed headers are asserted on the built `CorsPolicy` instead
+  (`EdgeCorsTests`), which is the part that can be wrong.
+- **`Microsoft.AspNetCore.HttpOverrides.IPNetwork` is obsolete in .NET 10** and the deprecation is an
+  *error* under `TreatWarningsAsErrors`, so the trust list is `ForwardedHeadersOptions.KnownIPNetworks`
+  (typed on `System.Net.IPNetwork`), not `KnownNetworks`. Both namespaces define the name, so both
+  the production file and its test carry a `using IPNetwork = System.Net.IPNetwork;` alias.
+- **The framework's implicit loopback trust is cleared**, not merely left alone. §5.2 asks for the
+  trust list to be empty by default; ASP.NET Core pre-populates `127.0.0.1/8` and `::1`, and "the
+  trust list is exactly what configuration says" is a far easier property to review than
+  "configuration plus two entries you did not write".
+- **Nothing in the repository configures a trusted proxy, and that is correct for both environments
+  it stands up.** Compose and KinD publish the Gateway directly, so no `X-Forwarded-For` is ever
+  sent. `deploy/k8s/services/gateway.yaml` carries a comment saying so and naming the key an ingress
+  deployment must set. The Gateway logs a **warning** at startup whenever forwarded headers are on
+  with nothing trusted, because that state is otherwise invisible: everything works, the limiter is
+  simply no longer per client.
+- **A coverage test was added beyond §5.4.** `SecurityHeaderCoverageTests` reads the nine
+  `Program.cs` files and asserts every host calls both halves, that forwarded headers and CORS appear
+  on the Gateway and *nowhere else*, and that the two orderings that matter hold (forwarded headers
+  before correlation, CORS before authentication). It is a text scan, which is crude and deliberate:
+  the alternative is booting nine hosts that each want PostgreSQL, Redis, RabbitMQ and Duende in
+  order to observe a header. It is a `[Theory]` over the host directories filtered on `Program.cs`,
+  so a tenth host is covered when it is added — and the reverted FraudDetection host, whose stale
+  `bin/obj` output is still on disk, is filtered out by that same condition.
+- **Sonar `S125` fails a comment line that ends in a semicolon.** Two prose comments in
+  `EdgeCorsTests` were read as commented-out code purely because a clause ended `…access token;`.
+  Cheap to fix, annoying to diagnose — worth knowing before writing the next long comment block.
+
+**Verified against a running Gateway**, not only in unit tests. `dotnet run` on the Gateway in
+Development, then curl: a plain `GET /health/live` carries the four headers and no `Server`; an
+`OPTIONS /orders` preflight from `http://localhost:4200` — a route whose `AuthorizationPolicy` is
+`default` — answers **204** with `Access-Control-Allow-Credentials`, the origin and
+`Access-Control-Max-Age: 600`, which is the placement-before-`UseAuthentication` claim proven rather
+than argued; a real cross-origin `GET` carries `Access-Control-Expose-Headers:
+X-Correlation-Id,Retry-After`; and an unlisted origin gets no allow-origin header at all. The startup
+log shows both intended lines — the CORS origin list, and the warning that nothing is trusted for
+forwarded headers. `policy-check.py` still passes over 12 workloads and 3 ConfigMaps.
+
+Two things Milestone E and Milestone G inherit rather than reinvent:
+
+- **HSTS depends on §5.2.** The header is emitted only when `HttpContext.Request.IsHttps`, and behind
+  a TLS terminator that is true only if `X-Forwarded-Proto` is trusted. A deployment that adds TLS
+  without configuring `ForwardedHeaders:KnownNetworks` gets no HSTS and will not be told why.
+- **Milestone G's documentation UIs must live under one of `DocumentationPathPrefixes`**
+  (`/swagger`, `/scalar`, `/docs`, `/openapi`) or they render blank under the API CSP. The
+  gateway-proxied `/docs/{service}` route §8.3 describes is already covered by that list.
+
 ---
 
 ## 6. Milestone E — Identity hardening

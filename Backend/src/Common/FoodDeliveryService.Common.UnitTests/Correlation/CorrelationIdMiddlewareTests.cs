@@ -216,40 +216,4 @@ public class CorrelationIdMiddlewareTests
             ShouldListenTo = source => source.Name == ActivitySourceName,
             Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData
         };
-
-    /// <summary>
-    /// <see cref="DefaultHttpContext"/>'s own response feature drops <c>OnStarting</c> callbacks on
-    /// the floor, which would make the echoed header untestable outside a running server.
-    /// </summary>
-    private sealed class RecordingResponseFeature : IHttpResponseFeature
-    {
-        private readonly List<(Func<object, Task> Callback, object State)> _onStarting = [];
-
-        public IHeaderDictionary Headers { get; set; } = new HeaderDictionary();
-
-        public Stream Body { get; set; } = Stream.Null;
-
-        public int StatusCode { get; set; } = StatusCodes.Status200OK;
-
-        public string? ReasonPhrase { get; set; }
-
-        public bool HasStarted { get; private set; }
-
-        public void OnStarting(Func<object, Task> callback, object state) => _onStarting.Add((callback, state));
-
-        public void OnCompleted(Func<object, Task> callback, object state)
-        {
-            // Nothing under test registers one.
-        }
-
-        public async Task FireOnStartingAsync()
-        {
-            HasStarted = true;
-
-            foreach ((Func<object, Task> callback, object state) in _onStarting)
-            {
-                await callback(state);
-            }
-        }
-    }
 }

@@ -72,6 +72,15 @@ client and a read-modify-write, and the burst tolerance it buys is not worth tha
 - An anonymous request has nothing else to be counted against — `users/register` is unauthenticated
   by design and is exactly the endpoint an abusive client reaches for.
 
+**Behind a proxy, the IP half depends on forwarded headers.** `RemoteIpAddress` is the *proxy's*
+address once anything terminates TLS in front of the Gateway, so every anonymous caller on the
+platform would share one partition and the per-client window would quietly become a second global
+limit. Feature 3.7 Milestone D added `app.UseEdgeForwardedHeaders()` ahead of this middleware to fix
+that — but it trusts **nothing** until a deployment names a proxy address or network, because an
+unrestricted `X-Forwarded-For` would let a client pick its own partition key, which is worse than the
+bug it repairs. A deployment behind an ingress must set `ForwardedHeaders:KnownNetworks`; the Gateway
+logs a warning at startup while nothing is trusted. `docs/security.md` §5.2.
+
 Consequence for the pipeline: `app.UseEdgeRateLimiting()` sits **after** `UseAuthentication()`.
 Before it, `HttpContext.User` is empty and every request would be an IP partition. The cost is that
 a flood pays for JWT validation before being shed — signature verification against cached signing

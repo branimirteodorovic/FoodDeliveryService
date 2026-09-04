@@ -4,6 +4,7 @@ using FoodDeliveryService.Identity.Data;
 using FoodDeliveryService.Identity.Seed;
 using FoodDeliveryService.Common.Presentation.Correlation;
 using FoodDeliveryService.Common.Presentation.Health;
+using FoodDeliveryService.Common.Presentation.Security;
 using FoodDeliveryService.Common.Presentation.Telemetry;
 using FoodDeliveryService.Identity.OpenTelemetry;
 using FoodDeliveryService.Identity.Users;
@@ -22,6 +23,12 @@ var builder = WebApplication.CreateBuilder(args);
 // Serilog structured logging (Console + Seq sinks, configured in appsettings "Serilog").
 builder.Host.UseSerilog((context, loggerConfig) =>
     loggerConfig.ReadFrom.Configuration(context.Configuration));
+
+// Security response headers on every response, and no `Server: Kestrel` on any of them — Feature
+// 3.7 Milestone D. The Add half exists separately from app.UseSecurityHeaders() below for one
+// reason: KestrelServerOptions.AddServerHeader is read when the server starts and cannot be set from
+// the pipeline.
+builder.Services.AddSecurityHeaders(builder.Configuration);
 
 // OpenTelemetry traces + metrics → OTLP exporter (:4317; traces browsable in Jaeger at :16686) —
 // the same baseline the Gateway and, through AddInfrastructure, the six module hosts get.
@@ -130,6 +137,12 @@ await ApplyDatabaseMigrationsAsync(app);
 
 // Config-driven initial-administrator seed (idempotent; no-ops when "AdminSeed" is empty).
 await AdminSeeder.SeedAdminAsync(app);
+
+// One shared middleware for all nine hosts (Common.Presentation/Security): nosniff, DENY framing,
+// no referrer, a `default-src 'none'` CSP for the JSON surface, and HSTS only when the request
+// actually arrived over HTTPS. It is placed first so that a response short-circuited downstream — an
+// authentication challenge, a rate-limit rejection, the exception handler — is stamped too.
+app.UseSecurityHeaders();
 
 // Identity's first log correlation. It had no LogContext middleware at all, so token issuance —
 // the one hop every authenticated request in the system passes through — logged nothing that could

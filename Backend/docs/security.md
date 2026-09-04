@@ -3,8 +3,8 @@
 > Feature 3.7 — Final Production Hardening. This document is being built one milestone at a time
 > (`HARDENING_PHASE3_PLAN.md`). **Milestone A** contributes the authorization guardrails and the
 > ownership sweep; **Milestone B** the secrets section; **Milestone C** the database privilege
-> model; Milestone I turns it into the consolidated write-up (OWASP pass, TLS boundary, known
-> limitations).
+> model; **Milestone D** the edge — response headers, forwarded headers and CORS; Milestone I turns
+> it into the consolidated write-up (OWASP pass, TLS boundary, known limitations).
 
 The rule this feature works to: **do not write a security checklist, write a test that fails when
 the property is violated.** A checklist is accurate on the day it is written. Everything below that
@@ -333,9 +333,160 @@ re-derives that from the manifests rather than trusting the comment beside them.
   migration. An init container or Job is what removes it from the request-serving container
   entirely; see §4.2 for why that is out of scope here.
 
-## 5. What Milestones A, B and C do not cover
+## 5. The edge: response headers, forwarded headers, CORS
 
-Named so a reader does not mistake this page for the finished document: security headers / forwarded
-headers / CORS (Milestone D), Identity key management and lockout (E), input validation and the
-error surface (F), API documentation reachability (G), supply-chain scanning (H), and the
-consolidated OWASP pass, TLS boundary and known-limitations sections (I).
+Milestone D. The only milestone in this feature that changes runtime behaviour on every request, and
+the only one whose failure modes are visible in a browser rather than in a log.
+
+The framing matters: **TLS terminates outside anything this repository deploys.** `docker-compose`
+and the KinD manifests are HTTP-only by design (`ASPNETCORE_HTTP_PORTS: "8080"`, no certificate in
+any pod), and the Kubernetes workstream was deliberately scoped short of an Ingress. So this
+milestone does not add a certificate nobody has — it hardens the code for *living behind* a
+TLS-terminating proxy, which is a different and more useful job.
+
+### 5.1 Security response headers
+
+One `app.UseSecurityHeaders()` on all nine hosts (`Common.Presentation/Security`), the same shape as
+`UseRequestCorrelation()` and for the same reason: nine copies of a header list is how they drift,
+and a header present on eight hosts is a header nobody can rely on.
+
+| Header | Value | Why |
+|---|---|---|
+| `X-Content-Type-Options` | `nosniff` | Stops MIME confusion on a JSON surface. |
+| `X-Frame-Options` | `DENY` | The API serves no framable UI. |
+| `Referrer-Policy` | `no-referrer` | Nothing here should leak a URL to a third party. |
+| `Content-Security-Policy` | `default-src 'none'; frame-ancestors 'none'` | An endpoint returning `application/json` loads no script, style, image or font. |
+| `Content-Security-Policy` (documentation paths) | `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src …` | Swagger UI and Scalar bootstrap from an inline script and inline styles. |
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains`, **HTTPS requests only** | See below. |
+| `Server` | *removed* (`AddServerHeader = false`) | `Server: Kestrel` is free reconnaissance. |
+
+Three decisions in there are load-bearing:
+
+- **The headers are written from an `OnStarting` callback, not on the way in.** A header set before
+  calling the next middleware is lost the moment something resets the response — which is exactly
+  what `GlobalExceptionHandler` and the rate limiter's `429` path do. A middleware that decorates
+  only the 200s and leaves every error response bare is the common miss, and the error responses are
+  the ones a scanner reads.
+- **HSTS is emitted only when the request already arrived over HTTPS.** Over plain HTTP the header
+  is not merely useless, it is destructive *here*: a browser that honoured it would pin itself to a
+  scheme the local platform does not serve, and the whole stack would be unreachable from that
+  browser until its HSTS cache was cleared by hand. This is also the direct reason §5.2 exists —
+  behind a TLS terminator, a proxied HTTPS request looks like plain HTTP to Kestrel, so without
+  trusted `X-Forwarded-Proto` the header would never be emitted in the one deployment that wants it.
+- **The documentation carve-out ships before the documentation does.** No host maps a Swagger or
+  Scalar UI today (only `MapOpenApi()`, a JSON document, and only in Development); Milestone G adds
+  them. Shipping the carve-out first means the UI simply works when it arrives, instead of rendering
+  blank in the PR that adds the CSP — which is precisely the self-inflicted breakage this milestone
+  must not cause.
+
+The `SecurityHeaders` configuration section can change every value, but no environment does — the
+defaults are what all nine hosts run.
+
+### 5.2 Forwarded headers — a live defect, not a precaution
+
+No host configured `UseForwardedHeaders`, and one consequence was already real rather than
+hypothetical.
+
+The edge rate limiter partitions **anonymous** callers by `HttpContext.Connection.RemoteIpAddress`
+(`RateLimitClient.Resolve`, `docs/rate-limiting.md` §2). Behind any TLS-terminating proxy or ingress
+— which is the intended deployment — that address is the *proxy's*. Every anonymous request on the
+platform then shares one bucket, and the per-client limit silently degrades into a second global
+one. `users/register` is anonymous by design and is exactly the endpoint an abusive client reaches
+for. The same substitution puts the proxy's address in every Serilog request log and every trace.
+
+`app.UseEdgeForwardedHeaders()` is added on the **Gateway only** — module hosts sit behind YARP on a
+private network and are unreachable from a client (Hard Rule 10), so a second hop of header
+rewriting there widens the surface for no gain. It is the **first** middleware in the pipeline,
+ahead of correlation, request logging and the limiter, because each of those reads the address or
+the scheme it rewrites.
+
+**Nothing is trusted by default, and that is the whole design.** `X-Forwarded-For` is a
+client-supplied header: honouring it from an arbitrary sender lets any caller choose its own
+rate-limit partition key and its own address in the logs, which is a worse bug than the one this
+fixes. The framework's implicit loopback trust is cleared too, so the trust list is exactly what
+configuration says.
+
+| Key | Meaning |
+|---|---|
+| `ForwardedHeaders:KnownNetworks` | CIDR networks to believe — e.g. a cluster's pod CIDR. This is the one a real deployment needs: a proxy's address is not stable, its network is. |
+| `ForwardedHeaders:KnownProxies` | Individual proxy addresses. |
+| `ForwardedHeaders:ForwardLimit` | How many entries to walk back from the right. `1` = the immediate proxy. Raise it only alongside adding every intermediate hop to the trust list. |
+
+`X-Forwarded-Host` is deliberately **not** forwarded: the Gateway generates no absolute URLs, so an
+inbound host header could only ever poison a link the platform does not send.
+
+Two environments, two correct answers, and neither is configured today:
+
+- **KinD / compose:** the Gateway is published directly (NodePort, port mapping), no HTTP proxy in
+  front, so no `X-Forwarded-For` is ever sent and an empty trust list is correct — the pod sees the
+  real client.
+- **Anything with an ingress or a load balancer in front:** set `ForwardedHeaders__KnownNetworks__0`
+  to that hop's network, or the limiter is per-platform rather than per-client.
+
+The host logs a **warning** at startup whenever forwarded headers are on with nothing trusted,
+because that state is invisible otherwise: everything works, the limiter is simply no longer per
+client.
+
+### 5.3 CORS
+
+The Angular SPA (`Frontend/FRONTEND_PLAN.md`) names CORS as a backend prerequisite and nothing
+provided it. One named policy, `AddEdgeCors` / `UseEdgeCors`, at the **Gateway only** — it is the
+single public entry point, and a per-service policy would be seven copies of one origin list
+drifting in front of services no browser can reach.
+
+- **Origins come from `Cors:AllowedOrigins` and are empty in the base `appsettings.json`.** A
+  configuration file that ships to every environment must not decide which browsers may talk to the
+  platform. `appsettings.Development.json` opens `http(s)://localhost:4200` for the SPA's dev server.
+- **`AllowCredentials` is on**, because the SignalR handshake on `hubs/**` needs it. A wildcard
+  origin combined with credentials is refused **at startup**, with the offending configuration key
+  named — the framework's own failure surfaces later, as a 500 on someone's first login.
+- **`X-Correlation-Id` and `Retry-After` are exposed.** Without that list a cross-origin caller can
+  read neither: not the correlation id it should quote in a bug report, nor the interval the edge
+  limiter sends with a `429`. Both are values the platform expects a client to act on.
+- **The policy applies to every proxied route**, including `hubs/**`. No YARP route sets its own
+  `CorsPolicy`, so `app.UseEdgeCors()` covers the whole table with one entry — which also means the
+  routing table did not have to be edited in both of its copies (`appsettings.Development.json` and
+  the `gateway.yaml` ConfigMap).
+- **It sits before `UseAuthentication()`.** A preflight is an unauthenticated `OPTIONS` with no
+  bearer token; applied after authentication it would be answered with a `401` and the browser would
+  never send the real request. Here the middleware short-circuits the preflight before the limiter
+  and YARP ever see it.
+
+### 5.4 Guardrails
+
+| Property | Where it is asserted |
+|---|---|
+| Every header is present on a 200, on a `ProblemDetails` 400, and on a response reset downstream | `Common.UnitTests/Security/SecurityHeadersTests` |
+| HSTS absent over HTTP, present over HTTPS | same |
+| The documentation carve-out serves a CSP that permits the UI, and only on those paths | same |
+| Kestrel's `Server` header is off | same |
+| **All nine hosts** call both halves | `Common.UnitTests/Security/SecurityHeaderCoverageTests` — a `[Theory]` over the host directories, so a tenth host is covered the day it is added |
+| Forwarded headers and CORS exist on the Gateway and **nowhere else** | same |
+| Forwarded headers run before correlation; CORS runs before authentication | same |
+| Nothing is trusted unless configured; loopback is cleared | `Common.UnitTests/Security/EdgeForwardedHeadersTests` |
+| A non-CIDR entry fails at startup naming the key | same |
+| The built policy's origins, credentials, exposed headers and preflight age | `Common.UnitTests/Security/EdgeCorsTests` |
+| A wildcard origin with credentials is refused at startup | same |
+
+### 5.5 Known limitations
+
+- **No TLS in this repository**, so the HTTPS branch of the header middleware is exercised by unit
+  tests and by no deployment here. That is a deployment-boundary claim, not a code claim.
+- **Nothing trusts a proxy today.** The default is correct for both environments this repository
+  stands up, and wrong for the environment the milestone was written for — a deployment behind an
+  ingress must set `ForwardedHeaders:KnownNetworks` itself. The startup warning is the only thing
+  that says so.
+- **CORS is closed in every committed environment except Development.** The SPA does not exist yet;
+  when it is deployed, its origin is one configuration key.
+- **The CSP is not reported on.** There is no `report-uri`/`report-to` endpoint, so a policy that is
+  too strict for a future page surfaces as a broken page rather than as a report.
+- **No `Permissions-Policy`, no COOP/COEP/CORP.** They govern browser features and cross-origin
+  isolation for documents; an API returning JSON has no document to govern. Worth revisiting only if
+  a host ever serves a real UI beyond the documentation pages.
+
+## 6. What Milestones A, B, C and D do not cover
+
+Named so a reader does not mistake this page for the finished document: Identity key management and
+lockout (Milestone E), input validation and the error surface (F), API documentation reachability
+(G), supply-chain scanning (H), and the consolidated OWASP pass, TLS boundary and known-limitations
+sections (I).

@@ -10,6 +10,13 @@
 #
 # It is a copy of the Development routing with the destinations re-pointed at Kubernetes Service
 # names. If you add a route prefix to the Gateway, add it in both places.
+#
+# Feature 3.7 Milestone D deliberately adds nothing here. The Gateway is published as a NodePort with
+# no HTTP proxy in front of it, so no X-Forwarded-For is ever sent and the empty trust list in
+# `appsettings.json` is correct: the pod sees the real client. An environment that *does* put an
+# ingress or a load balancer in front must set ForwardedHeaders__KnownNetworks__0 to that hop's
+# network, or the edge rate limiter counts every anonymous caller into one bucket
+# (docs/security.md §5.2). CORS is likewise closed here because this cluster serves no browser client.
 apiVersion: v1
 kind: ConfigMap
 metadata:

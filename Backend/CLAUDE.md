@@ -50,6 +50,8 @@ When implementing a feature, first decide: **which service owns the state being 
 
 New endpoints require a matching YARP route only if they introduce a **new path prefix** — existing `{module}/**` routes cover new endpoints automatically.
 
+**Edge hardening** (`Common.Presentation/Security`, Feature 3.7 Milestone D): every host pairs `builder.Services.AddSecurityHeaders(builder.Configuration)` with `app.UseSecurityHeaders()` — nosniff, `DENY` framing, `no-referrer`, a `default-src 'none'` CSP (carved out for the `/swagger`, `/scalar`, `/docs`, `/openapi` prefixes), HSTS only over HTTPS, and no `Server` header. Both halves are required and `SecurityHeaderCoverageTests` fails a host that skips either. **CORS (`UseEdgeCors`) and forwarded headers (`UseEdgeForwardedHeaders`) are Gateway-only**, like the rate limiter, and the same test fails a module host that acquires them: CORS as one named policy from `Cors:AllowedOrigins` (before `UseAuthentication`, so preflights are not 401'd), forwarded headers first in the pipeline and trusting **nothing** until `ForwardedHeaders:KnownNetworks` names a proxy network — without which the limiter's anonymous partition collapses to one bucket behind a proxy. `docs/security.md` §5
+
 ## Core Patterns
 
 ### CQRS with MediatR

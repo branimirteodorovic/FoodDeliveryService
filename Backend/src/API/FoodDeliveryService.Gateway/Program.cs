@@ -1,8 +1,9 @@
-using Serilog;
+﻿using Serilog;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 using FoodDeliveryService.Common.Presentation.Correlation;
 using FoodDeliveryService.Common.Presentation.Health;
+using FoodDeliveryService.Common.Presentation.Security;
 using FoodDeliveryService.Common.Presentation.Telemetry;
 using FoodDeliveryService.Common.Presentation.RateLimiting;
 using FoodDeliveryService.Gateway.OpenTelemetry;
@@ -18,6 +19,26 @@ var builder = WebApplication.CreateBuilder(args);
 // Serilog structured logging, configured from the "Serilog" section in appsettings
 // (sinks: Console + Seq at :5341, UI :8081 — same setup as every other service).
 builder.Host.UseSerilog((context, loggerConfig) => loggerConfig.ReadFrom.Configuration(context.Configuration));
+
+// Security response headers on every response, and no `Server: Kestrel` on any of them — Feature
+// 3.7 Milestone D. The Add half exists separately from app.UseSecurityHeaders() below for one
+// reason: KestrelServerOptions.AddServerHeader is read when the server starts and cannot be set from
+// the pipeline.
+builder.Services.AddSecurityHeaders(builder.Configuration);
+
+// Feature 3.7 Milestone D §5.2 — and the one piece of this milestone that fixes a live defect rather
+// than adding a precaution. Nothing in this repository terminates TLS, so the intended deployment
+// puts a proxy in front of the Gateway; without this, RemoteIpAddress is that proxy's, and the edge
+// rate limiter's per-client partition for anonymous callers collapses into a single global bucket
+// (docs/rate-limiting.md §2). Nothing is trusted until a deployment names a proxy or a network — an
+// unrestricted X-Forwarded-For would let a client choose its own partition key, which is worse than
+// the bug. Gateway only: the module hosts are unreachable from a client.
+builder.Services.AddEdgeForwardedHeaders(builder.Configuration);
+
+// The browser policy, at the edge and nowhere else — the Angular SPA (Frontend/FRONTEND_PLAN.md)
+// names it as its one backend prerequisite. Origins come from configuration and are empty by
+// default, so the base appsettings.json is closed and each environment opens exactly what it needs.
+builder.Services.AddEdgeCors(builder.Configuration);
 
 // YARP: routes and clusters are pure configuration (appsettings "ReverseProxy" section).
 // Requests are matched by path prefix (orders/**, users/**, restaurants/**, notifications/**)
@@ -86,9 +107,20 @@ builder.Services.AddGatewayRateLimiting(
 
 var app = builder.Build();
 
+// First in the pipeline, ahead of correlation, request logging and the limiter: every one of them
+// reads the client address or the scheme this rewrites, so a later placement would leave each of
+// them reading the proxy's.
+app.UseEdgeForwardedHeaders();
+
 // GET /health/live + /health/ready + /health, the same contract every service exposes. Mapped
 // before MapReverseProxy and matched by no YARP route, so they are served here and never proxied.
 app.MapHealthProbes();
+
+// One shared middleware for all nine hosts (Common.Presentation/Security): nosniff, DENY framing,
+// no referrer, a `default-src 'none'` CSP for the JSON surface, and HSTS only when the request
+// actually arrived over HTTPS. It is placed first so that a response short-circuited downstream — an
+// authentication challenge, a rate-limit rejection, the exception handler — is stamped too.
+app.UseSecurityHeaders();
 
 // Where the platform's correlation id is born. This middleware reads an inbound X-Correlation-Id,
 // or defaults it to the request's W3C trace id, then writes it back onto the REQUEST headers — YARP
@@ -100,6 +132,13 @@ app.MapHealthProbes();
 app.UseRequestCorrelation();
 
 app.UseSerilogRequestLogging();
+
+// Before UseAuthentication, because a CORS preflight is an unauthenticated OPTIONS with no bearer
+// token: applied after authentication it would be answered with a 401 and the browser would never
+// send the real request. Here it short-circuits the preflight before the limiter and YARP see it.
+// The policy applies to every proxied route — no YARP route sets its own CorsPolicy — which is what
+// gives hubs/** the AllowCredentials the SignalR handshake needs.
+app.UseEdgeCors();
 
 app.UseAuthentication();
 

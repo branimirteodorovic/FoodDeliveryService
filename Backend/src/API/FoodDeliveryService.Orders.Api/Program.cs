@@ -6,6 +6,7 @@ using FoodDeliveryService.Common.Infrastructure.EventBus;
 using FoodDeliveryService.Common.Presentation.Correlation;
 using FoodDeliveryService.Common.Presentation.Endpoints;
 using FoodDeliveryService.Common.Presentation.Health;
+using FoodDeliveryService.Common.Presentation.Security;
 using FoodDeliveryService.Modules.Orders.Application.Diagnostics;
 using FoodDeliveryService.Modules.Orders.Infrastructure;
 using FoodDeliveryService.Orders.Api.Extensions;
@@ -24,6 +25,12 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Serilog structured logging (Console + Seq sinks, configured in appsettings "Serilog").
 builder.Host.UseSerilog((context, loggerConfig) => loggerConfig.ReadFrom.Configuration(context.Configuration));
+
+// Security response headers on every response, and no `Server: Kestrel` on any of them — Feature
+// 3.7 Milestone D. The Add half exists separately from app.UseSecurityHeaders() below for one
+// reason: KestrelServerOptions.AddServerHeader is read when the server starts and cannot be set from
+// the pipeline.
+builder.Services.AddSecurityHeaders(builder.Configuration);
 
 // Last-resort exception handling: unhandled exceptions become RFC 7807 ProblemDetails responses.
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
@@ -104,6 +111,12 @@ if (app.Environment.IsDevelopment())
 // GET /health/live (the process only), GET /health/ready (its dependencies) and the unchanged
 // aggregate GET /health — one shared mapping, so all eight hosts expose an identical probe contract.
 app.MapHealthProbes();
+
+// One shared middleware for all nine hosts (Common.Presentation/Security): nosniff, DENY framing,
+// no referrer, a `default-src 'none'` CSP for the JSON surface, and HSTS only when the request
+// actually arrived over HTTPS. It is placed first so that a response short-circuited downstream — an
+// authentication challenge, a rate-limit rejection, the exception handler — is stamped too.
+app.UseSecurityHeaders();
 
 // One shared middleware (Common.Presentation/Correlation) for the whole platform: it preserves the
 // X-Correlation-Id the Gateway stamped — or mints one from the trace id for a call that reached this
