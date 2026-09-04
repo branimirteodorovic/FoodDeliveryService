@@ -1,0 +1,46 @@
+# gitleaks configuration — Feature 3.7 (Final Production Hardening), Milestone B.
+#
+# The project plan asks for "no secrets committed to Git". This file is what makes that claim
+# checkable instead of aspirational: CI runs gitleaks over the *tracked* tree on every push and
+# pull request (`Backend/tools/secret-scan.sh`, job `secrets` in .github/workflows/ci.yml), and a
+# finding outside the allowlist below fails the build.
+#
+# Scope decision: the scan covers the working tree, not the full history. The development values
+# in this repository are legitimately committed — they are valid only against a throwaway compose
+# or KinD stack — so rewriting history to purge a local Postgres password would be theatre. What
+# matters is that a *new* credential cannot slip in unnoticed, and that is a tree-level property.
+#
+# The allowlist is deliberately narrow and every entry states why the value is safe. Anything it
+# does not name is a genuine finding.
+
+title = "FoodDeliveryService"
+
+[extend]
+# Start from gitleaks' own rule set (cloud provider keys, PATs, private keys, high-entropy generic
+# secrets) rather than hand-rolling rules that would rot.
+useDefault = true
+
+[allowlist]
+description = "Local-only development credentials, valid against a throwaway compose/KinD stack."
+targets = ["file"]
+
+# The two places development configuration lives. Both are documented in docs/security.md § Secrets:
+# `appsettings.json` ships blank on all nine hosts (asserted by SecretHygieneTests), the values live
+# here, and a real environment supplies the same key names from its own store.
+paths = [
+  '''appsettings\.Development\.json$''',
+  '''deploy/k8s/base/config\.yaml$''',
+]
+
+# The confidential-client secret Users presents to Identity. It is copied into nine files — the two
+# host configurations, Identity's own fallback literal, the Kubernetes Secret, and five
+# integration-test fixtures — so a path allowlist would have to name eight of them and would go
+# stale the moment a sixth suite is added. Allow-listing the *value* instead keeps the scan
+# meaningful: every other high-entropy string in those same files still fails.
+#
+# Nothing enforces that the nine copies agree. If you change this value, change it everywhere:
+# drift surfaces as a 401 from Identity's local API during user registration, three layers away
+# from the file someone edited. docs/security.md §3.2 lists the locations.
+regexes = [
+  '''PzotcrvZRF9BHCKcUxdKfHWlIPECG49k''',
+]

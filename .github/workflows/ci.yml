@@ -104,6 +104,20 @@ jobs:
           python3 -m pip install --quiet pyyaml
           python3 Backend/deploy/k8s/scripts/policy-check.py Backend/deploy/k8s
 
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # The scan reads `git archive HEAD`, so it needs the commit itself and nothing more —
+      # fetch-depth 1 is deliberate. History is not scanned: the development values in this tree are
+      # legitimately committed and only valid against a throwaway local stack, so rewriting history
+      # for them would be theatre. See .gitleaks.toml for the allowlist and the reasoning.
+      - uses: actions/checkout@v4
+
+      - name: gitleaks (tracked tree)
+        run: bash Backend/tools/secret-scan.sh
+
   cluster:
     name: KinD cluster smoke
     runs-on: ubuntu-latest

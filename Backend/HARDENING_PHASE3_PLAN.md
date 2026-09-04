@@ -126,6 +126,12 @@ The project plan asks for *"no secrets committed to Git"*. The repo is close to 
 1. **Keep the duplication, add the guardrail** (recommended): a unit test that reads both files and asserts the two values are equal, with a comment naming the failure mode. Cheapest, zero runtime change, and the failure message *is* the documentation.
 2. Hoist it to a single `.env` file consumed by compose. Rejected: it splits dev config across two mechanisms and breaks `dotnet run` outside compose.
 
+> **It is written nine times, not twice.** Besides the two host configurations: Identity's `??` fallback literal in `Config.cs`, the Kubernetes `platform-secrets` Secret, and a `const ConfidentialClientSecret` in each of the five integration-test fixtures that mint real Duende tokens (`Delivery`, `Orders`, `RealTime`, `Restaurants`, `Support`). A test comparing *two named files*, as option 1 describes it, would have missed seven copies and passed.
+>
+> **Neither option shipped: the duplication is documented, not guarded.** The discovery test was built first — it found occurrences by pattern across `.json`/`.cs`/`.yaml`, asserted the distinct set had one element, and asserted a floor of eight matches so a pattern that stopped matching would fail rather than pass vacuously. It worked, and it was then removed as disproportionate: ~150 lines of repository-scanning guarding a value whose worst case is a confusing 401 on a developer machine. The nine locations are tabulated in `docs/security.md` §3.2 with the failure mode instead. **Revisit if a shared credential ever authenticates to something real** — the mechanism was sound, only the ratio was wrong.
+>
+> Two pattern gotchas from building it, worth keeping if it is ever rebuilt: the value must be matched **quoted**, or `string confidentialClientSecret =\n configuration[…]` matches and captures the word `configuration`; and the JSON, C# and YAML spellings differ enough (`": "`, `= "`, `"] ?? "`, `: ` unquoted) that YAML needs its own expression rather than one clever alternation.
+
 ### 3.2 `gitleaks` as a CI gate
 Add a `secrets` job to the `tools` workflow running `gitleaks` over the working tree (not the full history — the dev values are legitimately there and rewriting history for a throwaway Postgres password is theatre). Ship a `.gitleaks.toml` that **allow-lists the known development values by path**, so the scan is meaningful rather than permanently red:
 
@@ -137,11 +143,31 @@ description = "Local-only credentials, valid against a throwaway compose/KinD st
 
 Everything outside those two paths is a genuine finding. Point the job at the tree so the stale untracked `bin/obj` output (including the reverted FraudDetection host) cannot produce phantom hits — `git ls-files` is the input, not the filesystem.
 
+> **Shipped with three departures**, all forced by running the scanner rather than reasoning about it. A baseline scan (`ghcr.io/gitleaks/gitleaks:v8.24.0`, default rules) reports exactly **eight** findings, all of them the same client secret, all `generic-api-key`.
+>
+> 1. **A path-only allowlist leaves five findings red.** Five of the eight are the integration-test fixtures, which are not `appsettings.Development.json`. The allowlist therefore names the two paths **and** the secret **by value** (`regexes`), which is the more accurate statement anyway — *this specific throwaway string is known*, while every other high-entropy value in those same files still fails. Verified both directions: a fresh 32-character secret in a `.cs` file fails the scan, the same value in an allow-listed dev config passes.
+> 2. **Global `[allowlist]`, not `[[rules.allowlist]]`.** The sketch's form attaches an allowlist to a rule block that does not exist here (the rules come from `[extend] useDefault = true`). The config uses the top-level `[allowlist]` with `targets = ["file"]`.
+> 3. **`git archive HEAD`, not `git ls-files`.** `gitleaks dir` takes a directory, not a file list, so the scan input is built by exporting `HEAD` into a temp directory — same effect, one command, and it is the committed tree by definition. That lives in `Backend/tools/secret-scan.sh` so a developer runs locally exactly what CI runs; CI's `secrets` job is one `bash` line. It is a **separate job**, not a step in `tools`, so it fails independently of actionlint/kubeconform.
+>
+> A dead allowlist entry is a hazard in its own right — it reads as coverage in review while suppressing nothing — and **nothing checks for one**. A test asserting the config exists, still extends the default rules, and that every `paths` pattern matches a real file was written and then dropped with the §3.1 discovery test, for the same proportionality reason. Note the residual gap honestly: a stale path entry would **not** surface on the next scan either, because the only value the default rules actually detect inside those two files is the client secret, which is separately allow-listed by value — the Postgres and RabbitMQ credentials there are too low-entropy to trip `generic-api-key`. If either allow-listed file is renamed, nothing says so.
+
 ### 3.3 Manifest secret policy
 Extend `deploy/k8s/scripts/policy-check.py` with one check: **no key whose name matches `(?i)password|secret|key|token|connectionstring` may appear in a `ConfigMap`'s `data`** — such keys belong in the `Secret`. `config.yaml` already respects this; the check keeps the next Deployment from quietly regressing it. Fast, no cluster, and it runs in the existing `tools` job.
 
+> **That regex fails on the current manifests as written.** `platform-config` legitimately carries `Authentication__TokenValidationParameters__ValidIssuers__0` and `…__1`, and `token` matches. The rule shipped with a `CONFIGMAP_KEY_EXEMPTIONS` list — pattern plus the reason it is not a credential — mirroring the anonymous-endpoint allow-list in Milestone A: the exemption is the review prompt. Two neighbours to expect when the list is next touched: `RateLimiting:KeyPrefix` (a Redis key namespace) trips `key`, and the same exemption exists in `SecretHygieneTests` for the `appsettings.json` sweep.
+>
+> The rule was also **extended to embedded JSON**. Two of the three ConfigMaps hold a whole file under one innocuous key (`appsettings.Kubernetes.json`, `redis.conf`), so a key-name check over `data` alone would never see a connection string pasted into the Gateway's routing table — the one place that could realistically happen. Values whose key ends `.json` are parsed and walked, and a value that claims to be JSON but does not parse is itself a failure. `check_document` now dispatches on `ConfigMap` before the workload kinds, and the summary line counts both.
+
 ### 3.4 Documentation
 `docs/security.md` § "Secrets": what is committed and why it is safe, what a real environment must supply (the exact key names — they do not change between local and Azure, which is the whole point of the ConfigMap/Secret split), and the Azure Key Vault mapping table (`platform-secrets` key → Key Vault secret name).
+
+> Shipped as §3 of `docs/security.md` (§3.1 what is committed, §3.2 the nine copies, §3.3 the three gates and the two scoping decisions, §3.4 the Key Vault mapping, §3.5 known limitations). Two things the sketch did not anticipate: Key Vault names cannot contain `_`, so every `__` becomes `--` in that column; and Identity's missing signing-key store is a **secrets** limitation, listed in §3.5 with a pointer to Milestone E so the section is not read as complete.
+>
+> One free assertion came out of writing §3.1: all nine hosts' base `appsettings.json` ship every credential-shaped key blank, which is the claim §0 of this plan makes and nothing checked. `SecretHygieneTests.BaseAppSettings_ShipsEveryCredentialBlank` is a `[Theory]` over the host directories, so a tenth host is covered without editing the test.
+
+**Shipped:** `.gitleaks.toml`, `Backend/tools/secret-scan.sh`, the `secrets` job in `.github/workflows/ci.yml`, the ConfigMap rule in `policy-check.py`, `Common.UnitTests/Security/SecretHygieneTests.cs` (a 9-case `[Theory]`, one per host), and `docs/security.md` §3. No runtime code changed. Policy check passes over 12 workloads and 3 ConfigMaps; the secret scan is clean over 1,380 tracked files.
+
+**Deliberately not shipped**, after the user asked for the milestone to be trimmed: the two repository-scanning tests described in §3.1 and §3.2. Both worked; both were disproportionate to a credential that is only valid against a local stack, and the scanning machinery they needed (~150 lines walking the tree with regexes) reads as gold-plating rather than judgment in a portfolio repository. The properties they asserted are stated in `docs/security.md` §3.2 instead, where the residual gap is named rather than implied. **The same proportionality question applies to the milestones below** — C, D and E carry real runtime substance; F–I should be weighed against this one before being built as written.
 
 ---
 

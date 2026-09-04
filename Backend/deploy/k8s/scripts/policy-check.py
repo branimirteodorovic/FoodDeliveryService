@@ -3,10 +3,25 @@
 
 `kubeconform` answers "is this valid Kubernetes YAML"; this answers "is it the shape this platform
 decided on". Both run in CI as required checks. Milestone C replaces this script with
-helm-unittest assertions against the chart, and Milestone B adds the "no secret literal" rule.
+helm-unittest assertions against the chart.
+
+Feature 3.7 Milestone B added the ConfigMap rule below. It is the manifest-side half of the secret
+hygiene work: `.gitleaks.toml` catches a credential *value* landing anywhere in the tree, and this
+catches a credential-shaped *key* landing on the wrong side of the ConfigMap/Secret split — which
+gitleaks would not flag, because the whole point of the split is that both objects sit in the same
+repository and neither is encrypted.
 
 Rules
 -----
+Every ConfigMap:
+  * no key named like a credential (password / secret / key / token / connection string) — those
+    belong in the `platform-secrets` Secret. A handful of names match the pattern without being
+    credentials; they are allow-listed explicitly in CONFIGMAP_KEY_EXEMPTIONS, which is the review
+    prompt this rule exists to create.
+  * the same rule applied to the property names inside an embedded JSON document (a ConfigMap that
+    carries a whole `appsettings.*.json` as one value — the Gateway's routing table does exactly
+    this, and it is the one place a connection string could plausibly be pasted).
+
 Every workload (Deployment/StatefulSet):
   * no `:latest` and no untagged image  — a rollout must be reproducible
   * every container sets resource requests AND limits
@@ -29,7 +44,9 @@ Usage: python3 policy-check.py [manifest-root]   (default: the deploy/k8s direct
 
 from __future__ import annotations
 
+import json
 import pathlib
+import re
 import sys
 
 import yaml
@@ -115,12 +132,84 @@ def check_env(where: str, container: dict) -> None:
             fail(where, f"{name} is a literal value — credentials must come from a secretKeyRef")
 
 
+CONFIGMAP_KEY_PATTERN = re.compile(r"(?i)password|secret|key|token|connectionstring")
+
+# Names that match the pattern above without naming a credential. Each one is here because a real
+# key in a real manifest tripped the rule, and each is safe for a stated reason — an exemption
+# without a reason is how this list stops meaning anything.
+CONFIGMAP_KEY_EXEMPTIONS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(r"(?i)^Authentication__TokenValidationParameters__"),
+        "JWT *validation* parameters (issuers, audience) — public values, not a token",
+    ),
+)
+
+
+def is_exempt_configmap_key(name: str) -> bool:
+    return any(pattern.search(name) for pattern, _ in CONFIGMAP_KEY_EXEMPTIONS)
+
+
+def check_configmap_key(where: str, name: str, display: str | None = None) -> None:
+    if CONFIGMAP_KEY_PATTERN.search(name) and not is_exempt_configmap_key(name):
+        fail(
+            where,
+            f"ConfigMap key '{display or name}' is named like a credential — it belongs in the "
+            f"platform-secrets Secret, not in a ConfigMap (or add it to "
+            f"CONFIGMAP_KEY_EXEMPTIONS with the reason it is not one)",
+        )
+
+
+def check_embedded_json(where: str, key: str, value: str) -> None:
+    """Apply the same key rule inside a ConfigMap value that is a whole JSON document.
+
+    The Gateway's routing table is mounted this way, so a connection string pasted into it would
+    otherwise sit under the single innocuous key `appsettings.Kubernetes.json`.
+    """
+    if not key.endswith(".json"):
+        return
+
+    try:
+        document = json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        fail(where, f"ConfigMap key '{key}' claims to be JSON but does not parse")
+        return
+
+    def walk(node: object, path: str) -> None:
+        if isinstance(node, dict):
+            for name, child in node.items():
+                child_path = f"{path}:{name}" if path else str(name)
+                check_configmap_key(where, str(name), display=f"{key}[{child_path}]")
+                walk(child, child_path)
+        elif isinstance(node, list):
+            for index, child in enumerate(node):
+                walk(child, f"{path}[{index}]")
+
+    walk(document, "")
+
+
+def check_config_map(path: pathlib.Path, document: dict) -> None:
+    name = (document.get("metadata") or {}).get("name", "<unnamed>")
+    where = f"{path.name} ConfigMap/{name}"
+
+    for key, value in (document.get("data") or {}).items():
+        check_configmap_key(where, str(key))
+        if isinstance(value, str):
+            check_embedded_json(where, str(key), value)
+
+
 def is_application_container(container: dict) -> bool:
     return any(port.get("name") == "http" for port in container.get("ports") or [])
 
 
 def check_document(path: pathlib.Path, document: dict) -> None:
-    if not document or document.get("kind") not in WORKLOAD_KINDS:
+    if not document:
+        return
+
+    if document.get("kind") == "ConfigMap":
+        check_config_map(path, document)
+        return
+
+    if document.get("kind") not in WORKLOAD_KINDS:
         return
 
     name = (document.get("metadata") or {}).get("name", "<unnamed>")
@@ -144,10 +233,13 @@ def main() -> int:
         return 1
 
     checked = 0
+    config_maps = 0
     for path in manifests:
         for document in yaml.safe_load_all(path.read_text(encoding="utf-8")):
             if document and document.get("kind") in WORKLOAD_KINDS:
                 checked += 1
+            elif document and document.get("kind") == "ConfigMap":
+                config_maps += 1
             check_document(path, document)
 
     if failures:
@@ -156,7 +248,7 @@ def main() -> int:
             print(f"  - {failure}", file=sys.stderr)
         return 1
 
-    print(f"policy check passed — {checked} workload(s) under {root}")
+    print(f"policy check passed — {checked} workload(s), {config_maps} ConfigMap(s) under {root}")
     return 0
 
 

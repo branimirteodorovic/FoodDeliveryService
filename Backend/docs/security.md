@@ -2,8 +2,8 @@
 
 > Feature 3.7 — Final Production Hardening. This document is being built one milestone at a time
 > (`HARDENING_PHASE3_PLAN.md`). **Milestone A** contributes the authorization guardrails and the
-> ownership sweep below; Milestone I turns it into the consolidated write-up (OWASP pass, secrets,
-> database privileges, TLS boundary, known limitations).
+> ownership sweep; **Milestone B** the secrets section; Milestone I turns it into the consolidated
+> write-up (OWASP pass, database privileges, TLS boundary, known limitations).
 
 The rule this feature works to: **do not write a security checklist, write a test that fails when
 the property is violated.** A checklist is accurate on the day it is written. Everything below that
@@ -111,10 +111,122 @@ class and the reasoning for changing it is the same; it is left standing here be
 dozen endpoints across two shared guards and belongs with Milestone F's error-surface pass (§7.4 of
 `HARDENING_PHASE3_PLAN.md`) rather than with the read fix.
 
-## 3. What Milestone A does not cover
+## 3. Secrets
 
-Named so a reader does not mistake this page for the finished document: secrets handling (Milestone
-B), database privileges (C), security headers / forwarded headers / CORS (D), Identity key management
-and lockout (E), input validation and the error surface (F), API documentation reachability (G),
-supply-chain scanning (H), and the consolidated OWASP pass, TLS boundary and known-limitations
-sections (I).
+The claim being made here is narrow and worth stating precisely: **nothing in this repository is a
+credential to anything that exists outside a developer's machine.** Every committed value is valid
+only against a throwaway docker-compose or KinD stack. That is not the same as "no secrets are
+committed", and pretending otherwise would be the kind of statement this document exists to avoid.
+
+### 3.1 What is committed, and why it is safe
+
+| Value | Where | Why it is safe |
+|---|---|---|
+| Postgres `postgres` / `postgres` | `appsettings.Development.json` (all nine hosts), `deploy/k8s/base/config.yaml` | A container with no port published outside compose/KinD, holding seeded test data. Milestone C replaces the superuser with per-service roles; that changes the privilege, not the exposure. |
+| RabbitMQ and Redis connection strings | same | The same containers, no authentication configured, not reachable off the host. |
+| Confidential client secret | see §3.2 | A client-credentials secret for a Duende instance that only ever runs locally. |
+| `AdminSeed` password | `Identity/appsettings.Development.json` (`admin`), `config.yaml` (`Admin!23456`) | Seeds the first administrator of a local database. The two differ because outside `Development` ASP.NET Identity enforces its real password rules, so `admin` would fail to seed and leave a cluster with no account to log in with. |
+| Grafana admin password | `docker-compose.yml` | The local observability stack. |
+
+**`appsettings.json` — the file that actually ships in the container image — carries none of it.**
+Every credential-shaped key in all nine of them is blank, and that is asserted rather than eyeballed:
+`Common.UnitTests/Security/SecretHygieneTests.BaseAppSettings_ShipsEveryCredentialBlank` walks each
+file and fails on any non-empty value under a key named like a password, secret, key, token or
+connection string. `appsettings.Development.json` is never deployed anywhere.
+
+### 3.2 The one secret that is written nine times
+
+`Clients:Confidential:ClientSecret` is the client-credentials secret the **Users** service presents
+to Identity's local `api/users` endpoint — the one sanctioned service-to-service HTTP call in the
+platform (Hard Rule #4). It appears in nine places:
+
+| Where | Key |
+|---|---|
+| `Identity/appsettings.Development.json` | `Clients:Confidential:ClientSecret` |
+| `Identity/Config.cs` | the `??` fallback literal |
+| `Users.Api/appsettings.Development.json` | `Duende:ConfidentialClientSecret` |
+| `deploy/k8s/base/config.yaml` | `platform-secrets` → `ConfidentialClientSecret` |
+| `{Delivery,Orders,RealTime,Restaurants,Support}.IntegrationTests` | `const ConfidentialClientSecret` in each `IntegrationTestWebAppFactory` |
+
+The duplication is deliberate: hoisting it into a single `.env` would split development configuration
+across two mechanisms and break `dotnet run` outside compose.
+
+**Nothing enforces that the nine agree** — this table is the guardrail, which is a weaker guarantee
+than a test and is recorded as such. The failure mode is worth knowing before you edit any of them:
+change the value in one file and user registration fails with a **401 from Identity's local API**,
+three layers below the endpoint you are calling. It reads as "registration is broken", and the file
+that broke it appears nowhere in the stack trace.
+
+A test that discovers the copies by pattern and asserts they are identical was built and then
+removed as disproportionate — roughly 150 lines of repository-scanning to guard a value whose worst
+case is a confusing 401 on a developer machine. If the platform ever gains a credential that is
+shared this way *and* authenticates to something real, that decision is worth revisiting.
+
+### 3.3 The gates
+
+| Gate | What it catches | Where |
+|---|---|---|
+| `gitleaks` over the tracked tree | a credential **value** committed anywhere outside the allowlist | `.gitleaks.toml`, `Backend/tools/secret-scan.sh`, CI job `secrets` |
+| ConfigMap key rule | a credential-shaped **key** on the wrong side of the ConfigMap/Secret split | `deploy/k8s/scripts/policy-check.py`, CI job `tools` |
+| `SecretHygieneTests` | a credential value in a deployed `appsettings.json` | `Common.UnitTests`, CI job `build-and-test` |
+
+Two scoping decisions behind the scan, both deliberate:
+
+- **The tree, not the history.** The development values above are legitimately committed. Rewriting
+  history to purge a throwaway Postgres password would be theatre; what matters is that a *new*
+  credential cannot arrive unnoticed, and that is a property of the tree.
+- **Tracked files, not the filesystem.** `Backend/tools/secret-scan.sh` scans `git archive HEAD`
+  rather than the working directory, because a developer checkout carries `bin/`, `obj/` and — still
+  on disk here — the build output of the reverted FraudDetection host. Untracked output cannot have
+  been committed, and phantom findings are how a security job gets ignored.
+
+Run it locally exactly as CI does:
+
+```bash
+bash Backend/tools/secret-scan.sh
+```
+
+The allowlist is two path patterns (`appsettings.Development.json`, `deploy/k8s/base/config.yaml`)
+plus the confidential client secret **by value** — the latter because that one string also lives in
+five test fixtures and in `Config.cs`, and a path list naming eight files would go stale on the next
+suite. Every other high-entropy string in those same files still fails the scan.
+
+### 3.4 What a real environment must supply
+
+The key *names* do not change between compose, KinD and Azure — that is the whole point of the
+ConfigMap/Secret split, and it is why no Deployment manifest needs editing to move environments. A
+real deployment replaces the contents of `platform-secrets` and nothing else.
+
+| `platform-secrets` key | Configuration path | Azure Key Vault secret name |
+|---|---|---|
+| `ConnectionStrings__Cache` | `ConnectionStrings:Cache` | `ConnectionStrings--Cache` |
+| `ConnectionStrings__Queue` | `ConnectionStrings:Queue` | `ConnectionStrings--Queue` |
+| `Database__Identity` … `Database__Support` (eight keys) | mapped per host onto `ConnectionStrings:Database` | `Database--Identity` … `Database--Support` |
+| `ConfidentialClientSecret` | `Duende:ConfidentialClientSecret` (Users) and `Clients:Confidential:ClientSecret` (Identity) | `ConfidentialClientSecret` |
+| `AdminSeed__Password` | `AdminSeed:Password` | `AdminSeed--Password` |
+
+Key Vault secret names may contain only alphanumerics and hyphens, so the `__` separator becomes
+`--`, which the .NET Key Vault configuration provider maps back to `:`. Nothing in this repository
+provisions a vault — there is no Azure subscription behind this project (`HARDENING_PHASE3_PLAN.md`
+§0) — so the table above is the mapping a deployment would use, stated as such rather than as
+something that has been run.
+
+### 3.5 Known limitations
+
+- **A Kubernetes `Secret` is base64, not encryption.** Anyone with `get secret` in the namespace
+  reads it. That is acceptable for values worth nothing outside a local cluster, and it is not
+  acceptable for the table in §3.4; a real deployment wants the Key Vault CSI driver or
+  sealed-secrets, neither of which is in scope here (`KUBERNETES_PHASE2_PLAN.md` was deliberately
+  scoped down by the user).
+- **No secret rotation exists**, because no secret has a lifetime — none of them authenticate to
+  anything durable.
+- **Identity has no signing-key store outside Development**, so a restart invalidates every issued
+  token. That is Milestone E's work. It is a secrets problem, listed here so this section is not read
+  as complete.
+
+## 4. What Milestones A and B do not cover
+
+Named so a reader does not mistake this page for the finished document: database privileges
+(Milestone C), security headers / forwarded headers / CORS (D), Identity key management and lockout
+(E), input validation and the error surface (F), API documentation reachability (G), supply-chain
+scanning (H), and the consolidated OWASP pass, TLS boundary and known-limitations sections (I).
