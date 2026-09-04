@@ -1,4 +1,4 @@
-using Duende.IdentityServer;
+﻿using Duende.IdentityServer;
 using FoodDeliveryService.Identity;
 using FoodDeliveryService.Identity.Data;
 using FoodDeliveryService.Identity.Seed;
@@ -157,15 +157,29 @@ await app.RunAsync();
 
 static async Task ApplyDatabaseMigrationsAsync(WebApplication app)
 {
-    using IServiceScope scope = app.Services.CreateScope();
+    // Feature 3.7 Milestone C: the context is built here rather than resolved from DI, because the
+    // registered one is bound to ConnectionStrings:Database — the least-privilege fds_identity_app
+    // account, which holds no DDL rights. Migrations are the one code path allowed the
+    // fds_identity_owner credential, and it never reaches a request-serving pool. The module hosts
+    // do the same thing through the shared DatabaseMigrationExtensions.ApplyMigration<T>(); Identity
+    // takes no Common.Infrastructure dependency, so it repeats the four lines instead of the
+    // reference. docs/security.md §4.
+    string migrationsConnectionString =
+        app.Configuration.GetConnectionString("DatabaseMigrations") ??
+        app.Configuration.GetConnectionString("Database") ??
+        throw new InvalidOperationException(
+            "Neither the 'DatabaseMigrations' nor the 'Database' connection string is configured.");
 
-    ApplicationDbContext dbContext =
-        scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    DbContextOptions<ApplicationDbContext> options = new DbContextOptionsBuilder<ApplicationDbContext>()
+        .UseNpgsql(migrationsConnectionString, npgsqlOptions => npgsqlOptions.EnableRetryOnFailure())
+        .Options;
+
+    await using var dbContext = new ApplicationDbContext(options);
 
     // Applies EF Core migrations (Data/Migrations) at startup — mirrors the modules'
     // app.ApplyMigrations(). Unlike EnsureCreated this evolves the schema, so changes to
     // ApplicationUser (e.g. MustChangePassword) ship as new migrations instead of requiring the
-    // identity database to be dropped and recreated. The retrying execution strategy configured on
-    // the DbContext lets this survive Postgres still starting up on first boot.
+    // identity database to be dropped and recreated. The retrying execution strategy configured
+    // above lets this survive Postgres still starting up on first boot.
     await dbContext.Database.MigrateAsync();
 }

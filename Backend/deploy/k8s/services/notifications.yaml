@@ -62,6 +62,14 @@ spec:
                 secretKeyRef:
                   name: platform-secrets
                   key: Database__Notifications
+            # The DDL-capable fds_notifications_owner account, read by app.ApplyMigrations() at startup and
+            # by nothing else. Kept out of ConnectionStrings__Database on purpose: that one is the
+            # credential every request-serving pool holds. docs/security.md §4.
+            - name: ConnectionStrings__DatabaseMigrations
+              valueFrom:
+                secretKeyRef:
+                  name: platform-secrets
+                  key: DatabaseMigrations__Notifications
             - name: ConnectionStrings__Cache
               valueFrom:
                 secretKeyRef:

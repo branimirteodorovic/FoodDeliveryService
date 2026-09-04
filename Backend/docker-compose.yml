@@ -119,6 +119,11 @@ services:
       - POSTGRES_PASSWORD=postgres
     volumes:
       - ./.containers/db:/var/lib/postgresql/data
+      # Feature 3.7 Milestone C. The image runs everything in this directory once, and only on an
+      # EMPTY data directory — so after pulling this change you must `rm -rf ./.containers/db`, or
+      # the stack keeps the old superuser-only cluster and every host fails to authenticate as
+      # fds_{service}_app. Read-only because initdb has no reason to write here.
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
     ports:
       - 5432:5432
 

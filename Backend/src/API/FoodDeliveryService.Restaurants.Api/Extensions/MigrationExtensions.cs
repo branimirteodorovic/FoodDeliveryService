@@ -1,22 +1,18 @@
-﻿using FoodDeliveryService.Modules.Restaurants.Infrastructure.Database;
-using Microsoft.EntityFrameworkCore;
+using FoodDeliveryService.Common.Infrastructure.Data;
+using FoodDeliveryService.Modules.Restaurants.Infrastructure.Database;
 
 namespace FoodDeliveryService.Restaurants.Api.Extensions;
 
 internal static class MigrationExtensions
 {
+    /// <summary>
+    /// Applies the module's pending EF Core migrations at startup, as the <c>fds_restaurants_owner</c>
+    /// account named by <c>ConnectionStrings:DatabaseMigrations</c> — the only DDL-capable
+    /// credential this host holds. See
+    /// <see cref="DatabaseMigrationExtensions.ApplyMigration{TDbContext}"/> and docs/security.md §4.
+    /// </summary>
     public static void ApplyMigrations(this IApplicationBuilder app)
     {
-        using IServiceScope scope = app.ApplicationServices.CreateScope();
-
-        ApplyMigration<RestaurantsDbContext>(scope);
-    }
-
-    private static void ApplyMigration<TDbContext>(IServiceScope scope)
-        where TDbContext : DbContext
-    {
-        using TDbContext context = scope.ServiceProvider.GetRequiredService<TDbContext>();
-
-        context.Database.Migrate();
+        app.ApplyMigration<RestaurantsDbContext>();
     }
 }

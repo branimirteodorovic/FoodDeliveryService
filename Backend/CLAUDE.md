@@ -157,6 +157,7 @@ Discovered via `AddEndpoints(Presentation.AssemblyReference.Assembly)`, mapped b
 - Snake_case naming (`UseSnakeCaseNamingConvention`), default (`public`) schema — custom schemas were removed
 - Each module has its own `DbContext` (implements the module's `IUnitOfWork`) + `InsertOutboxMessagesInterceptor`
 - Migrations live in `Infrastructure/Database/Migrations` and are auto-applied at startup via `app.ApplyMigrations()`
+- **Two credentials per host, and they are not interchangeable.** `ConnectionStrings:Database` is `fds_{service}_app` — `SELECT/INSERT/UPDATE/DELETE` on its own database and nothing else — and it is what the `DbContext`, Dapper's `NpgsqlDataSource` and the outbox/inbox jobs all use. `ConnectionStrings:DatabaseMigrations` is `fds_{service}_owner`, read by `app.ApplyMigrations()` and by nothing else. The roles, the eight databases and the `REVOKE CONNECT` that makes Hard Rule #5 a server guarantee live in `docker/postgres/init/01-roles.sql`, which initdb runs **once, on an empty data directory** — change it and you must wipe `.containers/db` or the KinD PVC. A new host adds both keys, a `platform-secrets` pair and a `postgres-init` block, or `DatabaseRoleTests` fails. `docs/security.md` §4
 
 ## Naming Conventions
 | Item | Convention | Example |

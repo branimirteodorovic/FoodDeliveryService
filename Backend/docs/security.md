@@ -2,8 +2,9 @@
 
 > Feature 3.7 — Final Production Hardening. This document is being built one milestone at a time
 > (`HARDENING_PHASE3_PLAN.md`). **Milestone A** contributes the authorization guardrails and the
-> ownership sweep; **Milestone B** the secrets section; Milestone I turns it into the consolidated
-> write-up (OWASP pass, database privileges, TLS boundary, known limitations).
+> ownership sweep; **Milestone B** the secrets section; **Milestone C** the database privilege
+> model; Milestone I turns it into the consolidated write-up (OWASP pass, TLS boundary, known
+> limitations).
 
 The rule this feature works to: **do not write a security checklist, write a test that fails when
 the property is violated.** A checklist is accurate on the day it is written. Everything below that
@@ -224,9 +225,117 @@ something that has been run.
   token. That is Milestone E's work. It is a secrets problem, listed here so this section is not read
   as complete.
 
-## 4. What Milestones A and B do not cover
+## 4. Database privileges
 
-Named so a reader does not mistake this page for the finished document: database privileges
-(Milestone C), security headers / forwarded headers / CORS (D), Identity key management and lockout
-(E), input validation and the error surface (F), API documentation reachability (G), supply-chain
-scanning (H), and the consolidated OWASP pass, TLS boundary and known-limitations sections (I).
+Until Milestone C every service connected as the PostgreSQL superuser `postgres`, and one server
+holds all eight databases. Two consequences, both bad: a SQL-injection or deserialisation bug in
+*any* host was a full-platform compromise, and Hard Rule #5 — "never query another service's
+tables" — was enforced by code review alone. It is enforced by the server now.
+
+### 4.1 Two roles per service
+
+`docker/postgres/init/01-roles.sql` runs from the Postgres image's `docker-entrypoint-initdb.d` and
+creates, for each of the eight service databases:
+
+| Role | Holds | Used by |
+|---|---|---|
+| `fds_{service}_owner` | Owns the database and everything in it; full DDL. | Exactly one code path: the startup EF Core migration, through `ConnectionStrings:DatabaseMigrations`. |
+| `fds_{service}_app` | `CONNECT` on its own database, `USAGE` on `public`, `SELECT/INSERT/UPDATE/DELETE` on its tables and `USAGE/SELECT/UPDATE` on its sequences. No `CREATE`, no other database. | Everything else — `ConnectionStrings:Database`, which the EF Core `DbContext`, the shared `NpgsqlDataSource` behind Dapper and the outbox/inbox jobs all build their pools from. |
+
+Three details in that script carry the weight:
+
+- **`REVOKE CONNECT ON DATABASE … FROM PUBLIC`** is the line that does the isolating. Without it
+  every role can open every database and the per-schema grants only decide what it can do once
+  inside. With it, `fds_orders_app` is refused before a query is even parsed — so nothing inside the
+  Users database has to be got right for Orders to be unable to read it.
+- **`ALTER DEFAULT PRIVILEGES FOR ROLE fds_{service}_owner`** grants the app role rights over tables
+  that do not exist yet. They are created by a *later* migration, so a plain `GRANT … ON ALL TABLES`
+  would cover today's schema and silently miss every table added after — surfacing as a 500 on the
+  first request rather than as a failure at boot.
+- **The databases are created here, not by EF Core.** `Migrate()` used to create them as a side
+  effect of connecting to a database that did not exist. That cannot survive least privilege —
+  `CREATE DATABASE` is a cluster-level right no service account should hold — so the script creates
+  all eight, already owned by the right role, and `Migrate()` now only ever evolves a schema.
+  `ALTER DATABASE … OWNER TO` runs unconditionally afterwards, because a database the container
+  entrypoint created from `POSTGRES_DB` already exists and is owned by `postgres`.
+
+The passwords are local-stack credentials in the same category as `postgres`/`postgres` (§3.1), and
+they are never written literally — the script builds them with `format()`, so the file contains no
+credential string. They **must differ per role**: two roles sharing a password would mean a leaked
+app credential also opens the owner account, which is the escalation the split exists to prevent.
+
+### 4.2 One credential per code path
+
+Migrations run in-process, at boot, from the host that then serves traffic, so a single connection
+string cannot be both DDL-capable at startup and DML-only afterwards. The split is therefore in
+configuration:
+
+- `ConnectionStrings:Database` → `fds_{service}_app`. Everything that serves a request.
+- `ConnectionStrings:DatabaseMigrations` → `fds_{service}_owner`. Read by `app.ApplyMigrations()`
+  and by nothing else.
+
+`Common.Infrastructure/Data/DatabaseMigrationExtensions.ApplyMigration<TDbContext>()` builds that
+context **by hand** rather than resolving it from DI, because the registered one is bound to the app
+connection string. It mirrors what each `{Module}Module` registers — same provider, same
+`HistoryRepository.DefaultTableName` (which the snake-case convention would otherwise rename,
+pointing the migration at a history table that does not exist), same naming convention — and
+deliberately omits the outbox interceptor, since nothing raises a domain event during a migration.
+Identity takes no `Common.Infrastructure` dependency and repeats those four lines in its own
+`ApplyDatabaseMigrationsAsync`.
+
+`DatabaseMigrations` falls back to `Database` when absent. That is what lets the integration fixtures
+point a whole host at one superuser Testcontainers connection without knowing the split exists.
+
+**The alternative not taken** is moving migrations into a Kubernetes init container or Job. That is
+the right answer for a real production cluster, and it is a change into a workstream the user scoped
+out (`KUBERNETES_PHASE2_PLAN.md`), so the two-credential split is what ships.
+
+### 4.3 Pool sizing
+
+`Maximum Pool Size` was tuned in `LOADTESTING_PHASE3_PLAN.md` Milestone F against a measured
+`53300: sorry, too many clients already`, and Milestone C did not change it. It added a second,
+near-idle pool per host, capped at **2** — all a single sequential migration run can want, and a
+privileged pool sitting idle for the life of the process is not something to be generous with.
+
+The bounded worst case moves from `7 × 20 + 20 = 160` to `160 + 8 × 2 = 176`, against the server's
+`max_connections=200`. `DatabaseRoleTests.BoundedConnectionTotal_FitsInsideTheServersMaxConnections`
+re-derives that from the manifests rather than trusting the comment beside them.
+
+### 4.4 Guardrails
+
+| Property | Where it is asserted |
+|---|---|
+| The app role cannot `CREATE`, and can read/write tables the owner creates *later* | `Orders.IntegrationTests/DatabasePrivilegeTests` — a real Postgres initialised by the shipped script |
+| The app role cannot open another service's database | same |
+| Every service database is owned by its own owner role | same |
+| No host settings file or `platform-secrets` entry connects as `postgres` | `Common.UnitTests/Security/DatabaseRoleTests` |
+| Each host's two connection strings name **its own** service's database and roles | same — a `[Theory]` over the eight hosts, across all three config locations |
+| Every Deployment maps `ConnectionStrings__DatabaseMigrations` from the matching Secret key | same |
+| The bounded connection total fits under `max_connections` | same |
+| The whole stack boots and migrates with the split | `deploy/k8s/scripts/cluster-smoke.sh` — a wrong credential fails `app.ApplyMigrations()` and the pod never reports Ready |
+
+### 4.5 Known limitations
+
+- **The init script runs once, on an empty data directory.** Changing it does nothing to an existing
+  cluster. Locally: `rm -rf Backend/.containers/db`. On KinD: delete the StatefulSet's PVC, or run
+  `kind-down.sh`. A stale volume presents as every host failing to authenticate as
+  `fds_{service}_app` at startup.
+- **The KinD ConfigMap is generated, not committed.** `kind-up.sh` builds `postgres-init` from the
+  same SQL file compose bind-mounts, so the two environments cannot drift onto different privileges
+  — but it also means `kubectl apply -f deploy/k8s/base/` alone does not create it, and neither
+  `kubeconform` nor `policy-check.py` sees it.
+- **Roles are per service, not per component.** The outbox/inbox jobs and the request path share one
+  app credential. Splitting them further would buy no attacker-visible gain: both already run inside
+  the same process.
+- **Nothing revokes an old role.** The script only creates. A service that is renamed or removed
+  leaves its roles and its database behind.
+- **The migration credential lives in the pod for the life of the process**, not just for the
+  migration. An init container or Job is what removes it from the request-serving container
+  entirely; see §4.2 for why that is out of scope here.
+
+## 5. What Milestones A, B and C do not cover
+
+Named so a reader does not mistake this page for the finished document: security headers / forwarded
+headers / CORS (Milestone D), Identity key management and lockout (E), input validation and the
+error surface (F), API documentation reachability (G), supply-chain scanning (H), and the
+consolidated OWASP pass, TLS boundary and known-limitations sections (I).

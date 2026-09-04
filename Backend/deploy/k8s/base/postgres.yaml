@@ -100,6 +100,19 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data
+            # Feature 3.7 Milestone C — the per-service owner/app roles, their eight databases and
+            # the REVOKE CONNECT that isolates them. The image runs this once, on an empty data
+            # directory, before it accepts any connection; changing the SQL therefore requires
+            # deleting the PVC below, not just restarting the pod. docs/security.md §4.
+            - name: init
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+      volumes:
+        # Created by kind-up.sh from docker/postgres/init/01-roles.sql — the same file compose
+        # bind-mounts, so the two environments cannot drift onto different privileges.
+        - name: init
+          configMap:
+            name: postgres-init
   volumeClaimTemplates:
     - metadata:
         name: data

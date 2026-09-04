@@ -86,6 +86,17 @@ echo "==> applying namespace, config and backing services"
 # with `namespaces "fooddeliveryservice" not found`, while everything else applies cleanly. The
 # script then fails, or worse, a second run "fixes" it because the namespace survives from the first.
 kubectl apply -f "$deploy_dir/k8s/base/namespace.yaml"
+
+# Feature 3.7 Milestone C. The per-service Postgres roles are defined in ONE file, which compose
+# bind-mounts and which the StatefulSet mounts from this ConfigMap. Generated from that file rather
+# than committed a second time as YAML: a hand-maintained copy of 190 lines of GRANTs is a drift
+# trap where the failure mode is a cluster that quietly keeps the old privileges.
+#
+# initdb only runs it on an EMPTY data directory, so changing the SQL and re-running this script
+# changes nothing — delete the StatefulSet's PVC (kind-down.sh, or
+# `kubectl -n fooddeliveryservice delete pvc data-fooddeliveryservice-database-0`) first.
+kubectl create configmap postgres-init   --namespace "$NAMESPACE"   --from-file="$backend_dir/docker/postgres/init/01-roles.sql"   --dry-run=client -o yaml | kubectl apply -f -
+
 kubectl apply -f "$deploy_dir/k8s/base/"
 
 echo "==> waiting for Postgres, Redis and RabbitMQ"
