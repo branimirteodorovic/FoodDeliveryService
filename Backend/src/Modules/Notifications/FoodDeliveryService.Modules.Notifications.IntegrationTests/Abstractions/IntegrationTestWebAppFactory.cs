@@ -40,6 +40,15 @@ public class IntegrationTestWebAppFactory : WebApplicationFactory<Program>, IAsy
         // builder would apply a ConfigureAppConfiguration override. Environment variables are visible
         // from before Program.Main runs, so they're the only override that lands in time.
         Environment.SetEnvironmentVariable("ConnectionStrings:Database", _dbContainer.GetConnectionString());
+
+        // Feature 3.7 Milestone C split the migration credential out into its own connection
+        // string, and app.ApplyMigrations() reads THAT one. Overriding only Database leaves the
+        // migration pointed at appsettings.Development.json's docker-internal host, which a plain
+        // `dotnet test` process cannot resolve — the host then dies during startup with a DNS
+        // failure and every test in the suite fails before it runs. The fallback inside
+        // ApplyMigration only fires when the key is absent, and it is not: it is present and wrong.
+        Environment.SetEnvironmentVariable(
+            "ConnectionStrings:DatabaseMigrations", _dbContainer.GetConnectionString());
         Environment.SetEnvironmentVariable("ConnectionStrings:Cache", _redisContainer.GetConnectionString());
         Environment.SetEnvironmentVariable("ConnectionStrings:Queue", _rabbitMqContainer.GetConnectionString());
 

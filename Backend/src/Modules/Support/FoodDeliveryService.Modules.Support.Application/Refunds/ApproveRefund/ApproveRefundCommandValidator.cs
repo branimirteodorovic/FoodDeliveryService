@@ -7,6 +7,8 @@ internal sealed class ApproveRefundCommandValidator : AbstractValidator<ApproveR
 {
     public ApproveRefundCommandValidator()
     {
+        RuleFor(c => c.RefundRequestId).NotEmpty();
+
         // Optional. The note is context for the customer's email and for the audit entry, not a
         // condition of the decision — and an over-long one is truncated on the entry rather than
         // costing an administrator the action they came to perform.

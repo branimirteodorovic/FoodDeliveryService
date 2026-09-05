@@ -14,7 +14,10 @@ internal sealed class PlaceOrderCommandValidator : AbstractValidator<PlaceOrderC
         RuleForEach(c => c.Items).ChildRules(item =>
         {
             item.RuleFor(i => i.MenuItemId).NotEqual(Guid.Empty);
-            item.RuleFor(i => i.Quantity).GreaterThan(0);
+            // Feature 3.7 Milestone F. Upper-bounded as well as positive. Quantity multiplies the
+            // unit price into a numeric(10,2) line total, so an unbounded one is an arithmetic
+            // overflow inside the aggregate rather than a rejected request.
+            item.RuleFor(i => i.Quantity).InclusiveBetween(1, MaxQuantityPerItem);
         });
 
         RuleFor(c => c.Street).NotEmpty().MaximumLength(300);
@@ -35,4 +38,10 @@ internal sealed class PlaceOrderCommandValidator : AbstractValidator<PlaceOrderC
         // the domain — the validator only guards input shape.
         RuleFor(c => c.IdempotencyKey).NotEmpty().MaximumLength(100);
     }
+
+    /// <summary>
+    /// A per-line ceiling, not a per-order one: a hundred of one dish is already an unusual order,
+    /// and the point is to keep the line total inside <c>numeric(10,2)</c>.
+    /// </summary>
+    private const int MaxQuantityPerItem = 100;
 }

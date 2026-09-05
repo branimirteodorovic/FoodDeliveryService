@@ -115,7 +115,7 @@ internal sealed class ProcessOutboxJob(
         IDbConnection connection,
         IDbTransaction transaction)
     {
-        string sql =
+        const string sql =
             $"""
              SELECT
                 id AS {nameof(OutboxMessageResponse.Id)},

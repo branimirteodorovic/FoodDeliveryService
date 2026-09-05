@@ -68,8 +68,10 @@ public class DriverProfileTests : BaseIntegrationTest
             new Uri($"delivery/drivers/{driverIdB}", UriKind.Relative),
             TestContext.Current.CancellationToken);
 
-        // Assert — refused with the NotSelf problem (mapped to 400 by ApiResults, the same shape
-        // as Restaurants' NotManager ownership failure).
+        // Assert — refused with the NotSelf problem, which ApiResults maps to 400. NOTE: this is now
+        // the last ownership failure on the platform that answers 400 rather than 404; Feature 3.7
+        // Milestone F converted the write guards (Orders, Restaurants) and Milestone A the scoped
+        // reads. See docs/security.md §7.7 — the 400 confirms the driver id is real.
         driverResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
 
         // …while the admin's deliveries:administer bypasses the self-only check.

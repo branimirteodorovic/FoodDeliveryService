@@ -71,6 +71,15 @@ public class IntegrationTestWebAppFactory : WebApplicationFactory<Program>, IAsy
         // builds first, using the same env var keys) left its own behind — safe, because that host
         // is already fully built by then.
         Environment.SetEnvironmentVariable("ConnectionStrings:Database", _dbContainer.GetConnectionString());
+
+        // Feature 3.7 Milestone C split the migration credential out into its own connection
+        // string, and app.ApplyMigrations() reads THAT one. Overriding only Database leaves the
+        // migration pointed at appsettings.Development.json's docker-internal host, which a plain
+        // `dotnet test` process cannot resolve — the host then dies during startup with a DNS
+        // failure and every test in the suite fails before it runs. The fallback inside
+        // ApplyMigration only fires when the key is absent, and it is not: it is present and wrong.
+        Environment.SetEnvironmentVariable(
+            "ConnectionStrings:DatabaseMigrations", _dbContainer.GetConnectionString());
         Environment.SetEnvironmentVariable("ConnectionStrings:Cache", _redisContainer.GetConnectionString());
         Environment.SetEnvironmentVariable("ConnectionStrings:Queue", _rabbitMqContainer.GetConnectionString());
 

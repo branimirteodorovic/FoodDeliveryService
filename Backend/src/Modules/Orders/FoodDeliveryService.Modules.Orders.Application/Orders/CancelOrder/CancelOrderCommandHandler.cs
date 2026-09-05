@@ -24,9 +24,11 @@ internal sealed class CancelOrderCommandHandler(
             return Result.Failure(OrderErrors.NotFound(request.OrderId));
         }
 
+        // Feature 3.7 Milestone F. Somebody else's order is indistinguishable from no order at
+        // all — see OrderOwnership for why this is a 404 rather than the 400 it used to be.
         if (order.CustomerId != ordersContext.UserId)
         {
-            return Result.Failure(OrderErrors.NotOwner);
+            return Result.Failure(OrderErrors.NotFound(request.OrderId));
         }
 
         Result cancelResult = order.Cancel(DateTime.UtcNow);

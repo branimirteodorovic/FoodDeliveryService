@@ -112,7 +112,7 @@ internal sealed class ProcessInboxJob(
         IDbConnection connection,
         IDbTransaction transaction)
     {
-        string sql =
+        const string sql =
             $"""
              SELECT
                 id AS {nameof(InboxMessageResponse.Id)},

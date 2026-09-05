@@ -7,6 +7,8 @@ internal sealed class PostTicketMessageCommandValidator : AbstractValidator<Post
 {
     public PostTicketMessageCommandValidator()
     {
+        RuleFor(c => c.TicketId).NotEmpty();
+
         // The aggregate enforces both of these too, and that is the copy that matters — this one
         // only turns a malformed request into a 400 before a database round-trip.
         RuleFor(c => c.Body).NotEmpty().MaximumLength(TicketMessage.BodyMaxLength);

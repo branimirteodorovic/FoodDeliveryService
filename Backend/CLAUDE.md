@@ -1,4 +1,4 @@
-﻿# FoodDeliveryService
+# FoodDeliveryService
 
 ## Overview
 A Food Delivery Service built as **.NET 9 microservices behind a YARP API gateway**.
@@ -58,6 +58,7 @@ New endpoints require a matching YARP route only if they introduce a **new path 
 - **Commands** (writes): `sealed record XCommand(...) : ICommand<TResponse>` → `internal sealed class XCommandHandler : ICommandHandler<XCommand, TResponse>` — EF Core repositories + `IUnitOfWork.SaveChangesAsync()`
 - **Queries** (reads): `sealed record GetXQuery(...) : IQuery<TResponse>` → `internal sealed class GetXQueryHandler : IQueryHandler<GetXQuery, TResponse>` — **Dapper via `IDbConnectionFactory`**, never EF Core
 - All return `Result<T>` — never throw for business failures
+- **Every request an HTTP endpoint can reach needs an `AbstractValidator`.** `ValidationPipelineBehavior` silently no-ops when a request has no validator, so the omission is invisible at runtime — `ValidatorCoverageTests` (Feature 3.7 Milestone F) fails the build instead, and it also requires every free-text field to be `MaximumLength`-bounded and every `PageSize` to be capped. Requests driven only by an integration-event handler or a Quartz job are deliberately out of that scope. All SQL literals are `const` (`SqlParameterisationTests`) — that is what proves no runtime value can be interpolated into a statement. `docs/security.md` §7
 - Pipeline behaviors: ExceptionHandling → RequestMetrics → RequestLogging → Validation (FluentValidation) → QueryCaching
 
 ### Domain-Driven Design

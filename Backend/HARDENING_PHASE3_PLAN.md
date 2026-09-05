@@ -233,6 +233,37 @@ Departures beyond those recorded in §4.1 and §4.2:
 
 ---
 
+### 4.6 The fixture fallout, fixed across every suite
+
+Milestone E found (§6) that adding `ConnectionStrings:DatabaseMigrations` broke every integration
+suite: a fixture overrides `ConnectionStrings:Database` with its Testcontainers connection string,
+but `app.ApplyMigrations()` reads the migrations key, and `appsettings.Development.json` supplies it
+pointing at `fooddeliveryservice.database` — a hostname a plain `dotnet test` process cannot resolve.
+The host then dies during startup with `No such host is known`, so the collection fixture throws in
+`InitializeAsync` and every test in the suite fails before it runs. Two things carried it past
+review: the `??` fallback in `ApplyMigration` reads as a safety net but only fires when the key is
+*absent*, and it is present-and-wrong; and the change is invisible to a unit test, because it lives
+in host configuration that no unit test builds.
+
+- **All thirteen remaining fixtures now set both keys** — `Delivery`, `Notifications`, `Orders`,
+  `RealTime`, `Restaurants` and `Support`, counting the in-process `UsersApiTestFactory` /
+  `OrdersApiTestFactory` / `NotificationsApiTestFactory` hosts each suite builds alongside its own,
+  which have the same defect and fail the same way. A new fixture must set both: overriding only
+  `Database` is the failure this section exists for.
+- **The fallback now treats a blank value as absent.** `appsettings.json` declares the key as `""`
+  so the shape is visible, and `GetConnectionString` returns that empty string rather than `null` —
+  so a host setting only `Database` fell through to an empty connection string instead of the
+  fallback the comment promised. `ApplyMigration` uses `string.IsNullOrWhiteSpace` on both hops.
+- **`DatabasePrivilegeTests` needed an explicit connect timeout.** Npgsql's 15 s default is a
+  machine-load timer, and a full-solution run starts every suite's containers at once; a connect
+  that loses that race throws `NpgsqlException`/`TimeoutException`, which fails an assertion whose
+  whole subject is *which* `PostgresException` came back. `Timeout=60` on the fixture's connection
+  string. The refusals under test (42501) still come back from the server immediately.
+- **Suite counts, each run on its own:** `Users` 12, `Orders` 36, `Restaurants` 35, `Delivery` 43,
+  `Notifications` 5, `RealTime` 17, `Support` 45 — 193 integration tests green.
+
+---
+
 ## 5. Milestone D — Edge hardening: headers, forwarded headers, CORS
 
 **PR size: medium.** One new shared middleware + options, one CORS extension, nine one-line host edits, tests.
@@ -519,6 +550,7 @@ fails before a single test runs. Confirmed pre-existing by stashing this milesto
 suite is **12/12 green** (10 existing + the 2 new lockout tests). **`Orders`, `Restaurants`,
 `Delivery`, `Notifications`, `RealTime` and `Support` have the same one-line defect and were left
 alone** — it is Milestone C's to fix, not E's, and six more fixture edits would bury this diff.
+The remaining six were fixed afterwards, back under Milestone C — see §4.6.
 
 ---
 
@@ -539,6 +571,44 @@ Reads are Dapper with parameters, writes are EF Core — both parameterised. Add
 
 ### 7.4 Error surface
 Assert that `ApiResults.Problem` never emits a stack trace or an inner exception message outside Development, and that `Include Error Detail=true` (present in every Development connection string) is absent from the non-Development configuration — an Npgsql error detail can carry row data into a client response.
+
+### 7.5 What Milestone F shipped, and where it departed from §7.1–§7.4
+
+**§7.1 — "every `ICommand`/`IQuery`" became "every request an HTTP endpoint can reach", and the set is computed rather than listed.** Reflecting over every request would have demanded ~30 validators for the replica-maintenance commands (`UpsertCustomerCommand`, `UpsertRestaurantCommand`, `SyncDriverFromUserProfileCommand`, all of Notifications), whose fields are not user input at all: they arrive in a full-snapshot integration event that was validated at its source, and a validation failure there is not a 400 to anybody — `ProcessInboxJob` records the error and marks the message processed, so a rejected replica update is silently *lost*. Adding validators there would trade a loud failure for a quiet one. So `ValidatorCoverageTests` scopes itself to reachability, and derives it: it reads the module's `IEndpoint` sources and takes every `…Command`/`…Query` identifier mentioned in one. Consequences worth knowing before Milestone G touches the same files:
+
+- It matches identifiers, not `new X(`. `GetSupportSummary` builds its query through `GetSupportSummaryQuery.Create(from, to, utcNow)` — a factory, because the query is an `ICachedQuery` and its key is asked for before any handler runs — and a constructor-only scan would have quietly stopped covering it.
+- The exception list ended up with **one** entry (`SetDriverAvailabilityCommand`, a lone bool on the authenticated caller), not the several §7.1 anticipated. `GetMyDriverProfile`, named in §7.1 as an example, is not field-free: it sends `GetDriverQuery(Guid?)`, where null means "me" and a present-but-empty id is a different request that must be rejected.
+- The list is checked in both directions and on its own claim: an entry must still be reachable and unvalidated, and must have no string/id/number property.
+
+**Twenty-one reachable requests had no validator**, including every Orders lifecycle transition (`AcceptOrderCommand`, `CancelOrderCommand`, `StartPreparingOrderCommand`, `MarkOrderReadyCommand`), every Delivery transition, both browse queries, and four Support ticket reads.
+
+**§7.2 — the bounds are asserted executably, and they could not go in the module suites.** §7.2 says "each fix gets a unit test in the owning module's suite"; **that is not possible as written** — every `{Module}.UnitTests` project references its `Domain` project and nothing else (see CLAUDE.md § Testing), so a validator, which lives in Application, is not visible there. Rather than add an Application reference to seven test projects to hold seven near-identical tests, the assertions are generic and live with the coverage test: `ValidatorCoverageTests` *constructs* each reachable request with one field overlong (10,001 chars) or one page size abusive (1,000,000), runs the real validator, and requires a failure **reported against that property** — a failure on some other field does not count. A new unbounded field fails the build without anyone writing a test for it.
+
+Four bounds were missing, and two of them were 500s rather than 400s:
+
+| Fix | Was | Now |
+|---|---|---|
+| `GetOrdersQuery`, `GetDeliveriesQuery` | no validator at all | `Page >= 1`, `PageSize` in 1–100, matching the two queries that were already bounded |
+| `RegisterUserCommand`, `AcceptInvitationCommand`, `UpdateUserCommand` | `NotEmpty` only | max lengths on names/email/token, and a 256-char password ceiling — these are the platform's only anonymous writes, and an unbounded password is unbounded PBKDF2 |
+| `MenuItem.Price` | `GreaterThan(0)` | `<= 100_000`; the column is `numeric(10,2)`, so anything larger was an Npgsql overflow — a 500 carrying a database message |
+| `PlaceOrderItem.Quantity` | `GreaterThan(0)` | `1–100`; it multiplies into the same `numeric(10,2)` line total |
+
+The password **minimum** was deliberately left at 6 rather than raised to Milestone E's 12: the authoritative strength policy is ASP.NET Identity's (§6.3), it is environment-dependent, and a second copy here would drift. The maximum is this layer's to add — Identity has none.
+
+**§7.3 — the check is stronger than the grep the section describes, because of a property the codebase already had.** A scan for `$"SELECT` would have fired on *every* statement in the repository: all of them are interpolated raw strings, so column aliases can be `nameof`-ed against the response record. The distinction that matters is that they are all declared **`const`** — and an interpolated string that is `const` can only interpolate compile-time constants, because the compiler refuses to put a runtime value in one. So `SqlParameterisationTests` asserts `const`, which is not a heuristic about the text but the compiler proving no caller input can reach the statement. It also asserts the concatenation shapes that sidestep the rule by never producing one literal, and that SQL appears only in Application and Infrastructure.
+
+Two things fell out of writing it:
+
+- **The eleven outbox/inbox `Process{Out,In}boxJob` statements were the only non-`const` SQL** in the repository. They interpolate nothing but `nameof`, so the fix was one keyword each; it is now enforced.
+- **The concatenation regex must be case-SENSITIVE.** The first draft was case-insensitive and its first catch was the phrase *"live update"* in an email template. Prose contains these words constantly; SQL here is always capitalised.
+
+**§7.4 — the property is about `ErrorType`, and it is narrower than "no stack traces".** `ApiResults.Problem` takes a `Result`, never an exception, so there is no parameter through which a stack trace could arrive and nothing to assert about Development vs not. What it *does* decide is whether the error's own description reaches the caller: the `Validation`/`Problem`/`NotFound`/`Conflict` arms echo the code and description (correctly — that is the caller's own request coming back), and the `Failure` arm suppresses **both**, including the code, which the other four use as the title. `ErrorSurfaceTests` pins both directions. The rest of §7.4 is asserted as coverage, in `ErrorSurfaceCoverageTests`: every host with endpoints pairs `AddProblemDetails()` with `app.UseExceptionHandler()` (each half fails quietly alone), no host anywhere maps `UseDeveloperExceptionPage`, and `Include Error Detail=true` is in every Development file and in none of the deployed configuration — **both directions**, so the rule cannot be satisfied by deleting the setting everywhere. The Gateway and Identity are exempt from the ProblemDetails pairing: neither maps an `IEndpoint`, and their failure surfaces are YARP's and Duende's.
+
+**Milestone A's deferred item (§2.3 of `docs/security.md`) is closed here**, as that section's own pointer to §7.4 asked. `OrderOwnership.EnsureCanManage`, `RestaurantOwnership.EnsureCanModify` and `CancelOrder`'s customer check returned `Error.Problem` → 400 with a `NotOwner`/`NotManager` code, which confirmed that a guessed id was real. All three now return the module's own `NotFound` error, so the response is byte-identical to a nonexistent resource — not just the same status, but the same code and description. `OrderErrors.NotOwner` and `RestaurantErrors.NotManager` are **deleted**, not retyped, so nothing is left to reintroduce the distinction by being reused. `EnsureCanManage` gained an `orderId` parameter to do it (the guard holds the restaurant, and the 404 the caller must see is the order's).
+
+**One ownership failure deliberately still answers 400**: Delivery's `DriverErrors.NotSelf`, when one driver reads another's profile. It was not in Milestone A's list, and `Delivery.IntegrationTests/Drivers/DriverProfileTests` asserts the 400 — a suite that needs Docker and a running Identity, so it was not changed blind. Recorded in `docs/security.md` §7.7 as the last of its kind; **Milestone I should either close it or state it as accepted**, not leave it unmentioned.
+
+**Shipped:** 21 new validators; 7 existing validators tightened (bounds and missing id guards on `ApproveRefund`, `RejectRefund`, `PostTicketMessage`); `const` on 11 SQL statements; 4 new test classes in `Common.UnitTests/Security` (`ValidatorCoverageTests`, `SqlParameterisationTests`, `ErrorSurfaceTests`, `ErrorSurfaceCoverageTests`); the write-path 404 conversion; `docs/security.md` §7. `Common.UnitTests` went 286 → **361 green**; every module unit suite unchanged and green. The integration suites were **not** run — they need Docker and Identity on `:18080` — but no integration test asserts a 400 on a write-ownership failure, and none sends an out-of-bounds page size, quantity or price, so none is expected to move.
 
 ---
 

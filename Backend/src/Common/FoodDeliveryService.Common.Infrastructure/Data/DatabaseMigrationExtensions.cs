@@ -49,11 +49,21 @@ public static class DatabaseMigrationExtensions
     {
         var configuration = app.ApplicationServices.GetRequiredService<IConfiguration>();
 
-        string connectionString =
-            configuration.GetConnectionString(MigrationsConnectionStringName) ??
-            configuration.GetConnectionString("Database") ??
+        // Blank, not just absent: appsettings.json declares the key with an empty value so the
+        // shape is visible, and a host that only sets Database would otherwise fall through to an
+        // empty connection string instead of the fallback.
+        string? connectionString = configuration.GetConnectionString(MigrationsConnectionStringName);
+
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            connectionString = configuration.GetConnectionString("Database");
+        }
+
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
             throw new InvalidOperationException(
                 $"Neither the {MigrationsConnectionStringName} nor the Database connection string was found.");
+        }
 
         DbContextOptions<TDbContext> options = new DbContextOptionsBuilder<TDbContext>()
             .UseNpgsql(

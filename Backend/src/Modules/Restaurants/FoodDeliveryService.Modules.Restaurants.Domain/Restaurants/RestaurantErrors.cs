@@ -9,12 +9,6 @@ public static class RestaurantErrors
             "Restaurants.NotFound",
             $"The restaurant with the identifier {restaurantId} was not found");
 
-    // A manager may own multiple restaurants — there is no one-per-manager uniqueness rule; this
-    // error only guards writes against non-owning managers (administrators bypass it).
-    public static readonly Error NotManager = Error.Problem(
-        "Restaurants.NotManager",
-        "Only the restaurant's manager or an administrator can modify this restaurant");
-
     public static readonly Error InvalidCommissionRate = Error.Problem(
         "Restaurants.InvalidCommissionRate",
         "The commission rate must be a fraction greater than or equal to 0 and less than 1");

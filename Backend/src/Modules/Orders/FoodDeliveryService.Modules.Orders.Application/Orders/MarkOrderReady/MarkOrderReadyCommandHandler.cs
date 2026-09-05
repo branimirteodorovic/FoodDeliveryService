@@ -30,7 +30,7 @@ internal sealed class MarkOrderReadyCommandHandler(
             return Result.Failure(OrderErrors.RestaurantNotFound(order.RestaurantId));
         }
 
-        Result ownershipResult = OrderOwnership.EnsureCanManage(restaurant, ordersContext);
+        Result ownershipResult = OrderOwnership.EnsureCanManage(restaurant, order.Id, ordersContext);
 
         if (ownershipResult.IsFailure)
         {

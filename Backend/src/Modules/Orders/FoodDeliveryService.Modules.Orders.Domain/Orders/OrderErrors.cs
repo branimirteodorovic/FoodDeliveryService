@@ -40,10 +40,6 @@ public static class OrderErrors
             "Orders.InvalidTransition",
             $"The order cannot move from status {from} to status {to}");
 
-    public static readonly Error NotOwner = Error.Problem(
-        "Orders.NotOwner",
-        "Only the order's customer or the restaurant's manager can perform this action");
-
     public static readonly Error DuplicateIdempotencyKey = Error.Conflict(
         "Orders.DuplicateIdempotencyKey",
         "An order with the same idempotency key already exists");

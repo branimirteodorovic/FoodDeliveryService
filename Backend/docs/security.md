@@ -5,6 +5,7 @@
 > ownership sweep; **Milestone B** the secrets section; **Milestone C** the database privilege
 > model; **Milestone D** the edge — response headers, forwarded headers and CORS; **Milestone E**
 > the identity surface — signing keys, configuration fail-fast, lockout and token lifetimes;
+> **Milestone F** input validation and the error surface;
 > Milestone I turns it into the consolidated write-up (OWASP pass, TLS boundary, known limitations).
 
 The rule this feature works to: **do not write a security checklist, write a test that fails when
@@ -104,14 +105,20 @@ equivalent test: its integration suite has one seeded principal, an Administrato
 ownership by definition, so a non-owner read cannot be expressed without a second real Duende
 identity in the fixture.
 
-### 2.3 Writes still answer 400 on an ownership failure
+### 2.3 Writes answer 404 on an ownership failure too (closed in Milestone F)
 
-`OrderOwnership.EnsureCanManage`, `RestaurantOwnership.EnsureCanModify` and `CancelOrder`'s
-customer check all return `Error.Problem` → **HTTP 400** with a `NotOwner` / `NotManager` code, which
-distinguishes a real id from an absent one exactly as the reads used to. The exposure is the same
-class and the reasoning for changing it is the same; it is left standing here because it touches a
-dozen endpoints across two shared guards and belongs with Milestone F's error-surface pass (§7.4 of
-`HARDENING_PHASE3_PLAN.md`) rather than with the read fix.
+`OrderOwnership.EnsureCanManage`, `RestaurantOwnership.EnsureCanModify` and `CancelOrder`'s customer
+check used to return `Error.Problem` → **HTTP 400** with a `NotOwner` / `NotManager` code, which
+distinguished a real id from an absent one exactly as the reads used to. Milestone A left it standing
+because it touches a dozen endpoints across two shared guards; **Milestone F closed it.** All three
+now return the module's own `NotFound` error for the resource, so the response to "somebody else's
+order" is byte-identical to the response to "no such order" — not merely the same status code, but
+the same code and description, which a differently-typed `NotOwner` error would still have leaked.
+`OrderErrors.NotOwner` and `RestaurantErrors.NotManager` are deleted rather than retyped, so there is
+no constant left to reintroduce the distinction by being reused.
+
+The one ownership failure still answering 400 is Delivery's `DriverErrors.NotSelf`, on the
+driver-profile read — see §7.7.
 
 ## 3. Secrets
 
@@ -651,8 +658,148 @@ cached) permission lookup per rejected request. It buys a single source of truth
 in Users and take effect within the cache TTL, with no token re-issue and no claim going stale inside
 a JWT somebody is still holding.
 
-## 7. What Milestones A, B, C, D and E do not cover
+## 7. Input validation and the error surface
 
-Named so a reader does not mistake this page for the finished document: input validation and the
-error surface (Milestone F), API documentation reachability (G), supply-chain scanning (H), and the
-consolidated OWASP pass, TLS boundary and known-limitations sections (I).
+The project plan's phrasing is *"all user inputs are sanitised"*. The accurate description of what
+this platform does is narrower and stronger: **validated at the boundary, parameterised at the
+database, and never echoed raw in an error.**
+
+### 7.1 The hole that made this a milestone
+
+`ValidationPipelineBehavior` resolves `IEnumerable<IValidator<TRequest>>` and, finding it empty,
+calls the handler. That is the correct design — it is what lets a request opt in — and it means a
+command shipped **without** a validator produces no error, no warning and no log line. It is not a
+broken build. It is an endpoint that accepts whatever the caller sent, and in the source it looks
+exactly like the one next to it that validates.
+
+Before this milestone, twenty-one endpoint-reachable requests had no validator at all, including
+every order lifecycle transition (`AcceptOrderCommand`, `CancelOrderCommand`,
+`StartPreparingOrderCommand`, `MarkOrderReadyCommand`), every delivery transition, and both browse
+queries.
+
+### 7.2 What is validated, and what is deliberately not
+
+**Every request an HTTP endpoint can reach carries an `AbstractValidator`.** That set is *computed*,
+not listed: `ValidatorCoverageTests` reads the `IEndpoint` sources and takes every `…Command` /
+`…Query` identifier mentioned in one. A new endpoint is therefore covered the day it is written,
+including one that builds its request through a factory rather than a constructor —
+`GetSupportSummaryQuery.Create(…)` does exactly that, and a `new X(` scan would have missed it.
+
+**Requests reachable only from an integration-event handler or a Quartz job are out of scope, on
+purpose.** Their fields are not user input: they arrive in a full-snapshot integration event that was
+validated at its source, and a validation failure there is not a 400 to anybody — `ProcessInboxJob`
+records the error and marks the message processed, so a rejected replica update is simply lost. The
+roughly thirty replica-maintenance commands (`UpsertCustomerCommand`, `UpsertRestaurantCommand`,
+`SyncDriverFromUserProfileCommand`, all of Notifications) are in that category.
+
+One reachable request is exempt, and the exemption is checked rather than trusted:
+`SetDriverAvailabilityCommand` is a single `bool` on the authenticated caller, with no id to tamper
+with and no invalid value. `ExemptRequests_Should_HaveNoValidatableField` fails if it ever grows a
+string, an id or a number.
+
+### 7.3 Bounded inputs
+
+Being *present* is not the same as being *bounded*, and the unbounded cases were the ones with teeth:
+
+| Bound | Was | Why it mattered |
+|---|---|---|
+| `GetOrdersQuery` / `GetDeliveriesQuery` page size | unvalidated | `?pageSize=1000000` is a full-table read the caller asks for in **one** request — which the edge rate limiter charges as one request (§5). The two other paged queries were already bounded to 100; these two had no validator at all. |
+| Registration / invitation free text | `NotEmpty` only | `users/register` and `users/accept-invitation` are the platform's only anonymous writes. Unbounded names went straight into a row that Identity, the Users module and every replica consumer store; an unbounded password went into PBKDF2, which is CPU billed as a single request. |
+| `MenuItem.Price` | `GreaterThan(0)` | The column is `numeric(10,2)`. A larger price was an Npgsql overflow — a 500 carrying a database message — where the caller should have been told 400. |
+| `PlaceOrderItem.Quantity` | `GreaterThan(0)` | Multiplies into the same `numeric(10,2)` line total. Same overflow, one step further in. |
+
+Both bounds are asserted **executably**, not by reading the validators: `ValidatorCoverageTests`
+constructs each reachable request with one field overlong (or one page size abusive) and requires a
+failure *reported against that property* — a failure on some other field does not count.
+
+### 7.4 Injection posture
+
+Reads are Dapper with named parameters; writes are EF Core. Neither concatenates. The guardrail rests
+on a property the codebase already had and nobody had written down: **every SQL literal is declared
+`const`.**
+
+That is worth more than it looks. All of this platform's SQL is written as an interpolated raw string
+so column aliases can be `nameof`-ed against the response record. An interpolated string that is
+`const` can only interpolate other compile-time constants — the compiler refuses to put a runtime
+value in one. So "is it `const`?" is not a heuristic about the text; it is the compiler proving that
+no caller's input can reach the statement. `SqlParameterisationTests` asserts it for every statement
+under `src/Modules`, plus the concatenation shapes (`+ " WHERE …"`, `string.Format`) that sidestep the
+rule by never producing a single literal, plus a layering check that SQL appears only in Application
+and Infrastructure.
+
+The eleven outbox/inbox jobs were the only statements declared without `const` — they interpolate
+nothing but `nameof`, so the keyword was one word each, and it is now enforced.
+
+### 7.5 The error surface
+
+Every failing request leaves through `ApiResults.Problem`, so what that method puts in the body *is*
+the error surface. The rule it implements: **a failure the caller caused is described to them; a
+failure they did not cause is not.**
+
+The discriminator is `ErrorType`. `Validation`, `Problem`, `NotFound` and `Conflict` are the caller's
+own request coming back at them, and the description is the useful part. `ErrorType.Failure` is
+everything else, and its description is written for an operator — it is the arm that would otherwise
+carry an Npgsql message, a connection-string fragment or a row's contents to whoever typed the URL.
+That arm renders `Server failure` / `An unexpected error occurred` and nothing else, including
+suppressing the error *code*, which the other four arms use as the title.
+
+Two supporting properties:
+
+- **Every host with endpoints pairs `AddProblemDetails()` with `app.UseExceptionHandler()`.** Each
+  half fails quietly alone: without the handler an unhandled exception outside Development is a bare
+  500 (and inside Development, the developer exception page); without the writer the handler has
+  nothing to write with and produces the same empty body. The Gateway and Identity are exempt —
+  neither maps an `IEndpoint`, and their failure surfaces are YARP's and Duende's.
+- **`UseDeveloperExceptionPage` appears nowhere.** Nothing calls it today; it is one line to add, it
+  renders the stack trace, every request header (bearer token included) and the resolved
+  configuration, and wrapped in `if (IsDevelopment())` it reads as harmless right up until
+  `ASPNETCORE_ENVIRONMENT` is wrong on a deployment.
+
+**`Include Error Detail=true` is Development-only.** Npgsql's error detail puts the offending *row
+values* into the exception message — the duplicate key, the failing constraint's data. Locally that
+is the difference between a debuggable failure and `23505`. Anywhere else it is user data one
+unhandled exception away from a log aggregator, a trace attribute or a response body. It is present
+in every host's `appsettings.Development.json` and in none of the deployed configuration, and both
+directions are asserted, so the rule cannot be satisfied by deleting the setting everywhere.
+
+### 7.6 Guardrails
+
+| Property | Where it is asserted |
+|---|---|
+| Every endpoint-reachable request has a validator | `Common.UnitTests/Security/ValidatorCoverageTests.EveryEndpointReachableRequest_Should_HaveAValidator` |
+| The exemption list holds only reachable, unvalidated requests, and only field-free ones | `ValidatorCoverageTests.ExemptRequests_Should_StillBeEndpointReachable` + `…_Should_HaveNoValidatableField` |
+| No orphan validator (one whose subject is no longer a request, so it never runs) | `ValidatorCoverageTests.EveryValidator_Should_TargetARequestOfItsOwnModule` |
+| Every free-text field rejects 10,001 characters, reported against that field | `ValidatorCoverageTests.EveryFreeTextField_Should_BeLengthBounded` |
+| Every `PageSize` rejects 1,000,000 and every `Page` rejects 0 | `ValidatorCoverageTests.EveryPagedRequest_Should_RejectAnAbusivePageSize` |
+| Every SQL literal is `const`; none is concatenated; SQL lives only in Application/Infrastructure | `Common.UnitTests/Security/SqlParameterisationTests` |
+| An internal failure emits neither its description nor its error code | `Common.UnitTests/Security/ErrorSurfaceTests.Problem_Should_NotEchoTheDescription_ForAnInternalFailure` |
+| A caller-caused failure still describes itself | `ErrorSurfaceTests.Problem_Should_DescribeTheFailure_WhenTheCallerCausedIt` |
+| Every host with endpoints pairs `AddProblemDetails` with `UseExceptionHandler`; no host maps the developer exception page | `Common.UnitTests/Security/ErrorSurfaceCoverageTests` |
+| `Include Error Detail=true` is in every Development file and no deployed one | `ErrorSurfaceCoverageTests.NoNonDevelopmentConfiguration_Should_AskNpgsqlForErrorDetail` + `DevelopmentConfiguration_Should_StillAskForErrorDetail` |
+
+### 7.7 Known limitations
+
+- **Validation is shape, not authorization.** A validator says the id is a well-formed GUID; whether
+  the caller may read *that* order is §1 and §2's job, enforced in the handler's SQL predicate. The
+  two are routinely confused and are not interchangeable.
+- **No output encoding layer, because there is no HTML output.** Every response is JSON, serialised by
+  `System.Text.Json`, which escapes by default. Stored text (a ticket subject, a menu item
+  description) is returned exactly as it was sent; a browser client rendering it is responsible for
+  its own escaping. If a server-rendered surface is ever added, this section needs a new paragraph
+  rather than an assumption.
+- **The `const` SQL rule is enforced by a file scan, not by an analyzer.** SQL written in a shape the
+  regex does not recognise — a single-line literal, a `ReadOnlySpan<char>` — would pass unnoticed. It
+  catches the regression it exists for; it is not a proof.
+- **Free-text fields are bounded, not filtered.** A 200-character name containing `<script>` is stored
+  and returned verbatim, by design (see output encoding above).
+- **One ownership failure still answers 400.** `GetDriverQueryHandler` returns
+  `DriverErrors.NotSelf` (`Error.Problem` → 400) when one driver reads another's profile, so the
+  status still confirms that the id is real. It is the last of its kind after §2.3, and it is left
+  standing rather than changed blind: `Delivery.IntegrationTests/Drivers/DriverProfileTests` asserts
+  the 400, and that suite needs Docker and a running Identity to re-run.
+
+## 8. What Milestones A, B, C, D, E and F do not cover
+
+Named so a reader does not mistake this page for the finished document: API documentation
+reachability (Milestone G), supply-chain scanning (H), and the consolidated OWASP pass, TLS boundary
+and known-limitations sections (I).

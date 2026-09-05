@@ -143,7 +143,14 @@ public sealed class DatabasePrivilegeTests : IAsyncLifetime
         {
             Database = database,
             Username = role,
-            Password = password ?? $"{role}_dev"
+            Password = password ?? $"{role}_dev",
+
+            // Npgsql's 15 s default is a machine-load timer, not a privilege one: a full-solution
+            // run has every suite starting its own containers at once, and a connect that loses
+            // that race throws NpgsqlException/TimeoutException — which reads as a failed privilege
+            // assertion in tests whose whole point is WHICH PostgresException comes back. A refusal
+            // (42501) is still returned by the server immediately; only the slow success path moves.
+            Timeout = 60
         };
 
         var connection = new NpgsqlConnection(builder.ConnectionString);

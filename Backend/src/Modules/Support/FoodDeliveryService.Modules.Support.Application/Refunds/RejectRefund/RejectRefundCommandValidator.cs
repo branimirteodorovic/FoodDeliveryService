@@ -7,6 +7,8 @@ internal sealed class RejectRefundCommandValidator : AbstractValidator<RejectRef
 {
     public RejectRefundCommandValidator()
     {
+        RuleFor(c => c.RefundRequestId).NotEmpty();
+
         RuleFor(c => c.Note).MaximumLength(RefundRequest.DecisionNoteMaxLength);
     }
 }
