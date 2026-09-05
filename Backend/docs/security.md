@@ -3,8 +3,9 @@
 > Feature 3.7 — Final Production Hardening. This document is being built one milestone at a time
 > (`HARDENING_PHASE3_PLAN.md`). **Milestone A** contributes the authorization guardrails and the
 > ownership sweep; **Milestone B** the secrets section; **Milestone C** the database privilege
-> model; **Milestone D** the edge — response headers, forwarded headers and CORS; Milestone I turns
-> it into the consolidated write-up (OWASP pass, TLS boundary, known limitations).
+> model; **Milestone D** the edge — response headers, forwarded headers and CORS; **Milestone E**
+> the identity surface — signing keys, configuration fail-fast, lockout and token lifetimes;
+> Milestone I turns it into the consolidated write-up (OWASP pass, TLS boundary, known limitations).
 
 The rule this feature works to: **do not write a security checklist, write a test that fails when
 the property is violated.** A checklist is accurate on the day it is written. Everything below that
@@ -126,7 +127,7 @@ committed", and pretending otherwise would be the kind of statement this documen
 | Postgres `postgres` / `postgres` | `appsettings.Development.json` (all nine hosts), `deploy/k8s/base/config.yaml` | A container with no port published outside compose/KinD, holding seeded test data. Milestone C replaces the superuser with per-service roles; that changes the privilege, not the exposure. |
 | RabbitMQ and Redis connection strings | same | The same containers, no authentication configured, not reachable off the host. |
 | Confidential client secret | see §3.2 | A client-credentials secret for a Duende instance that only ever runs locally. |
-| `AdminSeed` password | `Identity/appsettings.Development.json` (`admin`), `config.yaml` (`Admin!23456`) | Seeds the first administrator of a local database. The two differ because outside `Development` ASP.NET Identity enforces its real password rules, so `admin` would fail to seed and leave a cluster with no account to log in with. |
+| `AdminSeed` password | `Identity/appsettings.Development.json` (`admin`), `config.yaml` (`Admin!234567`) | Seeds the first administrator of a local database. The two differ because outside `Development` ASP.NET Identity enforces its real password rules, so `admin` would fail to seed and leave a cluster with no account to log in with. |
 | Grafana admin password | `docker-compose.yml` | The local observability stack. |
 
 **`appsettings.json` — the file that actually ships in the container image — carries none of it.**
@@ -221,9 +222,11 @@ something that has been run.
   scoped down by the user).
 - **No secret rotation exists**, because no secret has a lifetime — none of them authenticate to
   anything durable.
-- **Identity has no signing-key store outside Development**, so a restart invalidates every issued
-  token. That is Milestone E's work. It is a secrets problem, listed here so this section is not read
-  as complete.
+- **Identity's signing keys were not persisted anywhere shared**, so a restart invalidated every
+  issued token. Milestone E fixed it: the keys, the persisted grants and the Data Protection ring that
+  encrypts them now live in the identity database (§6.1). What remains is that the ring itself is
+  stored unencrypted at rest — protecting it needs a key from outside the database, and there is
+  nowhere here to keep one.
 
 ## 4. Database privileges
 
@@ -484,9 +487,172 @@ drifting in front of services no browser can reach.
   isolation for documents; an API returning JSON has no document to govern. Worth revisiting only if
   a host ever serves a real UI beyond the documentation pages.
 
-## 6. What Milestones A, B, C and D do not cover
+## 6. Identity
 
-Named so a reader does not mistake this page for the finished document: Identity key management and
-lockout (Milestone E), input validation and the error surface (F), API documentation reachability
-(G), supply-chain scanning (H), and the consolidated OWASP pass, TLS boundary and known-limitations
-sections (I).
+`FoodDeliveryService.Identity` is the most security-sensitive host on the platform — it is the only
+process that ever sees a password, and the signature it produces is the only thing nine other hosts
+trust. It had also had the least hardening attention of any of them.
+
+### 6.1 Signing keys: a store, not a directory
+
+`Program.cs` calls neither `AddDeveloperSigningCredential` nor `AddSigningCredential`, and that was
+not an oversight — Duende 8 enables **automatic key management** by default, which creates, rotates
+and retires signing keys on its own and publishes them through the JWKS document. It needs an
+`ISigningKeyStore` to keep them in. With no operational store registered it falls back to a
+`FileSystemKeyStore` writing a `keys` directory under the working directory.
+
+Nothing about that fails loudly. The host starts, issues tokens, and serves a discovery document that
+validates. The failure arrives later and from a distance:
+
+- **A restart invalidates every issued token.** The container's filesystem is gone, the next boot
+  mints a new key, and every JWT signed by the old one now fails signature validation at nine hosts.
+- **A second replica is worse**, because it is intermittent. Two pods each hold their own key and each
+  advertise their own JWKS. A validator that cached one document rejects tokens minted by the other,
+  and which one you get depends on where the load balancer sent the login versus where it sent the
+  request. This is the failure mode that looks like anything except a key problem.
+
+In Kubernetes it was visible in the manifest as an `emptyDir` mounted at `/app/keys` — present only
+because the non-root container could not create the directory itself, with a comment admitting the
+keys were regenerated on restart.
+
+**Milestone E registers Duende's EF Core operational store** (`Duende.IdentityServer.EntityFramework`),
+pointed at the same `fooddeliveryservice_identity` database, and deletes the volume. Three things now
+live there rather than in a container:
+
+| What | Table(s) | Why it had to move |
+|---|---|---|
+| Signing keys | `Keys` | Automatic key management's store — the whole of the above. |
+| Persisted grants | `PersistedGrants` | The public client sets `AllowOfflineAccess`, so refresh tokens exist; they were in Duende's **in-memory** grant store and died with the process. One-time-only rotation (§6.3) is unenforceable without them. |
+| Data Protection key ring | `DataProtectionKeys` | Duende encrypts the keys it persists with the ASP.NET Data Protection ring, so a shared key store behind a per-pod ring is no improvement at all. The same ring protects the three-day invitation activation tokens, which a restart therefore used to invalidate. |
+
+The store connects as the least-privilege `fds_identity_app` account (§4): key management and grant
+storage are `INSERT`/`UPDATE`/`DELETE`, and `01-roles.sql`'s `ALTER DEFAULT PRIVILEGES` already grants
+the app role rights over whatever the owner's migrations create. The schema itself is migrated by
+`fds_identity_owner`, alongside the ASP.NET Identity schema, in `ApplyDatabaseMigrationsAsync`.
+
+**Residual limitation.** The Data Protection ring is stored unencrypted at rest — protecting it needs
+a key from outside the database (a certificate, a KMS), and this repository has nowhere to keep one.
+Anyone who can read the identity database can therefore decrypt the signing keys. That is a smaller
+surface than it sounds — the same reader already has every password hash — but it is a real difference
+from a deployment that fronts key material with a vault, and it is why a production Identity would add
+`ProtectKeysWithAzureKeyVault` or an explicit `AddSigningCredential` from a certificate.
+
+**Multi-replica is designed for, not proved.** The KinD manifest still runs one Identity pod, so
+`cluster-smoke.sh` exercises the store and the restart path, not the two-JWKS race. Do not read a
+single-replica pass as a multi-replica guarantee.
+
+### 6.2 Configuration fail-fast
+
+§3 makes `appsettings.json` ship every credential blank so that a real environment has to supply its
+own. Nothing checked that it did. A deployment missing the confidential client secret **booted
+cleanly**, passed both health probes, and failed hours later as a 401 from `api/users` in the middle
+of somebody's registration — with nothing in the logs pointing at configuration.
+
+`AddRequiredConfiguration` (`Common.Presentation/Security`) is the check. A host declares the
+configuration keys it cannot run without; outside Development a blank or absent one is a startup
+failure naming the key and the environment. Two hosts use it, and they are the two holding the two
+copies of the confidential client secret:
+
+| Host | Required keys |
+|---|---|
+| Identity | `IdentityServer:IssuerUri`, `Clients:Confidential:ClientId`, `Clients:Confidential:ClientSecret`, `Clients:Public:ClientId` |
+| Users | `Duende:AdminUrl`, `Duende:TokenUrl`, `Duende:ConfidentialClientId`, `Duende:ConfidentialClientSecret`, `Duende:Scope` |
+
+Two details worth knowing before a third host adopts it:
+
+- **It is `ValidateOnStart`, invoked one step early.** `ValidateOnStart()` alone defers the check into
+  `app.RunAsync()`, which in both hosts is *after* the database migration and the administrator seed.
+  Both call `app.Services.GetRequiredService<IStartupValidator>().Validate()` immediately after
+  `Build()` instead, so "fail fast" means before any side effect.
+- **Repeat calls accumulate.** The keys land in one options instance, so a boot missing three values
+  reports all three and costs one restart rather than three.
+
+**A committed fallback defeated all of this and had to go.** `Config.Clients` read the secret as
+`configuration["Clients:Confidential:ClientSecret"] ?? "Pzot…"` — the value committed in
+`appsettings.Development.json`. Milestone B made `appsettings.json` blank so a real environment must
+supply one; that `??` handed it the development secret instead, silently. It is gone: a blank value
+now produces a client with **no secret at all**, which fails closed, and outside Development the host
+never reaches that line.
+
+### 6.3 Password policy, lockout, token lifetimes
+
+| Setting | Development | Everywhere else | Note |
+|---|---|---|---|
+| Password length | 1 | **12** (was 8) | The character-class rules — digit, lower, upper, non-alphanumeric — are ASP.NET Identity's defaults and deliberately untouched; only the length moved. Development relaxes everything so the `admin`/`admin` seed works. |
+| Lockout | **on** | **on** | 5 failed attempts, 15-minute lock, enabled for new users. |
+| Access-token lifetime | 15 min | 15 min | Duende's default is an hour. |
+| Refresh token | one-time-only, sliding 8 h, absolute 7 days | same | Claims re-issued on refresh. |
+| Client-credentials token | 5 min | 5 min | The Users → Identity provisioning call fetches one per request and caches nothing. |
+| Activation-token lifespan | 3 days | 3 days | Unchanged — deliberate, see `registration-architecture-decisions.md`. |
+
+**Why lockout matters more here than the numbers suggest.** `POST /connect/token` does **not** pass
+through the Gateway: clients reach Identity directly on `:18080` (compose) or its NodePort (KinD),
+the arrangement `deploy/k8s/services/identity.yaml` describes and §5 does not change. So the edge rate
+limiter — the thing that partitions anonymous callers by IP and sheds them — never sees a login
+attempt at all. Lockout is not defence in depth on top of the limiter; for this endpoint it is the
+only layer. Duende's `ResourceOwnerPasswordValidator` calls
+`SignInManager.CheckPasswordSignInAsync(..., lockoutOnFailure: true)`, so enabling the options is the
+whole of the wiring.
+
+**Why 15 minutes for an access token.** Nothing in this platform can revoke an issued JWT. Permissions
+are re-resolved per request (§1) and cached for five minutes, but the token itself is accepted on its
+signature alone until it expires — so the default hour is how long a stolen token stays useful.
+Fifteen minutes plus a rotating refresh token is the standard trade: a client refreshes four times an
+hour instead of once, and each refresh re-checks that the account still exists and is not locked out.
+One-time-only refresh tokens make a leaked refresh token *detectable* — using one twice invalidates
+the chain — and that rotation state is exactly what needed the persisted-grant store from §6.1.
+
+**A raised password floor has a silent failure attached to it.** `AdminSeeder` logs an error and lets
+the host start when the seed password fails the policy, so a cluster gets a perfectly healthy Identity
+with no administrator in it and nothing else able to create one. Moving the floor from 8 to 12 is what
+forced `deploy/k8s/base/config.yaml`'s `AdminSeed__Password` to grow a character, and
+`IdentityHardeningTests` now checks that manifest value against the length it reads out of
+`Program.cs`.
+
+### 6.4 Guardrails
+
+| Property | Where it is asserted |
+|---|---|
+| A required key blank outside Development fails the boot naming the key; Development is exempt; every missing key is reported, not just the first | `Common.UnitTests/Security/RequiredConfigurationTests` |
+| Identity registers an operational store and a shared Data Protection ring | `IdentityHardeningTests.Identity_Should_PersistSigningKeysInAStoreEveryReplicaShares` |
+| Lockout is configured, and enabled for new users | `IdentityHardeningTests.Identity_Should_EnableLockoutOnTheTokenEndpoint` |
+| `Config.cs` does not fall back to the committed development client secret | `IdentityHardeningTests.IdentityConfig_Should_NotFallBackToTheCommittedDevelopmentSecret` |
+| The seeded administrator password satisfies the non-Development policy, at the length `Program.cs` actually requires | `IdentityHardeningTests.KubernetesManifest_Should_SeedAnAdministratorPasswordThatSatisfiesThePolicy` |
+| No `keys` volume is mounted — which would mean the file-system key store is back | `IdentityHardeningTests.KubernetesManifest_Should_NotMountAKeysVolume` |
+| Five failed logins lock an account, proved by the *correct* password failing afterwards | `Users.IntegrationTests/Lockout/AccountLockoutTests` |
+| A wrong password and an unknown account are indistinguishable | `AccountLockoutTests.TokenEndpoint_Should_NotRevealWhetherTheAccountExists` |
+
+`AccountLockoutTests` needs `fooddeliveryservice.identity` running on `:18080`, like every other
+integration suite; it is excluded from `ci.yml` for that reason.
+
+### 6.5 The JWT role claim — an architectural decision, not an omission
+
+`FoodDelivery_ProjectPlan.md` Feature 3.6 asserts *"RBAC enforced at the API Gateway level (JWT role
+claim check)"*. **That is not what this platform does, and it is not going to be.** Stated plainly
+here because a reviewer who greps for it and finds nothing concludes the wrong thing.
+
+Identity registers `IdentityRole` but assigns no roles and has no `IProfileService`; the role a user
+actually has (`Administrator`, `Customer`, `RestaurantManager`, `Driver`, `SupportAgent`) is a
+**Users-module** concept living in the Users database. Minting it into the JWT would mean Identity
+reading Users' data — either a cross-service call in the wrong direction, or a second replica of the
+role table inside Identity. Both are features; neither is hardening.
+
+**The design is permission-based authorization, resolved at the service.** A token carries the subject
+and nothing about what the subject may do. Each service resolves permission codes from Users over
+MassTransit RPC, caches them in Redis for five minutes, and enforces them per endpoint (§1). The
+Gateway's contribution is coarse and real: it validates the JWT and rejects anything unauthenticated
+before it touches a service, and it rate-limits (§5). Defence in depth here is *double validation plus
+per-endpoint permission policies*, not two different authorization models.
+
+**The trade-off, stated rather than buried:** the Gateway can shed an *unauthenticated* request, not
+an *unauthorized* one. A caller holding a valid token for a permission they do not have is proxied to
+the owning service, which loads their permissions and returns 403. That costs one hop and one (usually
+cached) permission lookup per rejected request. It buys a single source of truth: permissions change
+in Users and take effect within the cache TTL, with no token re-issue and no claim going stale inside
+a JWT somebody is still holding.
+
+## 7. What Milestones A, B, C, D and E do not cover
+
+Named so a reader does not mistake this page for the finished document: input validation and the
+error surface (Milestone F), API documentation reachability (G), supply-chain scanning (H), and the
+consolidated OWASP pass, TLS boundary and known-limitations sections (I).

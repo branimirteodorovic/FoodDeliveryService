@@ -103,7 +103,10 @@ stringData:
   # so it is stored once. Registration fails at that call if it drifts.
   ConfidentialClientSecret: PzotcrvZRF9BHCKcUxdKfHWlIPECG49k
 
-  # Identity's initial administrator. Must be >= 8 characters and reasonably strong: outside
+  # Identity's initial administrator. Must be >= 12 characters and reasonably strong: outside
   # Development, ASP.NET Identity applies its real password rules, so compose's `admin` would fail
-  # to seed and leave you with no account to log in with.
-  AdminSeed__Password: Admin!23456
+  # to seed and leave you with no account to log in with. The length floor was 8 until Feature 3.7
+  # Milestone E raised it to 12 — this value grew a character in the same change, and a seed that
+  # fails the policy is silent: AdminSeeder logs the error and the host starts anyway, so the first
+  # symptom is a login that cannot succeed.
+  AdminSeed__Password: Admin!234567

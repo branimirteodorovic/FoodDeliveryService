@@ -7,6 +7,7 @@ using FoodDeliveryService.Common.Presentation.Endpoints;
 using FoodDeliveryService.Common.Presentation.Health;
 using FoodDeliveryService.Common.Presentation.Security;
 using FoodDeliveryService.Modules.Users.Infrastructure;
+using Microsoft.Extensions.Options;
 using RabbitMQ.Client;
 using Serilog;
 using StackExchange.Redis;
@@ -30,6 +31,21 @@ builder.Host.UseSerilog((context, loggerConfig) => loggerConfig.ReadFrom.Configu
 // reason: KestrelServerOptions.AddServerHeader is read when the server starts and cannot be set from
 // the pipeline.
 builder.Services.AddSecurityHeaders(builder.Configuration);
+
+// Feature 3.7 Milestone E — configuration fail-fast, the Users half. This host holds the other copy
+// of the confidential client secret: it presents it to Identity's api/users when provisioning
+// credentials, the one sanctioned service-to-service HTTP call in the platform. appsettings.json
+// ships it blank (docs/security.md §3), so a deployment that forgets it used to boot fine and fail
+// at the first registration with a 401 nobody could trace back to configuration. Validated
+// immediately after Build() below, before migrations and before the administrator seed.
+builder.Services.AddRequiredConfiguration(
+    builder.Configuration,
+    builder.Environment,
+    "Duende:AdminUrl",
+    "Duende:TokenUrl",
+    "Duende:ConfidentialClientId",
+    "Duende:ConfidentialClientSecret",
+    "Duende:Scope");
 
 // Last-resort exception handling: unhandled exceptions become RFC 7807 ProblemDetails responses.
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
@@ -92,6 +108,11 @@ builder.Services.AddHealthChecks()
 builder.Services.AddUsersModule(builder.Configuration);
 
 WebApplication app = builder.Build();
+
+// Feature 3.7 Milestone E — run the AddRequiredConfiguration checks before anything with a side
+// effect. ValidateOnStart() alone defers them into app.RunAsync(), which is after the migration and
+// the administrator seed below.
+app.Services.GetRequiredService<IStartupValidator>().Validate();
 
 // EF Core migrations are applied automatically at startup — no manual `dotnet ef database update`.
 app.ApplyMigrations();

@@ -216,7 +216,7 @@ reimplementing Postgres access inside k6 is neither.
   it is an API client, and a project reference would let it drift into calling domain code.
 - Seed, in dependency order, all through the public API:
   1. **Admin token** — ROPC as `admin@fooddeliveryservice.com` (compose password `admin`, the KinD
-     one is `Admin!23456`; take it from config, do not hardcode).
+     one is `Admin!234567`; take it from config, do not hardcode).
   2. **Restaurants** — `POST restaurants` (Administrator only), each with menu categories and items
      via `POST restaurants/{id}/menu-categories` + `/menu-items`. Default: 20 restaurants × 3
      categories × 8 items. Deterministic seed for Bogus so two runs produce the same catalogue.
@@ -564,7 +564,7 @@ the first answer.
   `AllowedGrantTypes = ResourceOwnerPassword`, `RequireClientSecret = false`, scopes
   `openid profile email fooddeliveryservice.api`. The confidential client is client-credentials only,
   scoped to `users:register`, and is not what a load script wants.
-- **Compose admin is `admin@fooddeliveryservice.com` / `admin`; the KinD cluster's is `Admin!23456`**
+- **Compose admin is `admin@fooddeliveryservice.com` / `admin`; the KinD cluster's is `Admin!234567`**
   (non-Development environments apply ASP.NET Identity's real password rules — 2.5 §2).
 - **`POST orders` takes an optional `Idempotency-Key` header** and dedupes on it via a unique index.
 - **Order placement needs two replicas to have arrived** in the Orders database — customer (from

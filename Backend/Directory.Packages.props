@@ -16,6 +16,10 @@
     <PackageVersion Include="Dapper" Version="2.1.79" />
     <PackageVersion Include="Duende.IdentityServer" Version="8.0.2" />
     <PackageVersion Include="Duende.IdentityServer.AspNetIdentity" Version="8.0.2" />
+    <!-- Feature 3.7 Milestone E: the operational store. It is what gives Duende's automatic key
+         management somewhere durable and SHARED to keep signing keys, in place of the per-container
+         ./keys directory it silently falls back to. Same version as the server itself. -->
+    <PackageVersion Include="Duende.IdentityServer.EntityFramework" Version="8.0.2" />
     <PackageVersion Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.9" />
     <PackageVersion Include="EFCore.NamingConventions" Version="10.0.1" />
     <PackageVersion Include="AwesomeAssertions" Version="9.4.0" />
@@ -24,6 +28,10 @@
     <PackageVersion Include="MassTransit.RabbitMQ" Version="8.5.10" />
     <PackageVersion Include="MassTransit.Redis" Version="8.5.10" />
     <PackageVersion Include="MediatR" Version="14.2.0" />
+    <!-- Feature 3.7 Milestone E: the ASP.NET Data Protection key ring in the identity database.
+         Duende encrypts the signing keys it persists with this ring, and the invitation activation
+         tokens are protected by it too — a per-container ring makes both replica-local. -->
+    <PackageVersion Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" Version="10.0.9" />
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.9" />
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.9" />
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.9" />

@@ -71,7 +71,7 @@ table, published on 8000).
   readiness rather than silently become a per-pod "distributed" lock), the OpenAPI document is not
   mapped, and Serilog's Seq sink — which only exists in `appsettings.Development.json` — is absent,
   so pods log to console. It also means Identity applies ASP.NET Identity's real password rules,
-  which is why the seeded admin password is `Admin!23456` and not compose's `admin`.
+  which is why the seeded admin password is `Admin!234567` and not compose's `admin`.
 - **The Gateway gets a mounted `appsettings.Kubernetes.json`, not environment variables.** Its
   `appsettings.json` ships an **empty** `ReverseProxy` section — every route and cluster lives in
   the Development file — so outside Development the Gateway has no routes at all and proxies

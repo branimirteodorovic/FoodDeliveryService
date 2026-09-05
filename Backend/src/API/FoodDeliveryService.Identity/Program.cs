@@ -1,4 +1,5 @@
-﻿using Duende.IdentityServer;
+using Duende.IdentityServer;
+using Duende.IdentityServer.EntityFramework.DbContexts;
 using FoodDeliveryService.Identity;
 using FoodDeliveryService.Identity.Data;
 using FoodDeliveryService.Identity.Seed;
@@ -8,8 +9,10 @@ using FoodDeliveryService.Common.Presentation.Security;
 using FoodDeliveryService.Common.Presentation.Telemetry;
 using FoodDeliveryService.Identity.OpenTelemetry;
 using FoodDeliveryService.Identity.Users;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Serilog;
 
 // Identity service (:18080) — the platform's OpenID Connect / OAuth2 authorization server,
@@ -29,6 +32,20 @@ builder.Host.UseSerilog((context, loggerConfig) =>
 // reason: KestrelServerOptions.AddServerHeader is read when the server starts and cannot be set from
 // the pipeline.
 builder.Services.AddSecurityHeaders(builder.Configuration);
+
+// Feature 3.7 Milestone E — configuration fail-fast. appsettings.json ships every credential blank
+// so that a real environment has to supply its own (docs/security.md §3); until now nothing checked
+// that it did. A deployment that forgot the confidential client secret booted perfectly happily and
+// failed hours later as a 401 from api/users during someone's registration, with nothing in the logs
+// pointing at configuration. These keys are validated below, immediately after Build() — see the
+// IStartupValidator call — so the host dies at boot naming the key it is missing.
+builder.Services.AddRequiredConfiguration(
+    builder.Configuration,
+    builder.Environment,
+    "IdentityServer:IssuerUri",
+    "Clients:Confidential:ClientId",
+    "Clients:Confidential:ClientSecret",
+    "Clients:Public:ClientId");
 
 // OpenTelemetry traces + metrics → OTLP exporter (:4317; traces browsable in Jaeger at :16686) —
 // the same baseline the Gateway and, through AddInfrastructure, the six module hosts get.
@@ -70,11 +87,38 @@ builder.Services
         }
         else
         {
-            options.Password.RequiredLength = 8;
+            // Twelve characters on top of ASP.NET Identity's default character-class rules (digit,
+            // lower, upper, non-alphanumeric), which are deliberately left alone — the old value of
+            // 8 was the only line here and it weakened nothing else, so raising it is the whole
+            // change. NOTE: the seeded administrator password must clear this too; raising it to 12
+            // is what forced deploy/k8s/base/config.yaml's AdminSeed__Password to grow a character.
+            options.Password.RequiredLength = 12;
         }
+
+        // Lockout, in EVERY environment including Development. Without it POST /connect/token is an
+        // unrated password oracle: the Gateway's edge rate limiter partitions anonymous callers by
+        // IP, which slows one source down and does nothing whatsoever about a distributed attempt,
+        // and token issuance does not even pass through the Gateway (clients reach Identity
+        // directly, docs/security.md §6.3). Duende's ResourceOwnerPasswordValidator calls
+        // SignInManager.CheckPasswordSignInAsync(..., lockoutOnFailure: true), so the counter is
+        // driven by the token endpoint itself — nothing extra to wire up.
+        options.Lockout.AllowedForNewUsers = true;
+        options.Lockout.MaxFailedAccessAttempts = 5;
+        options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
     })
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddDefaultTokenProviders();
+
+// The ASP.NET Data Protection key ring, in the identity database rather than in a directory under
+// the content root — Feature 3.7 Milestone E. Two things ride on it and both are replica-local
+// without this: Duende encrypts the signing keys it persists with this ring, and the invitation
+// activation tokens below are data-protection payloads, so a restart used to invalidate every
+// outstanding invitation link. SetApplicationName pins the purpose string, which otherwise defaults
+// to the content root path and so differs between a container and a `dotnet run`.
+builder.Services
+    .AddDataProtection()
+    .SetApplicationName("FoodDeliveryService.Identity")
+    .PersistKeysToDbContext<ApplicationDbContext>();
 
 // Lifespan of the one-time activation tokens minted for invited accounts (GeneratePasswordResetToken).
 // A few days gives invitees time to accept; expired links require the admin to re-issue the invitation.
@@ -101,7 +145,39 @@ builder.Services
     .AddInMemoryApiScopes(Config.ApiScopes)
     .AddInMemoryApiResources(Config.ApiResources)
     .AddInMemoryClients(Config.Clients(builder.Configuration))
-    .AddAspNetIdentity<ApplicationUser>();
+    .AddAspNetIdentity<ApplicationUser>()
+    // Feature 3.7 Milestone E — the operational store, and the reason it exists here.
+    //
+    // Duende 8 enables automatic key management by default and needs an ISigningKeyStore to keep
+    // the keys in. With no operational store registered it falls back to a FileSystemKeyStore
+    // writing ./keys under the working directory: per-container, wiped on restart, and NOT shared
+    // between replicas. The failure mode is the nasty kind — two pods each advertise their own JWKS,
+    // the load balancer sends a token minted by one to a validator that fetched the other's
+    // document, and every service rejects perfectly good tokens intermittently. A single-pod restart
+    // is the same bug in slow motion: every token issued before it becomes invalid.
+    //
+    // The same store also holds persisted grants, which matters because the public client sets
+    // AllowOfflineAccess — refresh tokens were living in Duende's in-memory grant store and dying
+    // with the process. EnableTokenCleanup sweeps the expired ones so the table does not grow
+    // without bound, and RemoveConsumedTokens drops one-time refresh tokens once rotated.
+    //
+    // It connects as the least-privilege fds_identity_app account (ConnectionStrings:Database):
+    // key management and grant storage are DML, and 01-roles.sql's ALTER DEFAULT PRIVILEGES already
+    // grants the app role rights over whatever the owner's migrations create. The schema itself is
+    // migrated by the owner credential in ApplyDatabaseMigrationsAsync below. docs/security.md §4.
+    .AddOperationalStore(options =>
+    {
+        options.ConfigureDbContext = optionsBuilder => optionsBuilder.UseNpgsql(
+            databaseConnectionString,
+            npgsqlOptions =>
+            {
+                npgsqlOptions.EnableRetryOnFailure();
+                npgsqlOptions.MigrationsAssembly(typeof(Config).Assembly.FullName);
+            });
+
+        options.EnableTokenCleanup = true;
+        options.RemoveConsumedTokens = true;
+    });
 
 // Duende "local API" authentication: lets this host protect its own endpoints (api/users)
 // with tokens it issued itself. ExpectedScope must be "users:register" — the default
@@ -132,6 +208,13 @@ builder.Services.AddHealthChecks()
     .AddNpgSql(databaseConnectionString, tags: [HealthCheckTags.Ready]);
 
 WebApplication app = builder.Build();
+
+// Feature 3.7 Milestone E — run the AddRequiredConfiguration checks HERE rather than leaving them to
+// the hosted service ValidateOnStart() registers. That service runs inside app.RunAsync(), which is
+// after the two lines below: a host missing its client secret would migrate a schema and seed an
+// administrator before telling anyone. This is the same validator, pulled one step earlier so that
+// "fail fast" means before any side effect.
+app.Services.GetRequiredService<IStartupValidator>().Validate();
 
 await ApplyDatabaseMigrationsAsync(app);
 
@@ -195,4 +278,38 @@ static async Task ApplyDatabaseMigrationsAsync(WebApplication app)
     // identity database to be dropped and recreated. The retrying execution strategy configured
     // above lets this survive Postgres still starting up on first boot.
     await dbContext.Database.MigrateAsync();
+
+    // Feature 3.7 Milestone E: the operational store's own schema (signing keys, persisted grants,
+    // server-side sessions), in the same database and on the same owner credential. It is a second
+    // DbContext sharing the one `__EFMigrationsHistory` table; the migration ids do not collide
+    // because each context only ever applies its own.
+    //
+    // UseApplicationServiceProvider is NOT optional here, and its absence is a crash rather than a
+    // subtle bug: PersistedGrantDbContext.OnModelCreating resolves OperationalStoreOptions through
+    // the context's own service provider, so a hand-constructed context throws "Unable to resolve
+    // service for type ... OperationalStoreOptions" — a message that reads like a missing database
+    // provider and is not one. EF falls back to the application service provider for services it
+    // does not know, which is where AddOperationalStore registered those options. The connection
+    // string still comes from UseNpgsql above, so this borrows the options and not the credential.
+    DbContextOptions<PersistedGrantDbContext> operationalOptions =
+        new DbContextOptionsBuilder<PersistedGrantDbContext>()
+            .UseNpgsql(
+                migrationsConnectionString,
+                npgsqlOptions =>
+                {
+                    npgsqlOptions.EnableRetryOnFailure();
+                    // MigrationsAssembly has to be repeated here. It is set on the DI registration
+                    // above, but this is a separate options object, and without it EF looks for
+                    // migrations in the assembly that declares PersistedGrantDbContext — Duende's —
+                    // finds none, and MigrateAsync succeeds having done nothing at all. The host
+                    // then starts healthy with no Keys or PersistedGrants table, which is the exact
+                    // state this milestone exists to remove.
+                    npgsqlOptions.MigrationsAssembly(typeof(Config).Assembly.FullName);
+                })
+            .UseApplicationServiceProvider(app.Services)
+            .Options;
+
+    await using var operationalDbContext = new PersistedGrantDbContext(operationalOptions);
+
+    await operationalDbContext.Database.MigrateAsync();
 }

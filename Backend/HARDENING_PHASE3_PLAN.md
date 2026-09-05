@@ -398,6 +398,128 @@ Whichever is taken, `ASPNETCORE_ENVIRONMENT: Kubernetes` (the manifests' value) 
 
 **Take (2)** and write it up in `docs/security.md` as an explicit architectural decision with its trade-off (the Gateway cannot shed an unauthorized request before proxying it). Do not leave the project plan's claim standing unqualified — a reviewer who greps for it and finds nothing concludes the wrong thing.
 
+### 6.6 What Milestone E shipped, and what it found
+
+**§6.1 took option 1 — the EF Core operational store**, not a certificate through configuration.
+Option 2 would have needed a certificate that nothing in this repository can produce and that every
+environment would then have to be handed separately; the store needs a database that already exists.
+`Duende.IdentityServer.EntityFramework` 8.0.2 (matching the server), `AddOperationalStore` on the app
+credential, its schema migrated by the owner credential in `ApplyDatabaseMigrationsAsync` alongside
+the ASP.NET Identity one. `deploy/k8s/services/identity.yaml` loses the `keys` `emptyDir`.
+
+Four things the sketch did not anticipate:
+
+- **The Data Protection key ring had to move too, and it is not optional.** Duende encrypts the
+  signing keys it persists with the ASP.NET Data Protection ring, whose default home is a directory
+  under the content root — per-pod, wiped on restart. A shared key store behind a per-pod ring buys
+  nothing. `ApplicationDbContext` implements `IDataProtectionKeyContext` and the host calls
+  `AddDataProtection().SetApplicationName(...).PersistKeysToDbContext<ApplicationDbContext>()`, which
+  needed `Microsoft.AspNetCore.DataProtection.EntityFrameworkCore` and a second migration. **This also
+  silently fixed a bug §6.1 did not mention:** the three-day invitation activation tokens are
+  data-protection payloads, so every Identity restart was invalidating every outstanding invitation
+  link.
+- **The operational store brought refresh tokens with it.** The public client sets
+  `AllowOfflineAccess`, so refresh tokens were already being issued — into Duende's *in-memory* grant
+  store, dying with the process. That is the same class of bug as the signing keys and it was not in
+  the plan. It is also what makes §6.3's one-time-only rotation enforceable at all.
+- **`Config.Clients` had a committed fallback that defeated Milestone B outright.** The secret was
+  read as `configuration["Clients:Confidential:ClientSecret"] ?? "Pzot…"` — the value committed in
+  `appsettings.Development.json`. Milestone B made `appsettings.json` ship the key blank so a real
+  environment must supply one; that `??` handed the real environment the development secret instead,
+  and `SecretHygieneTests` could not see it because the *file* was blank. Removed: a blank value now
+  produces a client with no secret at all, which fails closed.
+- **The migration generator produces block namespaces, which fail `IDE0161`.** Identity sets
+  `TreatWarningsAsErrors=false` for the Duende analyzer noise but not `EnforceCodeStyleInBuild`, so
+  all six generated files (two migrations, two designers, two snapshots) needed converting to
+  file-scoped namespaces by hand before the build would pass — and the *first* of those broke the
+  second `dotnet ef migrations add`, because that command builds the project first. Convert as you go.
+  The operational-store migration also creates seven tables this platform will never use (device
+  codes, pushed authorization requests, SAML sessions); they are Duende's schema, not ours, and
+  removing them from the generated migration would only make the next Duende upgrade a merge.
+
+**§6.2 shipped as `AddRequiredConfiguration` in `Common.Presentation/Security`**, not
+`Common.Infrastructure` as §1's table says — Identity takes no `Common.Infrastructure` dependency, so
+the only project both hosts can share it from is `Common.Presentation`. It is `ValidateOnStart`, as
+asked, but **both hosts invoke it one step early**: `app.Services.GetRequiredService<IStartupValidator>().Validate()`
+immediately after `Build()`. `ValidateOnStart()` alone defers the check into `app.RunAsync()`, which
+in both hosts is *after* the database migration and the administrator seed — a host missing its client
+secret would migrate a schema and seed an administrator before telling anyone. A later host adopting
+this must repeat that line, or accept the deferred behaviour knowingly.
+
+**§6.3's password floor has a trap attached.** Raising the non-Development length from 8 to 12 broke
+`deploy/k8s/base/config.yaml`'s `AdminSeed__Password` (`Admin!23456`, eleven characters), and
+`AdminSeeder` **logs the failure and lets the host start** — so the symptom is a healthy Identity with
+no administrator in it, in a cluster where nothing else can create one. The value is now
+`Admin!234567` and `IdentityHardeningTests` checks the manifest against the length it parses out of
+`Program.cs`, so the next person to raise the floor finds out at build time.
+`KUBERNETES_PHASE2_PLAN.md` §5.1 and `LOADTESTING_PHASE3_PLAN.md` §567 both quoted the old value and
+were corrected in this change.
+
+**Lockout is enabled in every environment, Development included** — 5 attempts, 15-minute lock. §6.3
+does not say to exempt Development and exempting it would have made the integration test in §6.4
+untestable against the local stack, which is the only Identity the suites talk to.
+
+**§6.4 shipped one of its two tests as asked, and the other cannot be written.** `AccountLockoutTests`
+(2 tests, `Users.IntegrationTests/Lockout/`, suite 10 → 12 green) proves lockout **through the correct password failing
+afterwards** — Duende answers `invalid_grant` for a wrong password and `invalid_grant` for a locked
+account, identical bodies, which is correct behaviour and means lockout is invisible in a failure
+response. The second test asserts that same indistinguishability for an unknown account. *"An
+activation token past its lifespan is rejected"* was **not** written: the lifespan is three days, the
+token is a data-protection payload that cannot be forged or back-dated, and the suite talks to a
+shared long-running Identity whose clock nothing can move. `AcceptInvitationTests` already covers the
+invalid-token path, which is the same 400. Worth revisiting only if Identity ever takes an injectable
+clock.
+
+**§6.5 took resolution (2)**, as directed, and it is written up in `docs/security.md` §6.5 with the
+trade-off stated: the Gateway can shed an unauthenticated request but not an unauthorized one, which
+costs a hop and a cached permission lookup per 403 and buys one source of truth for authorization.
+
+**Guardrails: `Common.UnitTests` goes 276 → 286 green** — `RequiredConfigurationTests` (5) and
+`IdentityHardeningTests` (5, including the manifest-password check above). Everything else in the
+suite is unchanged. `docs/security.md` gains §6 (six subsections) and closes the §3.5 limitation that
+pointed here.
+
+**Two failures the operational store hides behind a healthy pod. Both cost real time.**
+
+- **`PersistedGrantDbContext` cannot be constructed by hand.** `ApplyDatabaseMigrationsAsync` builds
+  its contexts from a bare `DbContextOptionsBuilder` (Milestone C's pattern, so the owner credential
+  never reaches DI), and that crashes the host on boot with *"Unable to resolve service for type …
+  `OperationalStoreOptions`. This is often because no database provider has been configured"* — a
+  message that reads like a missing provider and is nothing of the sort. Duende's
+  `OnModelCreating` resolves `OperationalStoreOptions` through the context's own service provider.
+  `.UseApplicationServiceProvider(app.Services)` fixes it: EF falls back to the application provider
+  for services it does not know, which is where `AddOperationalStore` registered those options. The
+  connection string still comes from `UseNpgsql`, so this borrows the options and not the credential.
+- **`MigrationsAssembly` has to be repeated on that same options object**, and its absence is silent.
+  It is set on the DI registration, but the migration builder is a *separate* options object; without
+  it EF looks for migrations in the assembly that declares `PersistedGrantDbContext` — Duende's —
+  finds none, and `MigrateAsync` returns having done nothing. The pod then starts, passes both
+  probes, serves discovery, and has no `Keys` or `PersistedGrants` table at all. Verified by listing
+  the tables, which is the only way this one shows up.
+
+**Verified against the KinD cluster**, which is where `ASPNETCORE_ENVIRONMENT: Kubernetes` actually
+exercises the store. Identity rebuilt, loaded and rolled out; both migrations applied by the owner
+credential; `Keys`, `PersistedGrants`, `DataProtectionKeys` and Duende's other eleven tables created,
+and written to by the app credential (`Keys` holds one `RS256` signing row, `DataProtectionKeys` one
+ring entry, both inserted by `fds_identity_app` — which is the Milestone C default-privileges grant
+working as designed). **The property this milestone exists for, proved directly:** the JWKS `kid`
+`083BFA7B…` is byte-identical before and after a `rollout restart`, where the file-system store
+minted a new key every time. `cluster-smoke.sh` passes, `policy-check.py` passes over 12 workloads
+and 3 ConfigMaps. The manifest still runs **one** Identity replica, so the two-JWKS race is designed
+for and not proved.
+
+**A Milestone C regression surfaced here, and only the Users half of it is fixed.** Every integration
+fixture overrides `ConnectionStrings:Database` with its Testcontainers connection string and nothing
+else — but `app.ApplyMigrations()` reads `ConnectionStrings:DatabaseMigrations`, which Milestone C
+added, and `appsettings.Development.json` supplies it pointing at the docker-internal hostname. The
+fallback in `DatabaseMigrationExtensions.ApplyMigration` only fires when the key is *absent*, and it
+is not: it is present and wrong. So the host dies during startup on a DNS failure and the whole suite
+fails before a single test runs. Confirmed pre-existing by stashing this milestone and re-running:
+10/10 red on the base commit. `Users.IntegrationTests`' two factories now set the second key and the
+suite is **12/12 green** (10 existing + the 2 new lockout tests). **`Orders`, `Restaurants`,
+`Delivery`, `Notifications`, `RealTime` and `Support` have the same one-line defect and were left
+alone** — it is Milestone C's to fix, not E's, and six more fixture edits would bury this diff.
+
 ---
 
 ## 7. Milestone F — Input validation & the error surface

@@ -31,6 +31,15 @@ internal sealed class OrdersApiTestFactory(string redisConnectionString, string 
         // that's visible in time, because they're already in the process environment before
         // Program.Main runs at all (same reason IntegrationTestWebAppFactory uses them).
         Environment.SetEnvironmentVariable("ConnectionStrings:Database", _dbContainer.GetConnectionString());
+        // Feature 3.7 Milestone C split the migration credential out into its own connection
+        // string, and app.ApplyMigrations() reads THAT one. Overriding only Database leaves the
+        // migration pointed at appsettings.Development.json's docker-internal host, which a plain
+        // `dotnet test` process cannot resolve — the host then dies during startup with a DNS
+        // failure and every test in the suite fails before it runs. The fallback inside
+        // ApplyMigration only fires when the key is absent, and it is not: it is present and wrong.
+        Environment.SetEnvironmentVariable(
+            "ConnectionStrings:DatabaseMigrations", _dbContainer.GetConnectionString());
+
         Environment.SetEnvironmentVariable("ConnectionStrings:Cache", redisConnectionString);
         Environment.SetEnvironmentVariable("ConnectionStrings:Queue", rabbitMqConnectionString);
 

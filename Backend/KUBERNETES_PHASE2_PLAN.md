@@ -63,7 +63,7 @@ deployment in ways that are slow to diagnose.
   a per-pod "distributed" lock), the OpenAPI document is not mapped, and Serilog's **Seq sink
   disappears** — pods log to console only. Because the environment is not Development, ASP.NET
   Identity also applies its real password rules, which is why the seeded admin password is
-  `Admin!23456` and not compose's `admin`. Compose's value would fail to seed *silently*, leaving no
+  `Admin!234567` and not compose's `admin`. Compose's value would fail to seed *silently*, leaving no
   account to log in with.
 - **The Gateway needs a mounted config file, not environment variables.** `Gateway/appsettings.json`
   ships an **empty** `ReverseProxy` section — every route and cluster exists only in
