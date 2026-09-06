@@ -131,11 +131,21 @@ internal sealed class CreateOrder : IEndpoint {
         app.MapPost("orders", async (Request request, ISender sender) => {
             Result<Guid> result = await sender.Send(new CreateOrderCommand(...));
             return result.Match(Results.Ok, ApiResults.Problem);
-        }).RequireAuthorization(Permissions.CreateOrder).WithTags(Tags.Orders);
+        })
+        .RequireAuthorization(Permissions.CreateOrder)
+        .WithTags(Tags.Orders)
+        .WithSummary("Place an order")
+        .WithDescription("...")
+        .Produces<Guid>();          // or .Produces(StatusCodes.Status204NoContent) for Results.NoContent
     }
 }
 ```
 Discovered via `AddEndpoints(Presentation.AssemblyReference.Assembly)`, mapped by `app.MapEndpoints()` — no manual registration.
+
+**The last three calls are not optional** (Feature 3.7 Milestone G): `OpenApiDocumentTests` builds each service's real OpenAPI document in memory and fails an operation with no summary, no description, no tag or no success response. The success response is the only one you write — the bearer requirement, the `**Requires permission:** orders:manage` line (read off `RequireAuthorization`, never retyped), and 400/401/403/404/409/429/500 `ProblemDetails` are added centrally by the transformers in `Common.Presentation/Documentation`. Match `.Produces` to what `result.Match(...)` actually returns; nothing infers it from an `IResult`.
+
+### API documentation
+One shared `builder.Services.AddApiDocumentation(builder.Configuration, ApiDocumentation.{Service})` + `app.MapApiDocumentation(allowAnonymous: app.Environment.IsDevelopment())` per module host (`Common.Presentation/Documentation`) — the counterpart of `UseSecurityHeaders()` and `MapHealthProbes()`, and `ApiDocumentationCoverageTests` fails a host missing either half or mapping it before `UseAuthentication()`. Everything is served under **`/docs/{slug}/`** — document at `/openapi/v1.json`, Scalar at `/scalar`, Swagger UI at `/swagger` — because the Gateway proxies `docs/{slug}/**` with an identity path transform, so the same URLs work directly and through the edge; serving at a root path and rewriting the prefix would break the UI's own asset links. There is **one** document generator (`Microsoft.AspNetCore.OpenApi`); Swashbuckle is present for Swagger UI's assets only. The docs are mapped in every environment and require a token outside Development. A new service needs a descriptor on `ApiDocumentation`, both host calls, and a `docs/{slug}/**` route in **both** Gateway routing tables. `docs/api-documentation.md`
 
 ## Identity: Duende IdentityServer (NOT Keycloak)
 - Standalone service `FoodDeliveryService.Identity`: Duende IdentityServer + ASP.NET Identity (`ApplicationUser`), in-memory clients/scopes in `Config.cs`, own database

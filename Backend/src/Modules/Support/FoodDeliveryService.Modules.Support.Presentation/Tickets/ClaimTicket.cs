@@ -29,6 +29,11 @@ internal sealed class ClaimTicket : IEndpoint
             return result.Match(Results.NoContent, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.AssignTickets)
-        .WithTags(Tags.Tickets);
+        .WithTags(Tags.Tickets)
+        .WithSummary("Claim a ticket")
+        .WithDescription(
+            "The agent assigns the ticket to themselves. Claim, assign and unassign all take the same " +
+            "distributed lock key, so two agents cannot both come away holding the ticket.")
+        .Produces(StatusCodes.Status204NoContent);
     }
 }

@@ -29,6 +29,12 @@ internal sealed class GetOrders : IEndpoint
             return result.Match(Results.Ok, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.GetOrders)
-        .WithTags(Tags.Orders);
+        .WithTags(Tags.Orders)
+        .WithSummary("List the caller's orders")
+        .WithDescription(
+            "A customer's own orders, a restaurant manager's incoming orders, or all of them for an " +
+            "administrator. The scope is resolved from the authenticated identity - there is no " +
+            "parameter that widens it.")
+        .Produces<IReadOnlyCollection<OrderSummaryResponse>>();
     }
 }

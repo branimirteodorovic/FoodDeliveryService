@@ -34,7 +34,12 @@ internal sealed class UpdateMenuItem : IEndpoint
             return result.Match(Results.NoContent, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.ManageMenu)
-        .WithTags(Tags.Restaurants);
+        .WithTags(Tags.Restaurants)
+        .WithSummary("Update a menu item")
+        .WithDescription(
+            "Name, description and price. Evicts the cached menu inline, so the next read is fresh " +
+            "rather than an outbox hop behind.")
+        .Produces(StatusCodes.Status204NoContent);
     }
 
     internal sealed class Request

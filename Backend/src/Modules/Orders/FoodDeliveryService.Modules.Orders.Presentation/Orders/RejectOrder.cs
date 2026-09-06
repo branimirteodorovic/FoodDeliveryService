@@ -25,7 +25,12 @@ internal sealed class RejectOrder : IEndpoint
             return result.Match(Results.NoContent, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.ManageOrders)
-        .WithTags(Tags.Orders);
+        .WithTags(Tags.Orders)
+        .WithSummary("Reject an order")
+        .WithDescription(
+            "The restaurant declines the order, with a reason the customer sees. Terminal - a " +
+            "rejected order cannot re-enter the lifecycle.")
+        .Produces(StatusCodes.Status204NoContent);
     }
 
     internal sealed class Request

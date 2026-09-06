@@ -29,7 +29,12 @@ internal sealed class RecordMyLocation : IEndpoint
             return result.Match(Results.NoContent, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.ModifyDriver)
-        .WithTags(Tags.Drivers);
+        .WithTags(Tags.Drivers)
+        .WithSummary("Record the calling driver's position")
+        .WithDescription(
+            "The live position feed. Written to a Redis geospatial set rather than to PostgreSQL - it " +
+            "is read by the assignment search and by the tracking hub, and it is not history.")
+        .Produces(StatusCodes.Status204NoContent);
     }
 
     internal sealed class Request

@@ -21,6 +21,11 @@ internal sealed class StartPreparingOrder : IEndpoint
             return result.Match(Results.NoContent, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.ManageOrders)
-        .WithTags(Tags.Orders);
+        .WithTags(Tags.Orders)
+        .WithSummary("Start preparing an order")
+        .WithDescription(
+            "Accepted -> Preparing. The transition the kitchen makes when the food is actually being " +
+            "cooked.")
+        .Produces(StatusCodes.Status204NoContent);
     }
 }

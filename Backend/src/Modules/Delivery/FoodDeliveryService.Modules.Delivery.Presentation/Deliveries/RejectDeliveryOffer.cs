@@ -25,6 +25,11 @@ internal sealed class RejectDeliveryOffer : IEndpoint
             return result.Match(Results.NoContent, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.ManageDeliveries)
-        .WithTags(Tags.Deliveries);
+        .WithTags(Tags.Deliveries)
+        .WithSummary("Reject a delivery offer")
+        .WithDescription(
+            "Declines the offer and re-drives assignment to the next available driver immediately, " +
+            "rather than waiting for the offer to expire.")
+        .Produces(StatusCodes.Status204NoContent);
     }
 }

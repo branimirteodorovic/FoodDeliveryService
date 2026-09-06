@@ -25,6 +25,11 @@ internal sealed class GetMenu : IEndpoint
             return result.Match(Results.Ok, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.GetMenu)
-        .WithTags(Tags.Restaurants);
+        .WithTags(Tags.Restaurants)
+        .WithSummary("Get a restaurant's menu")
+        .WithDescription(
+            "Categories and items in one document, for the storefront. Cached in Redis and evicted by " +
+            "the commands below the moment they commit - see `docs/caching.md`.")
+        .Produces<MenuResponse>();
     }
 }

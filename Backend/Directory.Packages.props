@@ -1,4 +1,4 @@
-<Project>
+﻿<Project>
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
@@ -35,6 +35,13 @@
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.9" />
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.9" />
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.9" />
+    <!-- Feature 3.7 Milestone G. Not referenced by any project — pinned because the transitive
+         floor is not: Microsoft.AspNetCore.OpenApi asks for Microsoft.OpenApi 2.0.0, which carries a
+         high-severity advisory (GHSA-v5pm-xwqc-g5wc). It resolves to 2.7.5 today only because
+         Swashbuckle happens to want a newer one, and NuGet audit is warnings-as-errors here — so
+         dropping Swashbuckle would turn the whole solution red. Central transitive pinning makes
+         this the floor regardless of who else asks. -->
+    <PackageVersion Include="Microsoft.OpenApi" Version="2.7.5" />
     <PackageVersion Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.9" />
     <PackageVersion Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" Version="10.0.9" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.9" />
@@ -64,6 +71,11 @@
     <PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.16.0" />
     <PackageVersion Include="OpenTelemetry.Instrumentation.StackExchangeRedis" Version="1.0.0-rc9.14" />
     <PackageVersion Include="Quartz.Extensions.Hosting" Version="3.18.2" />
+    <!-- Feature 3.7 Milestone G. The presentable half of the API documentation: a Scalar reference
+         UI over the same OpenAPI document Swagger UI renders. Its browser bundle is fetched from a
+         CDN by default, which the documentation CSP carve-out (Milestone D) blocks — the shared
+         AddApiDocumentation pins it to the copy this package embeds instead. -->
+    <PackageVersion Include="Scalar.AspNetCore" Version="2.17.2" />
     <PackageVersion Include="Scrutor" Version="7.0.0" />
     <PackageVersion Include="Serilog" Version="4.3.1" />
     <PackageVersion Include="Serilog.AspNetCore" Version="10.0.0" />

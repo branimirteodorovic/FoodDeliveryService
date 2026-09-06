@@ -27,7 +27,12 @@ internal sealed class AcceptInvitation : IEndpoint
             return result.Match(Results.NoContent, ApiResults.Problem);
         })
         .AllowAnonymous()
-        .WithTags("Users");
+        .WithTags(Tags.Users)
+        .WithSummary("Accept an invitation")
+        .WithDescription(
+            "Redeems a single-use invitation token - for staff, managers and drivers, who are invited " +
+            "rather than registering. Anonymous because the token *is* the credential.")
+        .Produces(StatusCodes.Status204NoContent);
     }
 
     internal sealed class Request

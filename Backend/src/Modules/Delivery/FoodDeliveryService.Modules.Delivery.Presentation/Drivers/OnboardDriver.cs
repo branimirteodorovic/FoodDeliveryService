@@ -32,7 +32,12 @@ internal sealed class OnboardDriver : IEndpoint
             return result.Match(Results.Ok, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.ProvisionUsers)
-        .WithTags(Tags.Drivers);
+        .WithTags(Tags.Drivers)
+        .WithSummary("Onboard a driver")
+        .WithDescription(
+            "Creates the driver profile behind an invited user account. Gated on the user- " +
+            "provisioning permission, not on a driver's own - a driver does not onboard themselves.")
+        .Produces<Guid>();
     }
 
     internal sealed class Request

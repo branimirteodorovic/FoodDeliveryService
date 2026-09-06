@@ -34,7 +34,12 @@ internal sealed class ChangeTicketStatus : IEndpoint
             return result.Match(Results.NoContent, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.ManageTickets)
-        .WithTags(Tags.Tickets);
+        .WithTags(Tags.Tickets)
+        .WithSummary("Change a ticket's status")
+        .WithDescription(
+            "Drives the ticket through its lifecycle. The aggregate decides which transitions are " +
+            "legal; an illegal one is a 409, not a silently ignored write.")
+        .Produces(StatusCodes.Status204NoContent);
     }
 
     internal sealed class Request

@@ -28,6 +28,11 @@ internal sealed class GetRestaurants : IEndpoint
             return result.Match(Results.Ok, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.GetRestaurants)
-        .WithTags(Tags.Restaurants);
+        .WithTags(Tags.Restaurants)
+        .WithSummary("List restaurants")
+        .WithDescription(
+            "The storefront's browse list, paged. This is the highest-volume read on the platform and " +
+            "the first thing the edge rate limiter sheds.")
+        .Produces<IReadOnlyCollection<RestaurantResponse>>();
     }
 }

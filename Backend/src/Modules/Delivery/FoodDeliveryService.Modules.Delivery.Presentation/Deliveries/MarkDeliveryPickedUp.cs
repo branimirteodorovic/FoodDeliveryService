@@ -25,6 +25,10 @@ internal sealed class MarkDeliveryPickedUp : IEndpoint
             return result.Match(Results.NoContent, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.ManageDeliveries)
-        .WithTags(Tags.Deliveries);
+        .WithTags(Tags.Deliveries)
+        .WithSummary("Mark a delivery picked up")
+        .WithDescription(
+            "The driver has the food. Moves the order to OutForDelivery over the bus.")
+        .Produces(StatusCodes.Status204NoContent);
     }
 }

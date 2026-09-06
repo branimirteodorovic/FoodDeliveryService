@@ -40,6 +40,13 @@ internal sealed class GetSupportSummary : IEndpoint
             return result.Match(Results.Ok, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.GetAnalytics)
-        .WithTags(Tags.Analytics);
+        .WithTags(Tags.Analytics)
+        .WithSummary("Get the support summary")
+        .WithDescription(
+            "Ticket volumes, resolution times and refund outcomes over a window. Staff-only and " +
+            "platform-wide - unlike every other read here there is no owner to narrow it to. The " +
+            "window defaults are applied at the endpoint because the query is cached and its key is " +
+            "computed before any handler runs.")
+        .Produces<SupportSummaryResponse>();
     }
 }

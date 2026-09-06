@@ -37,7 +37,12 @@ internal sealed class PostTicketMessage : IEndpoint
             return result.Match(Results.Ok, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.GetTickets)
-        .WithTags(Tags.Tickets);
+        .WithTags(Tags.Tickets)
+        .WithSummary("Post a message on a ticket")
+        .WithDescription(
+            "An agent replies, or marks the message an internal note; a customer adds to their own " +
+            "ticket. A customer-visible agent message publishes the event that sends the reply email.")
+        .Produces<Guid>();
     }
 
     internal sealed class Request

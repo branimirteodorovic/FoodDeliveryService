@@ -24,6 +24,11 @@ internal sealed class GetDriver : IEndpoint
             return result.Match(Results.Ok, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.GetDrivers)
-        .WithTags(Tags.Drivers);
+        .WithTags(Tags.Drivers)
+        .WithSummary("Get a driver")
+        .WithDescription(
+            "A driver's profile, for staff. A driver reading their own should call " +
+            "`delivery/drivers/me`.")
+        .Produces<DriverResponse>();
     }
 }

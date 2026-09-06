@@ -27,7 +27,12 @@ internal sealed class CreateMenuCategory : IEndpoint
             return result.Match(Results.Ok, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.ManageMenu)
-        .WithTags(Tags.Restaurants);
+        .WithTags(Tags.Restaurants)
+        .WithSummary("Create a menu category")
+        .WithDescription(
+            "Adds a category to the restaurant's menu. Nested under `restaurants/**` so it stays " +
+            "inside the module's existing gateway prefix.")
+        .Produces<Guid>();
     }
 
     internal sealed class Request

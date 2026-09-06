@@ -29,7 +29,12 @@ internal sealed class SetMenuItemAvailability : IEndpoint
             return result.Match(Results.NoContent, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.ManageMenu)
-        .WithTags(Tags.Restaurants);
+        .WithTags(Tags.Restaurants)
+        .WithSummary("Set menu item availability")
+        .WithDescription(
+            "Marks an item available or sold out - the fast path a kitchen uses mid-service, without " +
+            "touching the rest of the item.")
+        .Produces(StatusCodes.Status204NoContent);
     }
 
     internal sealed class Request

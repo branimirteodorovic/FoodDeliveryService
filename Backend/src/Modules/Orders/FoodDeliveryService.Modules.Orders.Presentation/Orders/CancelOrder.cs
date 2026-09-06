@@ -23,6 +23,12 @@ internal sealed class CancelOrder : IEndpoint
             return result.Match(Results.NoContent, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.CreateOrder)
-        .WithTags(Tags.Orders);
+        .WithTags(Tags.Orders)
+        .WithSummary("Cancel an order")
+        .WithDescription(
+            "Customer-facing, gated on the customer's own permission. The handler checks the caller " +
+            "owns the order and the domain decides whether it is still early enough to cancel - a 409 " +
+            "if it is not.")
+        .Produces(StatusCodes.Status204NoContent);
     }
 }

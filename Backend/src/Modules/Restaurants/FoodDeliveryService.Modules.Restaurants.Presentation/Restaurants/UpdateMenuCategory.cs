@@ -30,7 +30,11 @@ internal sealed class UpdateMenuCategory : IEndpoint
             return result.Match(Results.NoContent, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.ManageMenu)
-        .WithTags(Tags.Restaurants);
+        .WithTags(Tags.Restaurants)
+        .WithSummary("Update a menu category")
+        .WithDescription(
+            "Renames or reorders a category.")
+        .Produces(StatusCodes.Status204NoContent);
     }
 
     internal sealed class Request

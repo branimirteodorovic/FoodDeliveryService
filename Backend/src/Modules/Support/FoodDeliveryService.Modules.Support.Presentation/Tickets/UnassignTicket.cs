@@ -32,7 +32,11 @@ internal sealed class UnassignTicket : IEndpoint
             return result.Match(Results.NoContent, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.AssignTickets)
-        .WithTags(Tags.Tickets);
+        .WithTags(Tags.Tickets)
+        .WithSummary("Unassign a ticket")
+        .WithDescription(
+            "Returns the ticket to the unassigned queue.")
+        .Produces(StatusCodes.Status204NoContent);
     }
 
     internal sealed class Request

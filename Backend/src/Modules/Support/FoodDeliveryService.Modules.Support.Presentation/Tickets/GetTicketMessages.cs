@@ -32,6 +32,12 @@ internal sealed class GetTicketMessages : IEndpoint
             return result.Match(Results.Ok, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.GetTickets)
-        .WithTags(Tags.Tickets);
+        .WithTags(Tags.Tickets)
+        .WithSummary("List a ticket's messages")
+        .WithDescription(
+            "The agent-to-customer thread. Internal notes are filtered out in SQL for a customer " +
+            "caller - never in a mapper, where a later refactor could drop the filter without failing " +
+            "anything.")
+        .Produces<IReadOnlyCollection<TicketMessageResponse>>();
     }
 }

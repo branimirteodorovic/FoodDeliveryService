@@ -1,5 +1,6 @@
 using System.Text.Json;
 using AwesomeAssertions;
+using FoodDeliveryService.Common.Presentation.Documentation;
 using YamlDotNet.RepresentationModel;
 
 namespace FoodDeliveryService.Common.UnitTests.Security;
@@ -40,17 +41,40 @@ public class GatewayRouteTests
     ];
 
     /// <summary>
-    /// The only two routes allowed to skip authentication at the edge, matching the anonymous
-    /// endpoint allow-list in <see cref="EndpointAuthorizationTests"/>. The two lists are separate on
-    /// purpose: the gateway policy and the endpoint metadata are enforced by different components,
-    /// and an anonymous route in front of an authorized endpoint (or the reverse) is exactly the
-    /// mismatch worth failing on.
+    /// The only two <em>API</em> routes allowed to skip authentication at the edge, matching the
+    /// anonymous endpoint allow-list in <see cref="EndpointAuthorizationTests"/>. The two lists are
+    /// separate on purpose: the gateway policy and the endpoint metadata are enforced by different
+    /// components, and an anonymous route in front of an authorized endpoint (or the reverse) is
+    /// exactly the mismatch worth failing on.
     /// </summary>
-    private static readonly string[] AnonymousPaths =
+    private static readonly string[] AnonymousApiPaths =
     [
         "users/register",
         "users/accept-invitation"
     ];
+
+    /// <summary>
+    /// The documentation routes added by Feature 3.7 Milestone G — one per documented service,
+    /// derived from <see cref="ApiDocumentation.All"/> so a new service cannot be documented without
+    /// being reachable, or routed without being documented.
+    /// <para>
+    /// <b>They are anonymous at the gateway on purpose, and that is a decision worth reading before
+    /// changing.</b> §8.3 of the plan requires the documentation to be authorized outside
+    /// Development — but the gateway's routing table is static configuration with no notion of the
+    /// downstream environment, so a <c>default</c> policy here would also 401 a developer browsing
+    /// the UI on a local compose stack, which is the one place it is supposed to be readable. The
+    /// enforcement point is therefore the service itself
+    /// (<c>ApiDocumentationAuthorizationMiddleware</c>), which knows its own environment: anonymous
+    /// in Development, a token required everywhere else. The gateway route says "do not decide
+    /// here", not "this is public".
+    /// </para>
+    /// </summary>
+    private static readonly string[] DocumentationPaths =
+    [
+        .. ApiDocumentation.All.Select(descriptor => $"docs/{descriptor.Slug}/{{**catch-all}}")
+    ];
+
+    private static readonly string[] AnonymousPaths = [.. AnonymousApiPaths, .. DocumentationPaths];
 
     private const string AnonymousPolicy = "anonymous";
 
@@ -141,7 +165,7 @@ public class GatewayRouteTests
 
     [Theory]
     [MemberData(nameof(RoutingConfigurations))]
-    public void AnonymousRoutes_Should_BeExactlyTheTwoRegistrationPaths(string configuration)
+    public void AnonymousRoutes_Should_BeExactlyTheAllowList(string configuration)
     {
         RoutingTable routing = Routing(configuration);
 
@@ -149,8 +173,9 @@ public class GatewayRouteTests
             .Where(route => string.Equals(route.AuthorizationPolicy, AnonymousPolicy, StringComparison.Ordinal))
             .Select(route => route.Path);
 
-        // Both directions matter: a third anonymous route is an unauthenticated hole, and a missing
-        // one locks out registration for people who have no token yet by definition.
+        // Both directions matter: an anonymous route that is neither of the two registration paths
+        // nor a documentation path is an unauthenticated hole, and a missing one locks out
+        // registration for people who have no token yet by definition.
         anonymous.Should().BeEquivalentTo(AnonymousPaths, "{0}", configuration);
     }
 
@@ -168,6 +193,36 @@ public class GatewayRouteTests
                 "outside the gateway's authentication and rate limiting",
                 configuration,
                 prefix);
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(RoutingConfigurations))]
+    public void EveryDocumentedService_Should_HaveADocsRouteToItsOwnCluster(string configuration)
+    {
+        // Arrange
+        RoutingTable routing = Routing(configuration);
+
+        foreach (ApiDocumentationDescriptor descriptor in ApiDocumentation.All)
+        {
+            Route? docs = routing.Routes.SingleOrDefault(route =>
+                string.Equals(route.Path, $"docs/{descriptor.Slug}/{{**catch-all}}", StringComparison.Ordinal));
+
+            // Without the route, the service's documentation is reachable only on its container port
+            // — which is the same "outside the gateway" failure a missing API route is, minus the
+            // authentication, since the schema is what it serves.
+            docs.Should().NotBeNull(
+                "{0} has no docs route for '{1}' — a documented service nobody can read through the " +
+                "one public entry point",
+                configuration,
+                descriptor.Slug);
+
+            // The slug is also what picks the cluster. Pointing docs/support at the orders cluster
+            // would serve a valid document describing the wrong service, which is worse than a 404.
+            docs!.ClusterId.Should().Contain(
+                descriptor.Slug,
+                "{0}'s docs route must forward to the service it documents",
+                descriptor.Slug);
         }
     }
 

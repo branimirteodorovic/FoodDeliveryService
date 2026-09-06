@@ -39,7 +39,13 @@ internal sealed class PlaceOrder : IEndpoint
             return result.Match(Results.Ok, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.CreateOrder)
-        .WithTags(Tags.Orders);
+        .WithTags(Tags.Orders)
+        .WithSummary("Place an order")
+        .WithDescription(
+            "Prices every line from this service's own menu replica - the request carries menu item " +
+            "ids and quantities, never prices. Send an `Idempotency-Key` header: a retry of the same " +
+            "key returns the order the first call created rather than placing a second one.")
+        .Produces<Guid>();
     }
 
     internal sealed class Request

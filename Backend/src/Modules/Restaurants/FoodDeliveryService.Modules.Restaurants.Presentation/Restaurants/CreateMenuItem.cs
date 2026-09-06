@@ -34,7 +34,12 @@ internal sealed class CreateMenuItem : IEndpoint
             return result.Match(Results.Ok, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.ManageMenu)
-        .WithTags(Tags.Restaurants);
+        .WithTags(Tags.Restaurants)
+        .WithSummary("Create a menu item")
+        .WithDescription(
+            "Adds a priced item to a category. The price set here is the price Orders replicates and " +
+            "charges - the client never sends one.")
+        .Produces<Guid>();
     }
 
     internal sealed class Request

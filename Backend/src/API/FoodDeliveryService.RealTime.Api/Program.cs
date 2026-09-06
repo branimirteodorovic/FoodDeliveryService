@@ -4,6 +4,7 @@ using FoodDeliveryService.Common.Infrastructure.Configuration;
 using FoodDeliveryService.Common.Infrastructure.Diagnostics;
 using FoodDeliveryService.Common.Infrastructure.EventBus;
 using FoodDeliveryService.Common.Presentation.Correlation;
+using FoodDeliveryService.Common.Presentation.Documentation;
 using FoodDeliveryService.Common.Presentation.Endpoints;
 using FoodDeliveryService.Common.Presentation.Health;
 using FoodDeliveryService.Common.Presentation.Security;
@@ -38,12 +39,12 @@ builder.Services.AddSecurityHeaders(builder.Configuration);
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
 
-// OpenAPI document (/openapi in Development) + Swagger UI. The hub is the service's real surface,
-// but the host keeps the same bootstrap as the other services for consistency.
-builder.Services.AddOpenApi();
-
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerDocumentation();
+// Feature 3.7 Milestone G. One shared AddApiDocumentation for all seven module hosts, in
+// place of the seven byte-identical SwaggerExtensions copies whose one shared title described
+// none of them. It registers a single OpenAPI document — Swashbuckle's SwaggerGen built a
+// second one that no host ever served — enriched with this service's identity, the bearer
+// scheme, each endpoint's permission and the RFC 7807 failure responses.
+builder.Services.AddApiDocumentation(builder.Configuration, ApiDocumentation.RealTime);
 
 // From Milestone D this service has its own database (the RestaurantManager replica) alongside the
 // shared Redis cache (also the SignalR backplane) and the RabbitMQ broker (event consumption + the
@@ -115,12 +116,6 @@ WebApplication app = builder.Build();
 // EF Core migrations are applied automatically at startup — no manual `dotnet ef database update`.
 app.ApplyMigrations();
 
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
-    app.MapOpenApi();
-}
-
 // GET /health/live (the process only), GET /health/ready (its dependencies) and the unchanged
 // aggregate GET /health — one shared mapping, so all eight hosts expose an identical probe contract.
 app.MapHealthProbes();
@@ -149,6 +144,13 @@ app.UseAuthorization();
 // Maps every IEndpoint discovered in the module's Presentation assembly — the tracking hub
 // self-registers at hubs/tracking; there is no manual route table.
 app.MapEndpoints();
+
+// The OpenAPI document and the two UIs over it, at /docs/realtime/{openapi,scalar,swagger}
+// — Feature 3.7 Milestone G. Mapped in EVERY environment now rather than only in Development:
+// a documented surface that is invisible from the environments other people use documents
+// nothing. Outside Development it requires a token. It has to come after UseAuthentication(),
+// because that gate reads HttpContext.User.
+app.MapApiDocumentation(allowAnonymous: app.Environment.IsDevelopment());
 
 await app.RunAsync();
 

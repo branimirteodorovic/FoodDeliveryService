@@ -21,6 +21,14 @@
     <PackageReference Include="OpenTelemetry.Instrumentation.Http" />
     <PackageReference Include="OpenTelemetry.Instrumentation.Process" />
     <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" />
+    <!-- Feature 3.7 Milestone G. The three halves of AddApiDocumentation(): the OpenAPI document
+         generator, the Swagger UI middleware (asset-only — SwaggerGen is gone, both UIs render the
+         one document Microsoft.AspNetCore.OpenApi produces) and the Scalar reference UI. They live
+         here for the same reason the health probes and the correlation middleware do: seven hosts
+         maintaining seven copies is how seven documents drift apart. -->
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Scalar.AspNetCore" />
+    <PackageReference Include="Swashbuckle.AspNetCore" />
     <!-- Serilog's LogContext + PropertyEnricher, for the request-correlation middleware every host
          shares. The sinks stay a host concern; this project only pushes properties into the scope. -->
     <PackageReference Include="Serilog" />

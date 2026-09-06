@@ -21,6 +21,10 @@ internal sealed class GetRestaurant : IEndpoint
             return result.Match(Results.Ok, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.GetRestaurants)
-        .WithTags(Tags.Restaurants);
+        .WithTags(Tags.Restaurants)
+        .WithSummary("Get a restaurant")
+        .WithDescription(
+            "The restaurant's profile and address.")
+        .Produces<RestaurantResponse>();
     }
 }

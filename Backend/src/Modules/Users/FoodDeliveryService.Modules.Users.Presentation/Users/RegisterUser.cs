@@ -31,7 +31,14 @@ internal sealed class RegisterUser : IEndpoint
             return result.Match(Results.Ok, ApiResults.Problem);
         })
         .AllowAnonymous()
-        .WithTags("Users");
+        .WithTags(Tags.Users)
+        .WithSummary("Register a customer")
+        .WithDescription(
+            "Self-registration, and one of only two anonymous endpoints on the platform - a caller " +
+            "who has no account cannot hold a token for one. The handler forces the role to Customer " +
+            "regardless of what is sent. Provisions the credential in Duende first, then the module- " +
+            "side user.")
+        .Produces<Guid>();
     }
 
     internal sealed class Request

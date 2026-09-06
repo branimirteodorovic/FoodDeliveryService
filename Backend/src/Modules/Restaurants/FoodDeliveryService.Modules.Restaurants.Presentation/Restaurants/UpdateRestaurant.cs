@@ -40,7 +40,12 @@ internal sealed class UpdateRestaurant : IEndpoint
             return result.Match(Results.NoContent, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.ModifyRestaurant)
-        .WithTags(Tags.Restaurants);
+        .WithTags(Tags.Restaurants)
+        .WithSummary("Update a restaurant")
+        .WithDescription(
+            "Profile, address and opening state. Ownership-checked in the handler: only the owning " +
+            "manager, or an administrator, may update.")
+        .Produces(StatusCodes.Status204NoContent);
     }
 
     internal sealed class Request

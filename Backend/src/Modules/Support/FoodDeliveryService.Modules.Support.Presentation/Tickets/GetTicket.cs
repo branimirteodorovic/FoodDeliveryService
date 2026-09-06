@@ -26,6 +26,11 @@ internal sealed class GetTicket : IEndpoint
             return result.Match(Results.Ok, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.GetTickets)
-        .WithTags(Tags.Tickets);
+        .WithTags(Tags.Tickets)
+        .WithSummary("Get a ticket")
+        .WithDescription(
+            "Ownership-scoped: an agent reads any ticket, a customer only their own. Another " +
+            "customer's ticket is a 404 and not a 403 - a 403 would confirm that it exists.")
+        .Produces<TicketResponse>();
     }
 }

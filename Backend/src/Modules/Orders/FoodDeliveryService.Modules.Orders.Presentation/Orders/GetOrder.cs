@@ -21,6 +21,11 @@ internal sealed class GetOrder : IEndpoint
             return result.Match(Results.Ok, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.GetOrders)
-        .WithTags(Tags.Orders);
+        .WithTags(Tags.Orders)
+        .WithSummary("Get an order")
+        .WithDescription(
+            "The full order with its lines, delivery address and current status. Someone else's order " +
+            "is a 404 rather than a 403 - a 403 would confirm that it exists.")
+        .Produces<OrderResponse>();
     }
 }

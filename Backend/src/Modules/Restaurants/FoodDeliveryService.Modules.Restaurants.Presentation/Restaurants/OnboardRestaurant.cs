@@ -43,7 +43,12 @@ internal sealed class OnboardRestaurant : IEndpoint
             return result.Match(Results.Ok, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.CreateRestaurant)
-        .WithTags(Tags.Restaurants);
+        .WithTags(Tags.Restaurants)
+        .WithSummary("Onboard a restaurant")
+        .WithDescription(
+            "Creates the restaurant and its address, owned by the manager who is onboarding it. " +
+            "Publishes the snapshot Orders replicates for pricing.")
+        .Produces<Guid>();
     }
 
     internal sealed class Request

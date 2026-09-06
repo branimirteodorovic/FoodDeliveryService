@@ -20,13 +20,17 @@ internal sealed class Create{Entity} : IEndpoint
             return result.Match(Results.Ok, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.{Action}{Entity})   // permission-based policy; omit ONLY for intentionally anonymous endpoints
-        .WithTags(Tags.{Module});
+        .WithTags(Tags.{Module})
+        .WithSummary("...")                                   // required — OpenApiDocumentTests
+        .WithDescription("...")                               // required — OpenApiDocumentTests
+        .Produces<Guid>();                                    // or .Produces(StatusCodes.Status204NoContent) for Results.NoContent
     }
 
     internal sealed class Request { /* input DTO — never a domain entity */ }
 }
 ```
 - Discovered via `AddEndpoints(Presentation.AssemblyReference.Assembly)` + `app.MapEndpoints()` — no manual registration
+- The documentation calls are enforced, not decorative: `OpenApiDocumentTests` builds each service's real OpenAPI document and fails an operation with no summary, description, tag or success response. The success response is the only one you write — the bearer requirement, the `**Requires permission:** ...` line (read off `RequireAuthorization`) and 400/401/403/404/409/429/500 `ProblemDetails` come from the transformers in `Common.Presentation/Documentation`. `docs/api-documentation.md`
 - Routes must fall under the module's YARP path prefix (`orders/**`, `users/**`, `restaurants/**`, `notifications/**`). A genuinely new prefix also needs a route + cluster in `src/API/FoodDeliveryService.Gateway/appsettings.Development.json`
 - Auth: JWT from Duende validated at gateway AND service; permissions resolved by `CustomClaimsTransformation` → `IPermissionService` (MassTransit request/response to Users, Redis-cached)
 
@@ -65,6 +69,7 @@ Each host runs exactly one module. Follow `FoodDeliveryService.Orders.Api/Progra
 - `AddInfrastructure(DiagnosticsConfig.ServiceName, [{Module}Module.ConfigureConsumers], rabbitMqSettings, dbConnString, redisConnString)` — wires auth, MassTransit, OTel traces + metrics (OTLP), Dapper, Redis
 - `Add{Module}Module(builder.Configuration)`, health checks, Serilog + Seq, `app.ApplyMigrations()`, `app.UseRequestCorrelation()`, `app.MapEndpoints()`
 - Security response headers are two shared calls, not a per-host header list: `builder.Services.AddSecurityHeaders(builder.Configuration)` (the Add half exists only because Kestrel's `Server` header cannot be turned off from the pipeline) and `app.UseSecurityHeaders()` placed before `UseRequestCorrelation()`. `SecurityHeaderCoverageTests` fails a host missing either. CORS and forwarded headers are **Gateway-only** and the same test fails a module host that adds them — see `docs/security.md` §5
+- API documentation is two shared calls, not a per-host `SwaggerExtensions`: `builder.Services.AddApiDocumentation(builder.Configuration, ApiDocumentation.{Module})` and `app.MapApiDocumentation(allowAnonymous: app.Environment.IsDevelopment())` placed **after** `UseAuthentication()`. Served under `/docs/{slug}/{openapi,scalar,swagger}`, mapped in every environment, token-gated outside Development. `ApiDocumentationCoverageTests` fails a host missing either half
 - Health checks follow the probe contract in `docs/health-probe-contract.md`: `.AddLivenessCheck()` plus every dependency (Npgsql, Redis, RabbitMQ, Duende) tagged `HealthCheckTags.Ready`, then one `app.MapHealthProbes()` call for `/health/live` + `/health/ready` + `/health`. An untagged dependency check is invisible to both probes
 - Connection string targets the service's OWN database: `fooddeliveryservice_{module}`
 - Never expose a service port publicly — clients go through the Gateway (:3000)

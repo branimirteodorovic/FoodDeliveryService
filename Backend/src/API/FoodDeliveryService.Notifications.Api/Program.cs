@@ -3,6 +3,7 @@ using FoodDeliveryService.Common.Infrastructure;
 using FoodDeliveryService.Common.Infrastructure.Configuration;
 using FoodDeliveryService.Common.Infrastructure.EventBus;
 using FoodDeliveryService.Common.Presentation.Correlation;
+using FoodDeliveryService.Common.Presentation.Documentation;
 using FoodDeliveryService.Common.Presentation.Endpoints;
 using FoodDeliveryService.Common.Presentation.Health;
 using FoodDeliveryService.Common.Presentation.Security;
@@ -33,11 +34,12 @@ builder.Services.AddSecurityHeaders(builder.Configuration);
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
 
-// OpenAPI document (/openapi in Development) + Swagger UI for exploring the module's endpoints.
-builder.Services.AddOpenApi();
-
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerDocumentation();
+// Feature 3.7 Milestone G. One shared AddApiDocumentation for all seven module hosts, in
+// place of the seven byte-identical SwaggerExtensions copies whose one shared title described
+// none of them. It registers a single OpenAPI document — Swashbuckle's SwaggerGen built a
+// second one that no host ever served — enriched with this service's identity, the bearer
+// scheme, each endpoint's permission and the RFC 7807 failure responses.
+builder.Services.AddApiDocumentation(builder.Configuration, ApiDocumentation.Notifications);
 
 // MediatR + FluentValidation for the module's Application assembly (commands, queries, validators).
 Assembly[] moduleApplicationAssemblies = [
@@ -94,12 +96,6 @@ WebApplication app = builder.Build();
 // EF Core migrations are applied automatically at startup — no manual `dotnet ef database update`.
 app.ApplyMigrations();
 
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
-    app.MapOpenApi();
-}
-
 // GET /health/live (the process only), GET /health/ready (its dependencies) and the unchanged
 // aggregate GET /health — one shared mapping, so all eight hosts expose an identical probe contract.
 app.MapHealthProbes();
@@ -128,6 +124,13 @@ app.UseAuthorization();
 // Maps every IEndpoint implementation discovered in the module's Presentation assembly —
 // endpoints self-register; there is no manual route table.
 app.MapEndpoints();
+
+// The OpenAPI document and the two UIs over it, at /docs/notifications/{openapi,scalar,swagger}
+// — Feature 3.7 Milestone G. Mapped in EVERY environment now rather than only in Development:
+// a documented surface that is invisible from the environments other people use documents
+// nothing. Outside Development it requires a token. It has to come after UseAuthentication(),
+// because that gate reads HttpContext.User.
+app.MapApiDocumentation(allowAnonymous: app.Environment.IsDevelopment());
 
 await app.RunAsync();
 

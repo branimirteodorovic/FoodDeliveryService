@@ -21,6 +21,10 @@ internal sealed class AcceptOrder : IEndpoint
             return result.Match(Results.NoContent, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.ManageOrders)
-        .WithTags(Tags.Orders);
+        .WithTags(Tags.Orders)
+        .WithSummary("Accept an order")
+        .WithDescription(
+            "The restaurant takes the order on. Placed -> Accepted; anything else is a 409.")
+        .Produces(StatusCodes.Status204NoContent);
     }
 }

@@ -31,7 +31,12 @@ internal sealed class RejectRefund : IEndpoint
             return result.Match(Results.NoContent, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.ApproveRefund)
-        .WithTags(Tags.Refunds);
+        .WithTags(Tags.Refunds)
+        .WithSummary("Reject a refund request")
+        .WithDescription(
+            "The other half of the decision, with a reason, under the same segregation of duties as " +
+            "approval.")
+        .Produces(StatusCodes.Status204NoContent);
     }
 
     internal sealed class Request

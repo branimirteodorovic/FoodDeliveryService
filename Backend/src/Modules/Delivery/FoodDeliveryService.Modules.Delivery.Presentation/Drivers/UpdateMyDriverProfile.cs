@@ -30,7 +30,12 @@ internal sealed class UpdateMyDriverProfile : IEndpoint
             return result.Match(Results.NoContent, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.ModifyDriver)
-        .WithTags(Tags.Drivers);
+        .WithTags(Tags.Drivers)
+        .WithSummary("Update the calling driver's profile")
+        .WithDescription(
+            "Name, phone and vehicle. Scoped to the caller's own record by construction - there is no " +
+            "id to point elsewhere.")
+        .Produces(StatusCodes.Status204NoContent);
     }
 
     internal sealed class Request

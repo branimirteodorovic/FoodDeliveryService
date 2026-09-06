@@ -25,6 +25,10 @@ internal sealed class GetMyDriverProfile : IEndpoint
             return result.Match(Results.Ok, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.GetDrivers)
-        .WithTags(Tags.Drivers);
+        .WithTags(Tags.Drivers)
+        .WithSummary("Get the calling driver's profile")
+        .WithDescription(
+            "The caller's own driver record, resolved from the token rather than from a path id.")
+        .Produces<DriverResponse>();
     }
 }

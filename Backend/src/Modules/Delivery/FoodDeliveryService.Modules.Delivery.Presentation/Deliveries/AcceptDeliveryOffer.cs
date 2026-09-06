@@ -25,6 +25,12 @@ internal sealed class AcceptDeliveryOffer : IEndpoint
             return result.Match(Results.NoContent, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.ManageDeliveries)
-        .WithTags(Tags.Deliveries);
+        .WithTags(Tags.Deliveries)
+        .WithSummary("Accept a delivery offer")
+        .WithDescription(
+            "Takes an offer that is still open. Guarded by a distributed lock as well as by the " +
+            "aggregate: two drivers accepting the same offer in the same instant is exactly the race " +
+            "no concurrency token here would catch. A lost race is a 409.")
+        .Produces(StatusCodes.Status204NoContent);
     }
 }

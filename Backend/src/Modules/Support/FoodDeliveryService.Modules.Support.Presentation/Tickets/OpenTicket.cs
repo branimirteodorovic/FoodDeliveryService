@@ -35,7 +35,12 @@ internal sealed class OpenTicket : IEndpoint
             return result.Match(Results.Ok, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.OpenTicket)
-        .WithTags(Tags.Tickets);
+        .WithTags(Tags.Tickets)
+        .WithSummary("Open a support ticket")
+        .WithDescription(
+            "A customer raises a ticket, optionally against one of their own orders. Publishes the " +
+            "event the agent dashboard listens on.")
+        .Produces<Guid>();
     }
 
     internal sealed class Request

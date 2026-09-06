@@ -34,7 +34,13 @@ internal sealed class ApproveRefund : IEndpoint
             return result.Match(Results.NoContent, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.ApproveRefund)
-        .WithTags(Tags.Refunds);
+        .WithTags(Tags.Refunds)
+        .WithSummary("Approve a refund request")
+        .WithDescription(
+            "An administrator approves - and it must be a **different** person than the agent who " +
+            "requested it. That segregation of duties is enforced in the aggregate, not by the " +
+            "permission, so it cannot be granted around.")
+        .Produces(StatusCodes.Status204NoContent);
     }
 
     internal sealed class Request

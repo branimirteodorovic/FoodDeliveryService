@@ -21,6 +21,11 @@ internal sealed class MarkOrderReady : IEndpoint
             return result.Match(Results.NoContent, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.ManageOrders)
-        .WithTags(Tags.Orders);
+        .WithTags(Tags.Orders)
+        .WithSummary("Mark an order ready")
+        .WithDescription(
+            "Preparing -> ReadyForPickup, which is what makes the order eligible for a driver offer " +
+            "in the delivery service.")
+        .Produces(StatusCodes.Status204NoContent);
     }
 }

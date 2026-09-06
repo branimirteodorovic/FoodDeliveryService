@@ -35,6 +35,11 @@ internal sealed class GetTicketAudit : IEndpoint
             return result.Match(Results.Ok, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.ManageTickets)
-        .WithTags(Tags.Tickets);
+        .WithTags(Tags.Tickets)
+        .WithSummary("Get a ticket's audit log")
+        .WithDescription(
+            "The append-only record of everything that happened to the ticket, written in the same " +
+            "transaction as each change it records. Staff-only.")
+        .Produces<IReadOnlyCollection<SupportAuditEntryResponse>>();
     }
 }

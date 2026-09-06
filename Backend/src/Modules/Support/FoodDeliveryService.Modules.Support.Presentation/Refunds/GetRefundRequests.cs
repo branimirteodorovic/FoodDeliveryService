@@ -36,6 +36,12 @@ internal sealed class GetRefundRequests : IEndpoint
             return result.Match(Results.Ok, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.RequestRefund)
-        .WithTags(Tags.Refunds);
+        .WithTags(Tags.Refunds)
+        .WithSummary("List refund requests")
+        .WithDescription(
+            "The approval queue (`?status=Requested`) and the history behind it. Gated on the " +
+            "*request* permission rather than the approve one: an agent needs to see that what they " +
+            "asked for was decided.")
+        .Produces<IReadOnlyCollection<RefundRequestResponse>>();
     }
 }

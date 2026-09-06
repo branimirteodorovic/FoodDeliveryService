@@ -25,6 +25,12 @@ internal sealed class MarkDeliveryDelivered : IEndpoint
             return result.Match(Results.NoContent, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.ManageDeliveries)
-        .WithTags(Tags.Deliveries);
+        .WithTags(Tags.Deliveries)
+        .WithSummary("Mark a delivery delivered")
+        .WithDescription(
+            "The end of the line: closes the delivery and, through the integration event it " +
+            "publishes, the order. The single most expensive request on the platform to refuse - the " +
+            "rate limiter tiers it accordingly.")
+        .Produces(StatusCodes.Status204NoContent);
     }
 }

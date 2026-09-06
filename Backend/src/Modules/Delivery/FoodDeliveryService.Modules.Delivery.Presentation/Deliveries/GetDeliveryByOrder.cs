@@ -26,6 +26,10 @@ internal sealed class GetDeliveryByOrder : IEndpoint
             return result.Match(Results.Ok, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.GetDeliveries)
-        .WithTags(Tags.Deliveries);
+        .WithTags(Tags.Deliveries)
+        .WithSummary("Get the delivery for an order")
+        .WithDescription(
+            "The same record addressed by order id - what a customer tracking their order asks for.")
+        .Produces<DeliveryResponse>();
     }
 }

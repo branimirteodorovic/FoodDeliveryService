@@ -25,6 +25,11 @@ internal sealed class GetDelivery : IEndpoint
             return result.Match(Results.Ok, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.GetDeliveries)
-        .WithTags(Tags.Deliveries);
+        .WithTags(Tags.Deliveries)
+        .WithSummary("Get a delivery")
+        .WithDescription(
+            "The delivery with its driver, addresses and status, plus the driver's live position " +
+            "while it is in flight.")
+        .Produces<DeliveryResponse>();
     }
 }

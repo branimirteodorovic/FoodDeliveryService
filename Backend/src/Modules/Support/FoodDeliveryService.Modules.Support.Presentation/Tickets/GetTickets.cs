@@ -46,6 +46,12 @@ internal sealed class GetTickets : IEndpoint
             return result.Match(Results.Ok, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.GetTickets)
-        .WithTags(Tags.Tickets);
+        .WithTags(Tags.Tickets)
+        .WithSummary("List tickets")
+        .WithDescription(
+            "The agent queue (`?status=Open&unassigned=true`) and a customer's own ticket list are " +
+            "the same endpoint - whose tickets come back is decided from the authenticated identity, " +
+            "so there is nothing here a customer can set to widen their view.")
+        .Produces<IReadOnlyCollection<TicketSummaryResponse>>();
     }
 }

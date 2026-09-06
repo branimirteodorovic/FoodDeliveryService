@@ -29,6 +29,11 @@ internal sealed class GetDeliveries : IEndpoint
             return result.Match(Results.Ok, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.GetDeliveries)
-        .WithTags(Tags.Deliveries);
+        .WithTags(Tags.Deliveries)
+        .WithSummary("List the caller's deliveries")
+        .WithDescription(
+            "A driver's own delivery history, or all of them for an administrator. The scope comes " +
+            "from the authenticated identity, not from a parameter.")
+        .Produces<IReadOnlyCollection<DeliverySummaryResponse>>();
     }
 }

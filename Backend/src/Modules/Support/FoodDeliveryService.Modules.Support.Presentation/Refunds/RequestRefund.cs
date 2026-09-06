@@ -32,7 +32,13 @@ internal sealed class RequestRefund : IEndpoint
             return result.Match(Results.Ok, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.RequestRefund)
-        .WithTags(Tags.Refunds);
+        .WithTags(Tags.Refunds)
+        .WithSummary("Request a refund on a ticket")
+        .WithDescription(
+            "An agent asks for a refund, capped by the order subtotal this service replicated when " +
+            "the order was placed. Asking is not deciding - see the approve and reject endpoints. " +
+            "**No money moves: the platform has no payment processing.**")
+        .Produces<Guid>();
     }
 
     internal sealed class Request

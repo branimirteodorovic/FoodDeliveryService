@@ -34,7 +34,12 @@ internal sealed class AssignTicket : IEndpoint
             return result.Match(Results.NoContent, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.AssignTickets)
-        .WithTags(Tags.Tickets);
+        .WithTags(Tags.Tickets)
+        .WithSummary("Assign a ticket to an agent")
+        .WithDescription(
+            "Assigns to a named agent - the supervisor's version of claiming. Under the same lock, " +
+            "and recorded in the ticket's audit log in the same transaction.")
+        .Produces(StatusCodes.Status204NoContent);
     }
 
     internal sealed class Request

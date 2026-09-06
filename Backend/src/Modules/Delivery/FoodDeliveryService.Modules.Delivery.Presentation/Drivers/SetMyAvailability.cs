@@ -25,7 +25,11 @@ internal sealed class SetMyAvailability : IEndpoint
             return result.Match(Results.NoContent, ApiResults.Problem);
         })
         .RequireAuthorization(Permissions.ModifyDriver)
-        .WithTags(Tags.Drivers);
+        .WithTags(Tags.Drivers)
+        .WithSummary("Set the calling driver's availability")
+        .WithDescription(
+            "Going on or off shift. Only an available driver is offered a delivery.")
+        .Produces(StatusCodes.Status204NoContent);
     }
 
     internal sealed class Request
