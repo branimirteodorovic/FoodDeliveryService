@@ -550,12 +550,12 @@ A final pass over the entire system to bring it to production-ready quality. Thi
 - **API documentation:** Ensure Swagger/Scalar docs are complete and accurate for all services
 - **README:** Write a comprehensive GitHub README with architecture diagram, technology choices, setup instructions, and load test results
 - **Architecture diagram:** Create a visual diagram of all services, databases, and message flows
-- **Dependency scanning:** Enable GitHub Dependabot to automatically flag vulnerable NuGet packages
+- **Dependency scanning:** ~~Enable GitHub Dependabot to automatically flag vulnerable NuGet packages~~ — **descoped.** The build-time NuGet audit covers this instead: `Directory.Build.props` sets `TreatWarningsAsErrors`, so a vulnerable direct or transitive package fails the build on every push. Dependabot, `dependency-review`, CodeQL, Trivy image scanning and SBOM generation were planned as Milestone H of `HARDENING_PHASE3_PLAN.md` and cut on 2026-09-06; §9.0 there records the reasoning and the two gaps that remain (container base images are never scanned; alerting is build-time, not scheduled)
 - **Final cost review:** Review Azure resource usage and optimise for cost where possible (right-sizing VMs, using spot instances for non-critical workloads)
 
 **Technologies:**
 - **Swagger / Scalar** — API documentation tools that automatically generate interactive documentation from your ASP.NET Core controllers. A recruiter or technical reviewer can open the Swagger UI and explore every endpoint, its parameters, and its response schemas — without reading a single line of code.
-- **GitHub Dependabot** — A GitHub feature that automatically scans your dependencies for known security vulnerabilities and opens pull requests to update them. Enabling it demonstrates awareness of supply chain security — an increasingly important topic in professional software development.
+- **NuGet audit (`TreatWarningsAsErrors`)** — .NET's built-in vulnerability check against the GitHub Advisory Database, promoted from a warning to a build error solution-wide. It is what the descoped Dependabot task was replaced by: a vulnerable package cannot merge because it cannot compile. It has already forced two real bumps (SSH.NET via Testcontainers, and a `Microsoft.OpenApi` floor pin). Its limitation, and the reason Dependabot is not simply redundant, is that it fires at build time rather than on a schedule — an advisory published against an already-pinned package waits for the next build.
 - **OWASP Top 10** — A well-known list of the ten most critical web application security risks (SQL injection, broken authentication, exposed sensitive data, etc.). A final security review against this checklist demonstrates security awareness beyond just "I used HTTPS".
 
 ---

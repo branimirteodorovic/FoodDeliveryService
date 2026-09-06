@@ -7,7 +7,7 @@
 Decisions locked in for this plan:
 
 - **Every audit finding becomes an executable guardrail.** Where a property can be asserted from the endpoint metadata, the config files, the manifests or the OpenAPI document, it is asserted in `FoodDeliveryService.Common.UnitTests` or in a CI job. Where it genuinely cannot be, it is written into `docs/security.md` with the reason it is unenforceable — and that is the exception, not the pattern.
-- **This feature adds almost no runtime behaviour.** The platform is already correct on the big things (every endpoint carries `RequireAuthorization`, JWT is validated twice, no service reads another's database, the edge rate limiter sheds load, secrets are blank in `appsettings.json`). What it lacks is *proof*, *documentation*, and a handful of genuinely missing edge concerns: CORS, forwarded headers, security response headers, least-privilege database roles, Duende key management outside Development, and dependency scanning. Milestones D, E and H carry the only real code; the rest is guardrails and docs.
+- **This feature adds almost no runtime behaviour.** The platform is already correct on the big things (every endpoint carries `RequireAuthorization`, JWT is validated twice, no service reads another's database, the edge rate limiter sheds load, secrets are blank in `appsettings.json`). What it lacks is *proof*, *documentation*, and a handful of genuinely missing edge concerns: CORS, forwarded headers, security response headers, least-privilege database roles and Duende key management outside Development. Milestones D and E carry the only real code; the rest is guardrails and docs. (Scheduled dependency and image scanning was the sixth such concern, and Milestone H was cut rather than built — §9.0.)
 - **The known truthfulness gap is closed, not papered over.** The root `README.md` currently claims "8 hosts", marks **Support** and **order placement idempotency** as `📋 Pending` when both shipped, and marks this feature pending. A README that lies about what exists is worse for a portfolio than one that omits things. Milestone I is a correctness pass over it, not a decoration pass.
 - **Nothing here reopens a scoped-out decision.** `KUBERNETES_PHASE2_PLAN.md` was deliberately cut short by the user (no Helm/HPA/Ingress/AKS). TLS therefore terminates *outside* anything this repo deploys, and this plan hardens for that reality rather than pretending an Ingress exists. Likewise the "final Azure cost review" in the project plan has no Azure subscription behind it — Milestone I delivers it as a documented sizing/cost model, and says so plainly.
 - Reference implementations to mirror: **`ObservabilityAssetTests`** for asset-validating tests, **`deploy/k8s/scripts/policy-check.py`** for manifest policy, **`docs/rate-limiting.md`** and **`docs/caching.md`** for the documentation shape, **`Common.Presentation/RateLimiting`** for a cross-cutting middleware that ships with its own options + tests.
@@ -25,7 +25,7 @@ Decisions locked in for this plan:
 | Blank secrets in `appsettings.json` | all nine hosts | Real values live only in `appsettings.Development.json`, which is valid against a throwaway local stack. |
 | Edge rate limiting | `Common.Presentation/RateLimiting` + Gateway | Redis-backed, route-tiered, `docs/rate-limiting.md`. OWASP A04-adjacent work is already done. |
 | Health probes, correlation, telemetry | all nine hosts | `docs/health-probe-contract.md`, `docs/observability-backend.md`. |
-| NuGet audit as an error | `Directory.Build.props` (`TreatWarningsAsErrors`) | A vulnerable transitive already breaks the build — that is how the SSH.NET/Testcontainers bump happened. Milestone H adds the *scheduled* half, not the build-time half. |
+| NuGet audit as an error | `Directory.Build.props` (`TreatWarningsAsErrors`) | A vulnerable transitive already breaks the build — that is how the SSH.NET/Testcontainers bump happened. This is the **only** dependency scanning the project has: Milestone H would have added the scheduled half and was cut (§9.0). |
 | Kubernetes pod security policy | `deploy/k8s/scripts/policy-check.py` | Already checks images, resources, probes, env and pod security context. Milestone B extends it; it does not start it. |
 | Architecture diagrams | root `README.md` | C1/C2 Mermaid diagrams exist and are current. Milestone I adds C3-level message-flow and corrects the stale prose around them. |
 
@@ -50,7 +50,7 @@ Nothing in this feature changes the topology. The surfaces it touches:
 | Gateway | D, G | Security headers, forwarded headers, CORS policy, aggregated API documentation. |
 | Identity | E | Signing-key management outside Development, token lifetimes, lockout, non-dev password policy. |
 | `docker/`, `deploy/k8s/` | C, B | Per-service least-privilege Postgres roles; a secrets policy check. |
-| `.github/workflows/` | B, H | `gitleaks`, `dependency-review`, CodeQL, Trivy, SBOM, Dependabot config. |
+| `.github/workflows/` | B | `gitleaks` and the secret-scan gate. (H would have added `dependency-review`, CodeQL, Trivy, SBOM and Dependabot config; it was cut — §9.0.) |
 | `docs/`, `README.md` | I | `docs/security.md`, `docs/api-documentation.md`, `docs/cost-model.md`, README correctness pass. |
 
 **Milestone order matters in exactly two places:** A must land before I (the README should not claim a guarantee before the test that proves it exists), and C must land before I (the cost model references the connection-pool sizing C changes). Everything else is independent and can be built in any order.
@@ -658,7 +658,7 @@ Where each service's docs live, how to get a token to try a call (the ROPC flow 
 
 **Two documents are empty, and only one of them was expected.** Notifications has no HTTP surface (§2.1 already records that). **RealTime** also produces an empty document, and that was a discovery: `MapHub` contributes no `ApiDescription`, so a SignalR hub cannot appear in a generated OpenAPI document however it is annotated — `WithTags` does not even compile on a hub's builder, which is the same restriction showing through. The hub keeps a summary and description as metadata for people, and what a client needs to know about the handshake is in the RealTime service description instead.
 
-**One dependency was pinned, for a reason unrelated to documentation.** `Microsoft.AspNetCore.OpenApi` asks for `Microsoft.OpenApi` **2.0.0**, which carries a high-severity advisory (GHSA-v5pm-xwqc-g5wc); it resolves to 2.7.5 today only because Swashbuckle happens to want a newer one. With NuGet audit as warnings-as-errors, dropping Swashbuckle — a plausible future cleanup, since it is now only a UI asset bundle — would have turned the whole solution red for a reason nobody would connect to that change. `Directory.Packages.props` now pins 2.7.5 with central transitive pinning, so the floor holds regardless of who asks. **Milestone H should not treat this as its own work having been done** — it is one pin, not the scheduled scanning.
+**One dependency was pinned, for a reason unrelated to documentation.** `Microsoft.AspNetCore.OpenApi` asks for `Microsoft.OpenApi` **2.0.0**, which carries a high-severity advisory (GHSA-v5pm-xwqc-g5wc); it resolves to 2.7.5 today only because Swashbuckle happens to want a newer one. With NuGet audit as warnings-as-errors, dropping Swashbuckle — a plausible future cleanup, since it is now only a UI asset bundle — would have turned the whole solution red for a reason nobody would connect to that change. `Directory.Packages.props` now pins 2.7.5 with central transitive pinning, so the floor holds regardless of who asks. It is one pin, not dependency scanning — and since Milestone H was cut (§9.0), it is also now the *whole* of what protects that advisory: if the pin is ever removed, nothing scheduled will notice.
 
 **Shipped:** `Common.Presentation/Documentation` (`ApiDocumentationDescriptor`, `ApiDocumentation`, `ApiDocumentationOptions`, `ApiDocumentationExtensions`, `ApiDocumentationAuthorizationMiddleware`, and the three transformers), replacing seven `SwaggerExtensions.cs`; summary, description and a success `.Produces` on all **48** HTTP endpoints plus the tracking hub; `Tags` constants added for Users and RealTime, which had none; Scalar + Swagger UI + the document under `/docs/{slug}/` on all seven module hosts, mapped in every environment; 7 `docs/{slug}/**` Gateway routes in both routing tables; two new test classes in `Common.UnitTests/Documentation` (`OpenApiDocumentTests`, `ApiDocumentationCoverageTests`) plus one new theory in `GatewayRouteTests`; `docs/api-documentation.md`. `Common.UnitTests` went 361 → **429 green**; the solution builds clean. The four served surfaces (`/docs/orders`, `…/scalar`, `…/swagger`, `…/openapi/v1.json`) and the non-Development 401 were verified by hand against a host built on the real Orders Presentation assembly; the integration suites were **not** run — they need Docker and Identity on `:18080` — and none of them requests a documentation path, so none is expected to move.
 
@@ -668,7 +668,36 @@ Where each service's docs live, how to get a token to try a call (the ROPC flow 
 
 ## 9. Milestone H — Supply chain: Dependabot, CodeQL, image and SBOM scanning
 
-**PR size: small.** Config files and workflow jobs; no application code.
+> **Not being built. Cut by the user on 2026-09-06, before any of it was started.** The section is kept
+> as a design record and as the honest statement of what the platform does *not* have, in the same way
+> §6.5 records a decision rather than an implementation. Milestone I must describe the gap, not imply
+> it was closed. If it is ever revisited, §9.1–9.4 below are the sketch to build from.
+
+### 9.0 Why it was cut
+
+The reasoning is the proportionality test §3.4 asked every later milestone to face, applied honestly:
+
+- **The build-time half already exists and is the half that bites.** `Directory.Build.props` runs the
+  NuGet audit as `TreatWarningsAsErrors`, so a vulnerable transitive fails the build today — that is
+  how the SSH.NET/Testcontainers bump and the `Microsoft.OpenApi` 2.7.5 pin (§8.6) both happened.
+  What H adds is the *scheduled* half: a CVE published next Tuesday against a package already pinned
+  produces no signal until somebody builds. Real, but a second-order gap on a repository that is
+  built on every push.
+- **Nothing is deployed.** There is no running environment for a container CVE to be exploited in, no
+  external contributors whose PRs `dependency-review` would gate, and no consumer of an SBOM.
+- **CodeQL would be scanning code whose relevant properties are already asserted.** The injection and
+  missing-validation classes it hunts are covered by `SqlParameterisationTests`,
+  `ValidatorCoverageTests` and `EndpointAuthorizationTests` (§2, §7) — narrower than CodeQL, but
+  targeted at this codebase and already failing the build.
+- **The base-image gap is the one real loss** and it is stated as such in §10.3: nothing scans the
+  nine images' OS layers, and they accumulate CVEs independently of anything in this repository.
+
+**Consequences for the milestones that referenced it.** §10.1's CI row must not list Trivy, CodeQL or
+Dependabot among what runs; §10.3's known-limitations section gains the two gaps named above
+(unscanned base images, no scheduled dependency alerting) rather than leaving them unmentioned; and
+`docs/security.md` §8 points here instead of forward to work in progress. `SECURITY.md` and
+`CODEOWNERS` (§9.4) go with the milestone — they describe a vulnerability-reporting process this
+project does not operate.
 
 ### 9.1 Dependabot
 `.github/dependabot.yml` with three ecosystems: `nuget` (rooted at `Backend/`, grouped so the OpenTelemetry / MassTransit / EF Core families move together rather than as fifteen PRs), `github-actions`, and `docker` (the nine Dockerfiles + `docker-compose.yml` images). Weekly, with an open-PR cap. Central package management means every bump is a single `Directory.Packages.props` edit — Dependabot handles this correctly and the resulting PRs are one-line and reviewable.
@@ -691,7 +720,7 @@ Reuse the existing image build rather than adding a second one: the `cluster` jo
 
 ## 10. Milestone I — README, diagrams, and the cost model
 
-**PR size: medium, docs only.** Land it **last** — it describes what the previous eight milestones built.
+**PR size: medium, docs only.** Land it **last** — it describes what the previous seven milestones built (A–G; H was cut, §9.0).
 
 ### 10.1 README correctness pass (the actual work here)
 The current README overstates and understates in several places. Fix each:
@@ -702,7 +731,7 @@ The current README overstates and understates in several places. Fix each:
 | Support service & ticketing — `📋 Pending` | Shipped: tickets, assignment under a distributed lock, audit log, message thread, refund requests, analytics summary (`docs/support-ticketing.md`). |
 | Order placement idempotency — `📋 Pending` | Shipped: `PlaceOrder` takes an `Idempotency-Key` header and the Orders repository enforces it. |
 | Production hardening — `📋 Pending` | This feature. |
-| CI — `🚧 In Progress` | Still accurate. Say precisely what runs (build+test, actionlint, kubeconform, manifest policy, KinD smoke) and what does not (container publish, cloud deploy). |
+| CI — `🚧 In Progress` | Still accurate. Say precisely what runs (build+test, actionlint, secret scan, kubeconform, manifest policy, KinD smoke) and what does not (container publish, cloud deploy, **and any supply-chain scanning — no Dependabot, no CodeQL, no image scan**; §9.0). Do not let the Security section below imply otherwise. |
 
 Then add the sections this feature earns: a **Security** section pointing at `docs/security.md`, and an **API Documentation** section pointing at the Scalar URLs.
 
@@ -710,7 +739,7 @@ Then add the sections this feature earns: a **Security** section pointing at `do
 The C1/C2 diagrams are current and stay. Add one C3-level Mermaid diagram of the **event topology** — which module publishes which integration event and which modules consume it, including the outbox → RabbitMQ → inbox hop. It is the single most distinctive thing about this codebase and there is no picture of it anywhere. Generate it from the `IntegrationEvents` projects and the `ConfigureConsumers` registrations, and consider a test asserting the diagram lists every `IntegrationEvent` type (the `ObservabilityAssetTests` pattern again) so it cannot silently go stale.
 
 ### 10.3 `docs/security.md`
-The consolidated write-up: the authentication and authorization model (including §6.5's decision), the OWASP Top 10 pass with **what the platform does about each item and where the guardrail lives** — a table with a file path per row, not prose — secrets handling, the database privilege model, the TLS boundary, and an honest "known limitations" section (no TLS in-repo, no WAF, no penetration test, permissions cached for 5 minutes so a revoked permission has a lag).
+The consolidated write-up: the authentication and authorization model (including §6.5's decision), the OWASP Top 10 pass with **what the platform does about each item and where the guardrail lives** — a table with a file path per row, not prose — secrets handling, the database privilege model, the TLS boundary, and an honest "known limitations" section (no TLS in-repo, no WAF, no penetration test, permissions cached for 5 minutes so a revoked permission has a lag, **the nine container base images are never scanned, and dependency alerting is build-time only — a CVE published against a pinned package produces no signal until the next build** (§9.0)).
 
 ### 10.4 `docs/cost-model.md`
 The project plan's "final cost review" without an Azure subscription: take the measured capacity from `docs/load-testing.md` (the knee at host CPU 795–942% of 800%, 17,060 requests served at p95 554 ms with the rate limiter on) and derive a sizing table — node count/SKU for AKS, Azure Cache for Redis tier, PostgreSQL Flexible Server tier, and the two managed services that would replace in-repo components (Azure SignalR, Azure Monitor). Label every number as **derived from local measurements, not billed** — a fabricated Azure invoice is worth less than an honest extrapolation, and the extrapolation is the part that demonstrates the skill.
@@ -725,6 +754,7 @@ Named explicitly so a later reader does not go looking:
 - **Penetration testing / DAST.** No deployed environment to point it at.
 - **Azure provisioning of any kind.** §10.4 is a model, not a deployment.
 - **The JWT role claim / gateway RBAC** — §6.5 documents the design instead; implementing it is a feature.
+- **Supply-chain scanning: Dependabot, `dependency-review`, CodeQL, Trivy, SBOM, `SECURITY.md`, `CODEOWNERS`.** Milestone H, cut by the user on 2026-09-06 — §9.0 has the reasoning and §9.1–9.4 the unbuilt sketch. Dependency scanning survives only as the build-time NuGet audit (`TreatWarningsAsErrors`).
 - **Reviews & ratings (2.6), Cosmos DB location history, Azure SignalR, Azure Monitor export, the AI features (3.1–3.3), FraudDetection (3.4).** All still pending, and this feature must document them as pending rather than quietly implying otherwise.
 
 ---
@@ -740,7 +770,7 @@ Named explicitly so a later reader does not go looking:
 | E | Identity hardening | M | — | Signing-key management, fail-fast config, lockout, password policy |
 | F | Input validation & error surface | S–M | — | Validator coverage test, bounded pagination, error-leak assertions |
 | G | API documentation | M | — | Shared `AddApiDocumentation`, Scalar, gateway-proxied docs, completeness test |
-| H | Supply chain | S | — | Dependabot, dependency-review, CodeQL, Trivy, SBOM, `SECURITY.md` |
+| ~~H~~ | ~~Supply chain~~ | — | — | **Cut (§9.0)** — not built. Dependency scanning stays build-time only. |
 | I | README, C3 diagram, security & cost docs | M | A, C | Correctness pass + `docs/security.md` + `docs/cost-model.md` |
 
-Nine PRs. A–H are independent of each other; I closes the feature.
+Eight PRs. A–G are independent of each other; I closes the feature. H is cut and is not counted.

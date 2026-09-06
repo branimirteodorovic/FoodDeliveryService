@@ -801,5 +801,17 @@ directions are asserted, so the rule cannot be satisfied by deleting the setting
 ## 8. What Milestones A, B, C, D, E and F do not cover
 
 Named so a reader does not mistake this page for the finished document: API documentation
-reachability (Milestone G), supply-chain scanning (H), and the consolidated OWASP pass, TLS boundary
-and known-limitations sections (I).
+reachability (Milestone G) and the consolidated OWASP pass, TLS boundary and known-limitations
+sections (I).
+
+**Supply-chain scanning is not coming.** Milestone H — Dependabot, `dependency-review`, CodeQL,
+Trivy image scanning, SBOM generation — was cut, and `HARDENING_PHASE3_PLAN.md` §9.0 records why.
+What the project has instead is the build-time NuGet audit: `TreatWarningsAsErrors` in
+`Directory.Build.props` fails the build on a vulnerable direct or transitive package. That leaves two
+gaps, stated here rather than left to be discovered:
+
+- **The nine container base images are never scanned.** They accumulate OS-level CVEs independently
+  of anything in this repository, and nothing in CI looks at them.
+- **Dependency alerting is build-time only.** An advisory published against a package the solution
+  already pins produces no signal until somebody builds. On a repository built on every push this is
+  a short lag in practice, but it is not a scheduled alert and should not be described as one.
