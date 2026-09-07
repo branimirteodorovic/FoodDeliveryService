@@ -9,7 +9,7 @@ Decisions locked in for this plan:
 - **Every audit finding becomes an executable guardrail.** Where a property can be asserted from the endpoint metadata, the config files, the manifests or the OpenAPI document, it is asserted in `FoodDeliveryService.Common.UnitTests` or in a CI job. Where it genuinely cannot be, it is written into `docs/security.md` with the reason it is unenforceable — and that is the exception, not the pattern.
 - **This feature adds almost no runtime behaviour.** The platform is already correct on the big things (every endpoint carries `RequireAuthorization`, JWT is validated twice, no service reads another's database, the edge rate limiter sheds load, secrets are blank in `appsettings.json`). What it lacks is *proof*, *documentation*, and a handful of genuinely missing edge concerns: CORS, forwarded headers, security response headers, least-privilege database roles and Duende key management outside Development. Milestones D and E carry the only real code; the rest is guardrails and docs. (Scheduled dependency and image scanning was the sixth such concern, and Milestone H was cut rather than built — §9.0.)
 - **The known truthfulness gap is closed, not papered over.** The root `README.md` currently claims "8 hosts", marks **Support** and **order placement idempotency** as `📋 Pending` when both shipped, and marks this feature pending. A README that lies about what exists is worse for a portfolio than one that omits things. Milestone I is a correctness pass over it, not a decoration pass.
-- **Nothing here reopens a scoped-out decision.** `KUBERNETES_PHASE2_PLAN.md` was deliberately cut short by the user (no Helm/HPA/Ingress/AKS). TLS therefore terminates *outside* anything this repo deploys, and this plan hardens for that reality rather than pretending an Ingress exists. Likewise the "final Azure cost review" in the project plan has no Azure subscription behind it — Milestone I delivers it as a documented sizing/cost model, and says so plainly.
+- **Nothing here reopens a scoped-out decision.** `KUBERNETES_PHASE2_PLAN.md` was deliberately cut short by the user (no Helm/HPA/Ingress/AKS). TLS therefore terminates *outside* anything this repo deploys, and this plan hardens for that reality rather than pretending an Ingress exists. Likewise the "final Azure cost review" in the project plan has no Azure subscription behind it — it is **cut** rather than faked (§10.4), and the README says plainly that it was not done.
 - Reference implementations to mirror: **`ObservabilityAssetTests`** for asset-validating tests, **`deploy/k8s/scripts/policy-check.py`** for manifest policy, **`docs/rate-limiting.md`** and **`docs/caching.md`** for the documentation shape, **`Common.Presentation/RateLimiting`** for a cross-cutting middleware that ships with its own options + tests.
 
 ---
@@ -33,7 +33,7 @@ Decisions locked in for this plan:
 
 - **No role claim is minted in the JWT.** `FoodDeliveryService.Identity` registers `IdentityRole` but assigns no roles and has no `IProfileService`; the module-side `Role` lives only in the Users database and reaches services through `GetUserPermissionsRequest`. The project plan's "RBAC enforced at the API Gateway level (JWT role claim check)" is still not implementable — see `SUPPORT_PHASE3_PLAN.md` §0 and its Milestone I. §6.5 below decides what to do about it.
 - **No TLS anywhere in this repo.** `docker-compose` and the KinD manifests are HTTP-only by design (`ASPNETCORE_HTTP_PORTS: "8080"`, no certificate in any pod). "All endpoints use HTTPS" is a deployment-boundary claim, not a code claim, and Milestone D hardens the *code* for living behind a TLS-terminating proxy rather than adding a certificate nobody has.
-- **No Azure subscription.** Nothing in this plan provisions, measures or bills an Azure resource. Milestone I's cost section is a sizing model derived from the measured load-test numbers in `docs/load-testing.md`, and is labelled as such.
+- **No Azure subscription.** Nothing in this plan provisions, measures or bills an Azure resource, and nothing in it models what one would charge. The project plan's "final Azure cost review" is out of scope (§10.4, §11).
 - **No AI features exist** (3.1–3.3), and **FraudDetection was reverted** (`6ae4879`). Documentation must not describe either as present. Stale `bin/obj` output for `FoodDeliveryService.FraudDetection.Api` is still on disk and tracked by nothing — Milestone B's scanner must not trip over it, and Milestone I must not list it as a service.
 
 ---
@@ -51,9 +51,9 @@ Nothing in this feature changes the topology. The surfaces it touches:
 | Identity | E | Signing-key management outside Development, token lifetimes, lockout, non-dev password policy. |
 | `docker/`, `deploy/k8s/` | C, B | Per-service least-privilege Postgres roles; a secrets policy check. |
 | `.github/workflows/` | B | `gitleaks` and the secret-scan gate. (H would have added `dependency-review`, CodeQL, Trivy, SBOM and Dependabot config; it was cut — §9.0.) |
-| `docs/`, `README.md` | I | `docs/security.md`, `docs/api-documentation.md`, `docs/cost-model.md`, README correctness pass. |
+| `docs/`, `README.md` | I | `docs/security.md`, `docs/api-documentation.md`, README correctness pass, C3 event-topology diagram. |
 
-**Milestone order matters in exactly two places:** A must land before I (the README should not claim a guarantee before the test that proves it exists), and C must land before I (the cost model references the connection-pool sizing C changes). Everything else is independent and can be built in any order.
+**Milestone order matters in exactly one place:** A must land before I — the README should not claim a guarantee before the test that proves it exists. Everything else is independent and can be built in any order. (C was previously listed as a second ordering constraint because the cost model referenced its connection-pool sizing; §10.4 is cut, so that constraint is gone.)
 
 ---
 
@@ -718,7 +718,7 @@ Reuse the existing image build rather than adding a second one: the `cluster` jo
 
 ---
 
-## 10. Milestone I — README, diagrams, and the cost model
+## 10. Milestone I — README, diagrams, and the security write-up
 
 **PR size: medium, docs only.** Land it **last** — it describes what the previous seven milestones built (A–G; H was cut, §9.0).
 
@@ -735,14 +735,87 @@ The current README overstates and understates in several places. Fix each:
 
 Then add the sections this feature earns: a **Security** section pointing at `docs/security.md`, and an **API Documentation** section pointing at the Scalar URLs.
 
+**Four more stale claims than the table lists**, all of the same "8" family and all found by grepping
+the counts rather than by reading: "all eight hosts" in Engineering Practices, "all eight services" in
+Running It Locally, "six module hosts" in the repository layout (there are seven), and "All 8
+services" in the Kubernetes row. The Fraud & anomaly detection row also needed its note changed from
+"Planned as a dedicated service" to say plainly that it was **built and reverted** — §0 requires the
+documentation not to describe it as present, and "planned" implies it was never attempted, which is
+its own small untruth.
+
+**The Security section is a summary with a pointer, not a second copy of `docs/security.md`.** Its
+one table is the guardrails-as-tests list, because that is the part a reader will not believe without
+seeing the test names; everything argumentative stays in the doc. Duplicating the OWASP table into
+the README would create exactly the two-places-to-update problem the topology test exists to prevent,
+with no test behind it.
+
 ### 10.2 C3 message-flow diagram
 The C1/C2 diagrams are current and stay. Add one C3-level Mermaid diagram of the **event topology** — which module publishes which integration event and which modules consume it, including the outbox → RabbitMQ → inbox hop. It is the single most distinctive thing about this codebase and there is no picture of it anywhere. Generate it from the `IntegrationEvents` projects and the `ConfigureConsumers` registrations, and consider a test asserting the diagram lists every `IntegrationEvent` type (the `ObservabilityAssetTests` pattern again) so it cannot silently go stale.
+
+**The C1/C2 diagrams were *not* current, which was the discovery.** §10.2 was written assuming
+they only needed leaving alone. The C2 container diagram had **no Support box at all** — no node, no
+bus edge, no database edge, no class assignment — so the feature that shipped in 3.6 was invisible in
+the picture the README opens with, in exactly the way §10.1's "8 hosts" was invisible in its prose.
+Support was added to C2 as part of this milestone. Treat "the diagrams are current" as a claim to
+check, never one to inherit.
+
+**What the topology test asserts, and the shape that made it possible.** `IntegrationEventTopologyTests`
+(`Common.UnitTests/Documentation`) checks two properties, not one: every `*IntegrationEvent` declared
+in any module's `IntegrationEvents` project is *named somewhere in the section* (which is what covers
+the six unconsumed events, since they appear in prose rather than on an edge), and the diagram's
+arrows are **exactly** the `ConfigureConsumers` registrations — set equality in both directions, so a
+removed subscription fails as loudly as an added one. Two registration shapes had to be read: the
+generic `AddConsumer<IntegrationEventConsumer<T>>` that six modules use, and RealTime's hand-written
+consumer classes, which name their event on a base class (`OrderStatusConsumer<T>` /
+`DeliveryStatusConsumer<T>`) rather than at the registration site — a topology test that only
+understood the generic form would have silently drawn RealTime as consuming nothing while passing.
+Users' request/response consumers resolve to no integration event and are skipped by construction.
+
+**The mermaid edge labels are the test's input, which constrains how they may be written.** Labels
+carry event names minus the `IntegrationEvent` suffix, separated by `·` or `<br/>`; the parser
+resolves the short node ids (`users`, `rest`, `deliv`, `notif`, `rt`, `sup`) through one map. A future
+edit that restyles the labels must keep that grammar or update the parser with it. As with §2.1 and
+§8.4, the suite opens with a vacuity guard — a parser that found nothing would make both set
+comparisons pass over empty collections.
 
 ### 10.3 `docs/security.md`
 The consolidated write-up: the authentication and authorization model (including §6.5's decision), the OWASP Top 10 pass with **what the platform does about each item and where the guardrail lives** — a table with a file path per row, not prose — secrets handling, the database privilege model, the TLS boundary, and an honest "known limitations" section (no TLS in-repo, no WAF, no penetration test, permissions cached for 5 minutes so a revoked permission has a lag, **the nine container base images are never scanned, and dependency alerting is build-time only — a CVE published against a pinned package produces no signal until the next build** (§9.0)).
 
-### 10.4 `docs/cost-model.md`
-The project plan's "final cost review" without an Azure subscription: take the measured capacity from `docs/load-testing.md` (the knee at host CPU 795–942% of 800%, 17,060 requests served at p95 554 ms with the rate limiter on) and derive a sizing table — node count/SKU for AKS, Azure Cache for Redis tier, PostgreSQL Flexible Server tier, and the two managed services that would replace in-repo components (Azure SignalR, Azure Monitor). Label every number as **derived from local measurements, not billed** — a fabricated Azure invoice is worth less than an honest extrapolation, and the extrapolation is the part that demonstrates the skill.
+**Shipped as §8, §9 and §10 of the existing file**, not as new sections bolted on: §8 is the
+OWASP 2021 pass as a table with a file path per row (including the two rows that are qualifications
+rather than defences — A06, which points at that file's own §10.4, and A10, which is an absent
+feature rather than a control), §9 is the TLS boundary plus the four things a real deployment must supply, and §10 collects
+the platform-level limitations that no single milestone owns. The old §8 ("what A–F do not cover")
+is gone: it was scaffolding for an unfinished document, and leaving it beside the finished one would
+have been the same kind of stale claim §10.1 exists to remove.
+
+**§6.5's decision and the `DriverErrors.NotSelf` 400 are both closed in writing rather than in code.**
+The plan (§7.7) asked Milestone I to "either close it or state it as accepted". It is **accepted**,
+at `docs/security.md` §10.5, with the reasoning stated: what leaks is the existence of a driver id to
+a caller who is already an authenticated driver, the ids are `Guid`s, and the fix is not one line —
+`Delivery.IntegrationTests/Drivers/DriverProfileTests` asserts the 400 and needs Docker plus a
+running Identity to re-run, so changing handler and test together without executing either is how a
+green build ships a broken suite. The residual risk is smaller than the risk of an unverified change.
+
+### 10.4 The Azure cost model — cut
+
+**Cut by the user on 2026-09-06, at the same time as Milestone H.** The plan previously asked for a
+`docs/cost-model.md` extrapolating an AKS/Redis/PostgreSQL sizing table from the load-test knee. It
+is not being written, and no part of it survives elsewhere: the README's Cloud Mapping section keeps
+its "📋 Pending" statuses and gains no pricing, and no other section quotes a figure that was going
+to come from it.
+
+The reasoning is §3.4's proportionality test again. Every number would have been an extrapolation
+from a single-replica stack on eight shared cores to hardware nobody has measured, multiplied by list
+prices nobody has been billed — an estimate resting on two unvalidated assumptions, presented in a
+table, which reads as more certain than it is. `docs/load-testing.md` already carries the honest
+version of the capacity claim (~190 journey requests/s and ~2.6 orders/s per stack, and the 17–20
+stacks that extrapolates to), with its measurement conditions attached and its limits stated. Pricing
+that per SKU adds no engineering evidence to it.
+
+What the README must therefore **not** do is imply the review happened. The Cloud Mapping section
+already names the Azure equivalent of every local dependency and marks each pending; that stays as
+it is, and no "estimated monthly cost" column is added to it.
 
 ---
 
@@ -752,7 +825,7 @@ Named explicitly so a later reader does not go looking:
 
 - **TLS certificates, an Ingress, a WAF.** The Kubernetes workstream was scoped down by the user; TLS terminates outside anything this repo deploys.
 - **Penetration testing / DAST.** No deployed environment to point it at.
-- **Azure provisioning of any kind.** §10.4 is a model, not a deployment.
+- **Azure provisioning of any kind**, and **the Azure cost model** that §10.4 used to ask for — cut by the user on 2026-09-06 along with Milestone H; §10.4 has the reasoning. The capacity claim lives in `docs/load-testing.md` and is not priced.
 - **The JWT role claim / gateway RBAC** — §6.5 documents the design instead; implementing it is a feature.
 - **Supply-chain scanning: Dependabot, `dependency-review`, CodeQL, Trivy, SBOM, `SECURITY.md`, `CODEOWNERS`.** Milestone H, cut by the user on 2026-09-06 — §9.0 has the reasoning and §9.1–9.4 the unbuilt sketch. Dependency scanning survives only as the build-time NuGet audit (`TreatWarningsAsErrors`).
 - **Reviews & ratings (2.6), Cosmos DB location history, Azure SignalR, Azure Monitor export, the AI features (3.1–3.3), FraudDetection (3.4).** All still pending, and this feature must document them as pending rather than quietly implying otherwise.
@@ -771,6 +844,6 @@ Named explicitly so a later reader does not go looking:
 | F | Input validation & error surface | S–M | — | Validator coverage test, bounded pagination, error-leak assertions |
 | G | API documentation | M | — | Shared `AddApiDocumentation`, Scalar, gateway-proxied docs, completeness test |
 | ~~H~~ | ~~Supply chain~~ | — | — | **Cut (§9.0)** — not built. Dependency scanning stays build-time only. |
-| I | README, C3 diagram, security & cost docs | M | A, C | Correctness pass + `docs/security.md` + `docs/cost-model.md` |
+| I | README, C3 diagram, security write-up | M | A | Correctness pass + C3 event-topology diagram (+ its staleness test) + `docs/security.md` §8 |
 
 Eight PRs. A–G are independent of each other; I closes the feature. H is cut and is not counted.

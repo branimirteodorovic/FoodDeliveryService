@@ -15,6 +15,8 @@ The platform serves five user types — **Customers**, **Restaurant Managers**, 
 - [Engineering Practices](#engineering-practices)
 - [Feature Status](#feature-status)
 - [Running It Locally](#running-it-locally)
+- [API Documentation](#api-documentation)
+- [Security](#security)
 - [Testing](#testing)
 - [Load Testing](#load-testing)
 - [Repository Layout](#repository-layout)
@@ -75,6 +77,7 @@ graph TB
     deliv["🛵 <b>Delivery</b><br/>Drivers, offer/claim dispatch,<br/>live position"]
     notif["✉️ <b>Notifications</b><br/>Templated email + audit log"]
     rt["📡 <b>RealTime</b><br/>SignalR hubs — order status<br/>and driver tracking"]
+    sup["🎧 <b>Support</b><br/>Tickets, agent assignment,<br/>message thread, refund requests"]
 
     bus[["🐇 <b>RabbitMQ</b> + MassTransit<br/><i>Integration events · request/response</i>"]]
 
@@ -93,6 +96,7 @@ graph TB
     gw --> deliv
     gw --> notif
     gw --> rt
+    gw --> sup
 
     users -->|"provision account<br/>(only sync inter-service call)"| idp
 
@@ -102,6 +106,7 @@ graph TB
     deliv <-.-> bus
     notif <-.-> bus
     rt <-.-> bus
+    sup <-.-> bus
 
     users --- pg
     rest --- pg
@@ -109,12 +114,14 @@ graph TB
     deliv --- pg
     notif --- pg
     rt --- pg
+    sup --- pg
     idp --- pg
 
     rest --- redis
     orders --- redis
     deliv --- redis
     rt --- redis
+    sup --- redis
 
     notif -->|SMTP| smtp["✉️ Email Provider"]
 
@@ -125,6 +132,7 @@ graph TB
     deliv -.-> otel
     notif -.-> otel
     rt -.-> otel
+    sup -.-> otel
     idp -.-> otel
 
     classDef edge fill:#1168bd,stroke:#0b4884,color:#fff
@@ -133,7 +141,7 @@ graph TB
     classDef store fill:#0b7285,stroke:#075162,color:#fff
     classDef ext fill:#6b6b6b,stroke:#4a4a4a,color:#fff
     class gw,idp edge
-    class users,rest,orders,deliv,notif,rt svc
+    class users,rest,orders,deliv,notif,rt,sup svc
     class bus,otel infra
     class pg,redis store
     class spa,smtp ext
@@ -146,6 +154,80 @@ graph TB
 3. A Minimal API endpoint dispatches a **command** or **query** through MediatR. Commands go through EF Core repositories and return `Result<T>`; queries go through **Dapper** and never touch EF Core.
 4. A domain event raised by an aggregate is written to that service's `outbox_messages` table **in the same transaction as the state change**. A Quartz job publishes it to RabbitMQ, consumers land it in their own `inbox_messages` table, and a second Quartz job dispatches the handler idempotently. Nothing is lost if a process dies mid-flight.
 5. Every hop — HTTP, database, broker and both outbox/inbox handoffs — carries the same **correlation id and trace context**, so a single string finds the logs in Seq and the distributed trace in Jaeger.
+
+### C3 — Event Topology
+
+The C2 diagram draws one dashed line per service to a RabbitMQ box, which is honest about the transport and says nothing about the system. This is what actually travels those lines: **25 integration events**, who publishes each and who reacts to it.
+
+**The hop every one of them takes.** Nothing publishes to the broker from a command handler. A state change and the record of that state change are committed together, and everything after that is out of band:
+
+```mermaid
+graph LR
+    agg["🧱 Aggregate<br/><i>Raise(OrderPlacedDomainEvent)</i>"]
+    tx[("💾 <b>One transaction</b><br/>orders + outbox_messages<br/><i>InsertOutboxMessagesInterceptor</i>")]
+    ojob["⏱️ ProcessOutboxJob<br/><i>Quartz · SELECT … FOR UPDATE SKIP LOCKED</i>"]
+    deh["🧭 Domain event handler<br/><i>builds the full-snapshot<br/>integration event</i>"]
+    bus[["🐇 <b>RabbitMQ</b><br/><i>MassTransit publish</i>"]]
+    cons["📥 IntegrationEventConsumer&lt;T&gt;<br/><i>one queue per consuming service</i>"]
+    inbox[("💾 inbox_messages")]
+    ijob["⏱️ ProcessInboxJob<br/><i>Quartz</i>"]
+    ieh["🎯 IIntegrationEventHandler&lt;T&gt;<br/><i>wrapped idempotent</i>"]
+
+    agg --> tx --> ojob --> deh --> bus --> cons --> inbox --> ijob --> ieh
+
+    classDef write fill:#0b7285,stroke:#075162,color:#fff
+    classDef job fill:#8a5cf6,stroke:#5b34b0,color:#fff
+    classDef code fill:#438dd5,stroke:#2e6295,color:#fff
+    class tx,inbox write
+    class ojob,ijob,bus job
+    class agg,deh,cons,ieh code
+```
+
+Delivery is at-least-once in both directions: the outbox job may publish an event twice if it dies after the broker ack and before the row update, and the inbox job may dispatch twice for the same reason — which is why every handler is wrapped idempotent and why every event carries a **full snapshot** rather than a delta. A consumer never calls back for more data, so an upstream outage degrades a replica's freshness instead of failing a request.
+
+**Who publishes what, and who listens.** Edge labels are the events, minus their `IntegrationEvent` suffix:
+
+```mermaid
+graph LR
+    users["👥 <b>Users</b>"]
+    rest["🏪 <b>Restaurants</b>"]
+    orders["🧾 <b>Orders</b>"]
+    deliv["🛵 <b>Delivery</b>"]
+    notif["✉️ <b>Notifications</b>"]
+    rt["📡 <b>RealTime</b>"]
+    sup["🎧 <b>Support</b>"]
+
+    users -->|"UserRegistered · UserProfileUpdated"| orders
+    users -->|"UserRegistered · UserProfileUpdated"| rest
+    users -->|"UserProfileUpdated"| deliv
+    users -->|"UserRegistered · UserProfileUpdated"| sup
+    users -->|"UserRegistered · UserProfileUpdated<br/>UserInvited"| notif
+
+    rest -->|"RestaurantRegistered<br/>MenuItemAdded · MenuItemUpdated<br/>MenuItemAvailabilityChanged"| orders
+    rest -->|"RestaurantRegistered<br/>RestaurantAddressUpdated"| deliv
+    rest -->|"RestaurantRegistered<br/>RestaurantAddressUpdated"| rt
+
+    orders -->|"OrderReadyForPickup · OrderCancelled"| deliv
+    orders -->|"OrderPlaced"| notif
+    orders -->|"OrderPlaced"| sup
+    orders -->|"OrderPlaced · OrderAccepted · OrderRejected<br/>OrderReadyForPickup · OrderCancelled"| rt
+
+    deliv -->|"OrderPickedUp · OrderDelivered"| orders
+    deliv -->|"DriverAssigned<br/>OrderPickedUp · OrderDelivered"| rt
+
+    sup -->|"TicketMessagePosted<br/>RefundApproved · RefundRejected"| notif
+
+    classDef svc fill:#438dd5,stroke:#2e6295,color:#fff
+    class users,rest,orders,deliv,notif,rt,sup svc
+```
+
+Three things the picture makes obvious that the prose does not:
+
+- **The lifecycle is a loop, not a chain.** Orders tells Delivery an order is ready; Delivery tells Orders it was picked up and delivered, and *those* events are what move the order to `OutForDelivery` and `Delivered`. Neither service calls the other.
+- **Notifications and RealTime only ever consume.** They publish nothing. Both are pure projections of other services' state — one into email, one into SignalR frames — which is why either can be down without blocking a single write.
+- **Six events are published that nothing consumes yet.** Delivery's `DeliveryOffered`, `DeliveryOfferRejected` and `DeliveryUnassigned`, and Support's `SupportTicketOpened`, `SupportTicketResolved` and `RefundRequested`. They are the audit and extension surface — an offer's lifecycle and a refund's approval chain are worth publishing whether or not anything listens today — and they are named here rather than omitted, because a topology diagram that quietly drops the unconsumed half is a diagram of what someone wished the system did.
+
+`IntegrationEventTopologyTests` parses this section against the `IntegrationEvents` projects and the `ConfigureConsumers` registrations, so an event added, renamed or newly consumed fails the build here instead of silently ageing the picture.
 
 ---
 
@@ -190,7 +272,7 @@ The architectural decisions behind the system, and the reasoning for each.
 
 **Cache invalidation as a first-class concern.** Menus are cached via an `ICachedQuery` marker and a pipeline behaviour, so handlers stay pure Dapper. Invalidation is inline in the command handler right after `SaveChangesAsync` — deliberately *not* an outbox-driven event handler, whose lag both delays freshness and republishes stale snapshots.
 
-**Observability designed in, not bolted on.** One shared telemetry baseline for all eight hosts, RED metrics recorded automatically for every command and query, business metrics emitted next to the state changes that own them, correlation ids that survive both the broker and the two database handoffs, and a build-time test that fails if a Grafana dashboard or Prometheus alert references a metric nothing emits.
+**Observability designed in, not bolted on.** One shared telemetry baseline for all nine hosts, RED metrics recorded automatically for every command and query, business metrics emitted next to the state changes that own them, correlation ids that survive both the broker and the two database handoffs, and a build-time test that fails if a Grafana dashboard or Prometheus alert references a metric nothing emits.
 
 ---
 
@@ -202,7 +284,7 @@ Legend: **✅ Implemented** · **🚧 In Progress** · **📋 Pending**
 
 | Feature | Status | Notes |
 |---|---|---|
-| Solution structure, monorepo, Docker Compose | ✅ Implemented | 8 hosts + Postgres, Redis, RabbitMQ, Seq, Jaeger, OTel Collector, Prometheus, Grafana, blackbox |
+| Solution structure, monorepo, Docker Compose | ✅ Implemented | 9 hosts — Gateway, Identity, Users, Restaurants, Orders, Delivery, Notifications, RealTime, Support — plus Postgres, Redis, RabbitMQ, Seq, Jaeger, OTel Collector, Prometheus, Grafana, blackbox |
 | Identity service — registration, login, JWT, roles | ✅ Implemented | Duende IdentityServer; 5 roles; admin seeded from configuration |
 | Staff/partner provisioning via emailed invitation | ✅ Implemented | One-time activation token; no temporary password is ever emailed |
 | API Gateway with JWT validation and path routing | ✅ Implemented | YARP; all external traffic goes through it |
@@ -210,9 +292,9 @@ Legend: **✅ Implemented** · **🚧 In Progress** · **📋 Pending**
 | Restaurant service — onboarding, menus, availability | ✅ Implemented | Admin onboards restaurant + provisions its manager in one flow |
 | Restaurant search, filtering and pagination | ✅ Implemented | |
 | Order service — full lifecycle state machine | ✅ Implemented | Pending → Accepted/Rejected → Preparing → Ready → Out for Delivery → Delivered / Cancelled, with enforced transitions |
-| Order placement idempotency | 📋 Pending | |
+| Order placement idempotency | ✅ Implemented | `POST /orders` takes an `Idempotency-Key` header; a replay returns the original order rather than placing a second one |
 | Notification service — templated email + audit log | ✅ Implemented | Customer order confirmation and staff invitations |
-| CI pipeline | 🚧 In Progress | GitHub Actions builds, tests, lints workflows and validates Kubernetes manifests; container publish and cloud deploy not yet wired |
+| CI pipeline | 🚧 In Progress | Four GitHub Actions jobs: build + test, tooling gates (`actionlint`, `kubeconform`, manifest policy), a `gitleaks` secret scan, and a KinD cluster smoke test. **Not wired:** container publish, cloud deploy, and any supply-chain scanning — no Dependabot, no CodeQL, no image scan (see [Security](#security)) |
 
 ### Phase 2 — Real-Time, Performance & Observability
 
@@ -233,7 +315,7 @@ Legend: **✅ Implemented** · **🚧 In Progress** · **📋 Pending**
 | Metrics backend, dashboards and alerts as code | ✅ Implemented | OTel Collector → Prometheus → provisioned Grafana dashboards; blackbox probes every health endpoint |
 | Health probes (`/health/live`, `/health/ready`) | ✅ Implemented | Documented contract, used by Kubernetes probes |
 | Azure Monitor / Application Insights export | 📋 Pending | OpenTelemetry makes this a config change, not a code change |
-| Kubernetes deployment | 🚧 In Progress | All 8 services as `kubectl` manifests, shared ConfigMap/Secret, verified on a local KinD cluster with a scripted smoke test; Helm, HPA, Ingress and AKS not built |
+| Kubernetes deployment | 🚧 In Progress | All 9 services as `kubectl` manifests, shared ConfigMap/Secret, verified on a local KinD cluster with a scripted smoke test; Helm, HPA, Ingress and AKS not built |
 | Reviews & ratings | 📋 Pending | |
 
 ### Phase 3 — AI, Load Testing & Production Polish
@@ -244,9 +326,9 @@ Legend: **✅ Implemented** · **🚧 In Progress** · **📋 Pending**
 | AI customer support chatbot (RAG) | 📋 Pending | |
 | Personalised recommendations | 📋 Pending | |
 | AI-powered dynamic ETA | 📋 Pending | |
-| Fraud & anomaly detection | 📋 Pending | Planned as a dedicated service with behavioural projections and a rule-based risk score |
-| Support service & ticketing | 📋 Pending | |
-| Production hardening (security audit, docs, dependency scanning) | 📋 Pending | |
+| Fraud & anomaly detection | 📋 Pending | Designed as a dedicated service with behavioural projections and a rule-based risk score; built once and **reverted** — no code for it is in the repository |
+| Support service & ticketing | ✅ Implemented | Tickets and their lifecycle, agent assignment under a distributed lock, an append-only audit log written in the same transaction as the change it records, the agent↔customer message thread, and refund requests where one agent asks and a *different* administrator decides — see the [support ticketing reference](Backend/docs/support-ticketing.md) |
+| Production hardening (security audit, docs) | ✅ Implemented | Authorization coverage and IDOR asserted as tests, least-privilege database roles, edge security headers/CORS/forwarded headers, Identity hardening, validator coverage, and OpenAPI docs on every service — see [Security](#security) and [API Documentation](#api-documentation). **Dependency scanning was descoped**: build-time NuGet audit only |
 
 ### Frontend
 
@@ -264,7 +346,7 @@ Requires Docker Desktop and the .NET 10 SDK.
 cd Backend && docker compose up -d
 ```
 
-That brings up all eight services plus PostgreSQL, Redis, RabbitMQ, Seq, Jaeger, the OpenTelemetry Collector, Prometheus, Grafana and the blackbox exporter. Database migrations are applied automatically at startup.
+That brings up all nine services plus PostgreSQL, Redis, RabbitMQ, Seq, Jaeger, the OpenTelemetry Collector, Prometheus, Grafana and the blackbox exporter. Database migrations are applied automatically at startup.
 
 | Surface | URL |
 |---|---|
@@ -283,6 +365,53 @@ cd Backend && dotnet build
 ```
 
 Individual services are never exposed to clients directly — reach everything through the gateway.
+
+---
+
+## API Documentation
+
+Every service publishes an OpenAPI document generated from its real endpoint metadata, with **Scalar** and Swagger UI in front of it. The Gateway proxies all of them, so one origin reaches every service's reference:
+
+| Service | Reference |
+|---|---|
+| Orders | http://localhost:3000/docs/orders |
+| Restaurants | http://localhost:3000/docs/restaurants |
+| Users | http://localhost:3000/docs/users |
+| Delivery | http://localhost:3000/docs/delivery |
+| Support | http://localhost:3000/docs/support |
+| RealTime | http://localhost:3000/docs/realtime |
+| Notifications | http://localhost:3000/docs/notifications |
+
+Each slug serves three surfaces: `/docs/{slug}/scalar`, `/docs/{slug}/swagger`, and the raw document at `/docs/{slug}/openapi/v1.json`. They are mapped in every environment and require a bearer token outside Development.
+
+Two details are worth the click. **The permission line is read off the endpoint, never retyped** — `**Requires permission:** orders:manage` is pulled from the `RequireAuthorization` policy, and a separate test fails the build if a policy names a permission the Users service does not seed, so the string in the document is one something has checked. And **the document is asserted complete**: `OpenApiDocumentTests` builds each service's real document in memory and fails an operation missing a summary, a description, a tag or a success response. Two documents are legitimately empty — Notifications has no HTTP surface, and a SignalR hub contributes no `ApiDescription` however it is annotated.
+
+Design and conventions: [`Backend/docs/api-documentation.md`](Backend/docs/api-documentation.md).
+
+---
+
+## Security
+
+The security posture is written down and, where it can be, asserted as tests rather than described: [`Backend/docs/security.md`](Backend/docs/security.md) is the reference, including an OWASP Top 10 pass that names the file each guardrail lives in.
+
+**Authentication and authorization.** Duende IdentityServer issues the JWTs; the Gateway validates them and every service validates them again. Authorization is **permission-based, not role-based** — a policy names `orders:manage`, and non-Users services resolve a caller's permissions over the bus and cache the answer in Redis for five minutes.
+
+**What is enforced by a failing build**, not by review:
+
+| Guardrail | What it prevents |
+|---|---|
+| `EndpointAuthorizationTests` | An endpoint shipped with no authorization, or naming a permission nothing seeds |
+| `GatewayRouteTests` | A module host with no gateway route — reachable only on its container port, outside JWT validation and the rate limiter — or a route naming a cluster that is not defined |
+| `ValidatorCoverageTests` | A reachable request with no validator — the validation behaviour silently no-ops without one — an unbounded free-text field, or an uncapped page size |
+| `SqlParameterisationTests` | A SQL literal that is not `const`, which is what proves no runtime value can be interpolated into a statement |
+| `DatabaseRoleTests` | A host wired to the migration credential for its runtime queries |
+| `SecurityHeaderCoverageTests` | A host missing the security headers, or a module host that acquires the Gateway-only CORS and forwarded-headers middleware |
+
+**Least privilege at the database.** Each service has two credentials that are not interchangeable: an owner role used only by the startup migration, and an app role with `SELECT/INSERT/UPDATE/DELETE` on its own database and nothing else. `REVOKE CONNECT` makes "no service reads another service's database" a server guarantee rather than a convention.
+
+**At the edge.** Security response headers on every host (`nosniff`, `DENY` framing, `no-referrer`, a `default-src 'none'` CSP); CORS and forwarded headers on the Gateway only, with forwarded headers trusting nothing until a proxy network is configured — without which the rate limiter's anonymous partition collapses into a single bucket behind a proxy.
+
+**Known limitations, stated rather than discovered.** TLS terminates outside anything this repository deploys, so there is no in-repo certificate or Ingress; there is no WAF and no penetration test, because there is no deployed environment to point one at; a revoked permission has up to five minutes of lag from the cache; the JWT carries no role claim, so gateway-level RBAC is an [architectural decision documented in `docs/security.md` §6.5](Backend/docs/security.md), not an implemented feature. And **dependency scanning is build-time only** — the NuGet audit runs as warnings-as-errors, so a vulnerable package fails the build, but nothing is scheduled: an advisory published against an already-pinned package produces no signal until somebody builds, and the nine container base images are never scanned at all. Dependabot, CodeQL and image scanning were considered and descoped.
 
 ---
 
@@ -376,7 +505,7 @@ A single-replica stack on eight shared cores will not serve 100,000 concurrent u
 ```
 Backend/
 ├── src/
-│   ├── API/                    # One host per service — Gateway, Identity, and six module hosts
+│   ├── API/                    # One host per service — Gateway, Identity, and seven module hosts
 │   ├── Common/                 # Domain / Application / Infrastructure / Presentation building blocks
 │   └── Modules/{Name}/         # Domain · Application · Infrastructure · Presentation · IntegrationEvents (+ tests)
 ├── deploy/                     # Kubernetes manifests, KinD scripts, policy checks

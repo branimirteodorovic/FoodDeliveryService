@@ -5,8 +5,10 @@
 > ownership sweep; **Milestone B** the secrets section; **Milestone C** the database privilege
 > model; **Milestone D** the edge — response headers, forwarded headers and CORS; **Milestone E**
 > the identity surface — signing keys, configuration fail-fast, lockout and token lifetimes;
-> **Milestone F** input validation and the error surface;
-> Milestone I turns it into the consolidated write-up (OWASP pass, TLS boundary, known limitations).
+> **Milestone F** input validation and the error surface; **Milestone G** the API documentation
+> surface; and **Milestone I** the consolidation — the OWASP Top 10 pass (§8), the TLS boundary (§9)
+> and the collected known limitations (§10). Milestone H (supply-chain scanning) was cut; §10.4 says
+> what that costs.
 
 The rule this feature works to: **do not write a security checklist, write a test that fails when
 the property is violated.** A checklist is accurate on the day it is written. Everything below that
@@ -798,20 +800,127 @@ directions are asserted, so the rule cannot be satisfied by deleting the setting
   standing rather than changed blind: `Delivery.IntegrationTests/Drivers/DriverProfileTests` asserts
   the 400, and that suite needs Docker and a running Identity to re-run.
 
-## 8. What Milestones A, B, C, D, E and F do not cover
+## 8. The OWASP Top 10, and where each guardrail lives
 
-Named so a reader does not mistake this page for the finished document: API documentation
-reachability (Milestone G) and the consolidated OWASP pass, TLS boundary and known-limitations
-sections (I).
+The 2021 list, one row per item, each naming the file that enforces the property rather than
+describing an intention. Where the answer is "nothing enforces this", the row says so — a pass that
+scores itself ten out of ten is a pass nobody ran.
 
-**Supply-chain scanning is not coming.** Milestone H — Dependabot, `dependency-review`, CodeQL,
-Trivy image scanning, SBOM generation — was cut, and `HARDENING_PHASE3_PLAN.md` §9.0 records why.
-What the project has instead is the build-time NuGet audit: `TreatWarningsAsErrors` in
-`Directory.Build.props` fails the build on a vulnerable direct or transitive package. That leaves two
-gaps, stated here rather than left to be discovered:
+| # | Category | What the platform does | Where it lives |
+|---|---|---|---|
+| A01 | Broken access control | Every endpoint names a permission code, not a role; a policy naming a permission Users does not seed fails the build, as does an endpoint with no authorization at all. Ownership is a **predicate inside the query**, never a branch after it, and an ownership failure answers 404 rather than confirming the id exists (§2) | `Common.UnitTests/Security/EndpointAuthorizationTests.cs`, `GatewayRouteTests.cs`, §1–§2 |
+| A02 | Cryptographic failures | Passwords are ASP.NET Identity PBKDF2. Token signing keys live in Duende's operational store in Postgres, with the data-protection key ring beside them, so a restarted or replicated Identity does not invalidate every token it issued (§6.1). TLS terminates outside this repository (§9) | §6.1, §9 |
+| A03 | Injection | Reads are Dapper with parameters; **every SQL literal is `const`**, which is the property that proves no runtime value can reach a statement by interpolation — a stronger and more checkable claim than "we reviewed the queries". Writes go through EF Core | `Common.UnitTests/Security/SqlParameterisationTests.cs`, §7.4 |
+| A04 | Insecure design | The dangerous operations are modelled as invariants in the aggregate, not as permission checks at the edge: a refund is requested by one agent and decided by a *different* administrator, enforced in the aggregate and capped by the replicated order subtotal; delivery assignment is a check-then-act guarded by a distributed lock *and* the aggregate's own guard | `Support.Domain/Refunds/`, `Delivery.Infrastructure/Assignment/`, `docs/support-ticketing.md` |
+| A05 | Security misconfiguration | Security response headers on all nine hosts, CORS and forwarded headers on the Gateway only, and a test that fails a host missing either half or a module host that acquired the Gateway-only middleware. Identity fails fast at boot on missing or default configuration rather than starting with a weak default | `Common.UnitTests/Security/SecurityHeaderCoverageTests.cs`, §5, §6.2 |
+| A06 | Vulnerable and outdated components | The NuGet audit runs as warnings-as-errors, so a vulnerable direct or transitive package fails the build. **Nothing is scheduled and no container image is scanned** — §10.4 is the honest version of this row | `Directory.Build.props`, §10.4 |
+| A07 | Identification and authentication failures | 12-character passwords, lockout on repeated failure, 15-minute access tokens, and a JWT validated at the Gateway *and* again at every service | §6.3, §1 |
+| A08 | Software and data integrity failures | Cross-service state travels as full-snapshot integration events through a transactional outbox, so a consumer cannot act on a state change that did not commit; handlers are idempotent because delivery is at-least-once. Central package management pins every version in one file | `Common.Infrastructure/Outbox/`, `Directory.Packages.props` |
+| A09 | Security logging and monitoring failures | Every request carries a correlation id that survives the broker and both database handoffs; RED metrics per request; blackbox probes on every health endpoint; and in Support, an append-only audit entry written **in the same transaction** as the change it records, so the log cannot disagree with the state | `Common.Presentation/Correlation/`, `Support.Domain/Tickets/`, `docs/observability-backend.md` |
+| A10 | Server-side request forgery | Not applicable in any meaningful sense: no endpoint accepts a URL and fetches it. The only outbound HTTP call in the platform is Users → Identity for provisioning, against a configured base address | §1, `Users.Infrastructure/Identity/` |
+
+Two rows deserve their qualification stated rather than buried. **A06 is the weakest row on the
+page**, and §10.4 is where it is argued honestly rather than scored. **A10 is not a defence** — it is
+the absence of the feature that creates the risk. If an endpoint ever takes a caller-supplied URL and
+fetches it, this row stops being true and nothing in the build will notice.
+
+## 9. The TLS boundary
+
+**Nothing in this repository terminates TLS, and that is a scoping decision rather than an
+oversight.** The Kubernetes workstream was deliberately cut short before Ingress
+(`KUBERNETES_PHASE2_PLAN.md`), so what the repo deploys is a set of `Deployment` and `Service`
+manifests reached over a NodePort. There is no certificate, no cert-manager, no `Ingress` and no
+HTTPS redirect in any host.
+
+What the platform does instead is be *correct at the boundary it does own*:
+
+- **HSTS is emitted only over HTTPS.** `UseSecurityHeaders()` adds `Strict-Transport-Security` only
+  when the request is already secure (§5.1). A hardcoded HSTS header on a plaintext local stack
+  either does nothing or locks a developer out of `localhost`.
+- **Forwarded headers trust nothing by default.** `UseEdgeForwardedHeaders()` on the Gateway honours
+  `X-Forwarded-For` / `X-Forwarded-Proto` only from networks named in
+  `ForwardedHeaders:KnownNetworks` (§5.2). An empty list means the Gateway believes no client's
+  claim about its own address — the safe default, and the one that keeps the rate limiter's
+  anonymous partition from collapsing into a single bucket once a real proxy sits in front of it.
+- **The boundary is one hop wide.** Every external request enters through the Gateway (Hard Rule
+  #10); the module hosts are not published to clients. TLS termination therefore has exactly one
+  place to go when it arrives, and everything behind it is a private network hop.
+
+**What a real deployment must supply**, stated as requirements rather than left implicit: a
+certificate and an Ingress or load balancer terminating TLS in front of the Gateway; that
+terminator's network in `ForwardedHeaders:KnownNetworks`, without which the platform sees every
+request as originating from the proxy; `Cors:AllowedOrigins` set to the SPA's real `https://` origin;
+and the Identity issuer configured to the public HTTPS URL, since the discovery document and the
+token issuer are what every service validates against (§6.2).
+
+## 10. Known limitations
+
+Each section above ends with the limitations of its own milestone; these are the ones that belong to
+the platform rather than to a milestone. They are listed because a hardening document that names no
+residual risk has not finished looking.
+
+### 10.1 No TLS, no WAF, no penetration test
+
+§9 covers TLS. There is no web application firewall and no DAST or penetration test, for the same
+reason: there is no deployed environment to put one in front of, or point one at. The edge rate
+limiter is admission control, not a WAF — it counts requests per client and route tier and inspects
+nothing about their content.
+
+### 10.2 A revoked permission has up to five minutes of lag
+
+`IPermissionService` caches a caller's permission set in Redis for five minutes (§1). Revoking a
+permission — or a role that grants it — therefore takes effect on the next cache miss, not on the
+next request. The trade is deliberate: the alternative is an RPC to Users on every authorization
+decision in every service. **There is no revocation push and no cache eviction on a role change**, so
+the five minutes is a ceiling that always applies rather than a worst case. An operation that needs
+immediate revocation must disable the account at Identity, which stops token issuance, and then wait
+out the lifetime of any access token already issued (15 minutes, §6.3).
+
+### 10.3 The JWT carries no role claim
+
+Recorded in full at §6.5. Identity issues tokens with no role or permission claim; authorization data
+lives in the Users service and reaches the others over RPC. The consequence to be honest about is
+that **the Gateway authenticates but does not authorize** — it proves the caller is who they say they
+are and routes; the decision about what they may do is always made by the service that owns the
+state. That is defensible (one source of truth, and no claim that can go stale inside a token's
+lifetime), and it is *not* what the original project plan described, which asked for a gateway-level
+role check. The design was chosen over the plan, and §6.5 argues why.
+
+### 10.4 Dependency and image scanning is build-time only
+
+Milestone H — Dependabot, `dependency-review`, CodeQL, Trivy image scanning, SBOM generation — was
+cut on 2026-09-06 before any of it was started, and `HARDENING_PHASE3_PLAN.md` §9.0 records the
+reasoning. What the project has instead is the build-time NuGet audit: `TreatWarningsAsErrors` in
+`Directory.Build.props` fails the build on a vulnerable direct or transitive package. That is a real
+gate — it is what forced the Testcontainers bump and the `Microsoft.OpenApi` 2.7.5 pin — but it
+leaves two gaps, stated here rather than left to be discovered:
 
 - **The nine container base images are never scanned.** They accumulate OS-level CVEs independently
-  of anything in this repository, and nothing in CI looks at them.
+  of anything in this repository, and nothing in CI looks at them. This is the largest single
+  omission on the page.
 - **Dependency alerting is build-time only.** An advisory published against a package the solution
-  already pins produces no signal until somebody builds. On a repository built on every push this is
-  a short lag in practice, but it is not a scheduled alert and should not be described as one.
+  already pins produces no signal until somebody builds. On a repository built on every push that is
+  a short lag in practice, but it is not a scheduled alert and must not be described as one.
+
+One consequence is worth naming precisely because nothing will announce it: the `Microsoft.OpenApi`
+2.7.5 pin in `Directory.Packages.props` is now the *whole* of what holds a high-severity advisory
+(GHSA-v5pm-xwqc-g5wc) away from this solution. If that pin is ever removed, no scheduled scan exists
+to notice.
+
+### 10.5 One ownership failure still answers 400 — accepted, not fixed
+
+`GetDriverQueryHandler` returns `DriverErrors.NotSelf` (`Error.Problem` → 400) when one driver reads
+another's profile, so the status still confirms the driver id is real. Every other ownership failure
+in the platform answers 404 (§2.3, §7.7).
+
+**It is accepted rather than fixed, and the reasoning matters more than the fix would.** What it
+leaks is the existence of a driver id, to a caller who is already an authenticated driver — a
+population onboarded by an administrator rather than self-registered — and the ids are `Guid`s, which
+are not enumerable. Against that, the change is not one line:
+`Delivery.IntegrationTests/Drivers/DriverProfileTests` asserts the 400, and that suite needs Docker
+and a running Identity on `:18080` to re-run. Changing the handler and its test together without
+executing either is how a green build ships a broken suite. The residual risk is smaller than the
+risk of an unverified change, so it stands as a documented deviation rather than a blind edit.
+
+It is also the **last** of its kind: §2.3 closed the others, and any new one is a regression rather
+than a second exception.
