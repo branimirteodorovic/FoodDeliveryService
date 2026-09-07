@@ -1,4 +1,4 @@
-using FoodDeliveryService.Common.Application.EventBus;
+﻿using FoodDeliveryService.Common.Application.EventBus;
 using FoodDeliveryService.Common.Domain;
 using FoodDeliveryService.Modules.Notifications.Application.Notifications.SendOrderConfirmation;
 using FoodDeliveryService.Modules.Orders.IntegrationEvents;
@@ -9,8 +9,9 @@ namespace FoodDeliveryService.Modules.Notifications.Presentation.Notifications;
 /// <summary>
 /// Sends the customer their order-confirmation email when an order is placed (dispatched by
 /// ProcessInboxJob, idempotent via the inbox — a duplicate delivery of the same event never
-/// produces a second email). A missing recipient replica throws so the inbox retries and the
-/// failure stays visible on the inbox row rather than being silently dropped.
+/// produces a second email). A missing recipient replica throws, which leaves the failure on the
+/// inbox row's error column rather than dropping it silently. The message is still marked
+/// processed either way: ProcessInboxJob does not retry a failed handler.
 /// </summary>
 internal sealed class OrderPlacedIntegrationEventHandler(ISender sender)
     : IntegrationEventHandler<OrderPlacedIntegrationEvent>

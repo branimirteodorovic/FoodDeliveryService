@@ -1,4 +1,4 @@
-using FoodDeliveryService.Common.Application.Messaging;
+﻿using FoodDeliveryService.Common.Application.Messaging;
 using FoodDeliveryService.Common.Domain;
 using FoodDeliveryService.Modules.Notifications.Application.Abstractions.Notifications;
 using FoodDeliveryService.Modules.Notifications.Application.Notifications.SendNotification;
@@ -17,8 +17,8 @@ internal sealed class SendOrderConfirmationCommandHandler(
     {
         RecipientUser? recipient = await recipientUserRepository.GetAsync(request.CustomerId, cancellationToken);
 
-        // The user's registration event may still be in flight. Failing here leaves the inbox message
-        // unprocessed so ProcessInboxJob retries rather than silently dropping the confirmation email.
+        // The user's registration event may still be in flight. Failing here surfaces that on the inbox
+        // row's error column — ProcessInboxJob records it and moves on, it does not retry.
         if (recipient is null)
         {
             return Result.Failure(NotificationErrors.RecipientNotFound(request.CustomerId));

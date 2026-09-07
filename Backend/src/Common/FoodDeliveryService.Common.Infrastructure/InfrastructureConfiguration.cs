@@ -243,6 +243,21 @@ public static class InfrastructureConfiguration
 
                 cfg.UseConsumeFilter(typeof(CorrelationConsumeFilter<>), context);
 
+                // Without this there is NO retry: MassTransit's default is to fault a message on the
+                // first exception and move it straight to the endpoint's _error queue — where nothing
+                // drains it, so the event is lost for good. The consumers behind these endpoints only
+                // write the inbox row (a single INSERT), so the exceptions they can realistically
+                // throw are transient — a connection timeout when the database is briefly saturated,
+                // a dropped broker channel. Retrying those over ~4 seconds turns a permanent, silent
+                // loss into a short delay. It is safe to retry because the insert is idempotent (ON
+                // CONFLICT DO NOTHING on the message id), so a redelivery of a message that did land
+                // is a no-op rather than a duplicate-key fault.
+                // Bus-level, and BEFORE ConfigureEndpoints, so every receive endpoint inherits it.
+                cfg.UseMessageRetry(retry => retry.Intervals(
+                    TimeSpan.FromMilliseconds(200),
+                    TimeSpan.FromSeconds(1),
+                    TimeSpan.FromSeconds(3)));
+
                 // Auto-creates receive endpoints (queues) for all registered consumers.
                 cfg.ConfigureEndpoints(context);
             });

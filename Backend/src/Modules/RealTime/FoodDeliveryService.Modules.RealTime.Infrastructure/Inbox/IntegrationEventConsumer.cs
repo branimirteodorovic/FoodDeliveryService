@@ -47,6 +47,14 @@ internal sealed class IntegrationEventConsumer<TIntegrationEvent>(
             """
             INSERT INTO inbox_messages(id, type, content, occurred_on_utc, correlation_id, trace_parent)
             VALUES (@Id, @Type, @Content::json, @OccurredOnUtc, @CorrelationId, @TraceParent)
+            -- The broker guarantees at-least-once delivery, so the SAME message id can arrive more
+            -- than once: a redelivery after a dropped channel, or a consumer retry whose first
+            -- attempt actually committed. Without this the second arrival raises a duplicate-key
+            -- error, faults the message and drops it in the _error queue that nothing drains.
+            -- Ignoring it is the correct outcome: the row is the inbox record of the event, the
+            -- dispatch is deduplicated separately by inbox_message_consumers, and the payload for a
+            -- given id is by definition identical.
+            ON CONFLICT (id) DO NOTHING
             """;
 
         await connection.ExecuteAsync(sql, inboxMessage);

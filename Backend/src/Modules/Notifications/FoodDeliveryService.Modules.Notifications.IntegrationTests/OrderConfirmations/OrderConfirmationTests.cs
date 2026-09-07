@@ -1,4 +1,4 @@
-using AwesomeAssertions;
+﻿using AwesomeAssertions;
 using FoodDeliveryService.Common.Domain;
 using FoodDeliveryService.Modules.Notifications.Domain.Notifications;
 using FoodDeliveryService.Modules.Notifications.Infrastructure.Database;
@@ -64,8 +64,8 @@ public class OrderConfirmationTests(IntegrationTestWebAppFactory factory) : Base
                 placedOnUtc: DateTime.UtcNow),
             TestContext.Current.CancellationToken);
 
-        // Assert — the handler fails fast (recipient not found) *before* creating any row, and the
-        // inbox keeps retrying rather than dropping the message, so no notification is ever logged.
+        // Assert — the handler fails fast (recipient not found) *before* creating any row, so no
+        // notification is ever logged (the inbox records the error on the row and moves on).
         // The poller only "succeeds" when a row appears; a timeout here is therefore the pass signal.
         Result<Notification> notification = await Poller.WaitAsync<Notification>(
             TimeSpan.FromSeconds(10),

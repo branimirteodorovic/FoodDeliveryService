@@ -1,5 +1,7 @@
+﻿using System.Data.Common;
 using AwesomeAssertions;
 using Bogus;
+using FoodDeliveryService.Common.Application.Data;
 using FoodDeliveryService.Common.Domain;
 using FoodDeliveryService.Modules.Notifications.Domain.RecipientUsers;
 using FoodDeliveryService.Modules.Users.IntegrationEvents;
@@ -73,9 +75,61 @@ public abstract class BaseIntegrationTest(IntegrationTestWebAppFactory factory)
                 return await repository.GetAsync(userId, cancellationToken);
             });
 
-        replica.IsSuccess.Should().BeTrue("the RecipientUser replica should be materialized from the user event");
+        // Only read on failure — on the happy path this would be one wasted query per seeded user.
+        string inbox = replica.IsFailure ? await DescribeInboxAsync(cancellationToken) : string.Empty;
+
+        replica.IsSuccess.Should().BeTrue(
+            "the RecipientUser replica should be materialized from the user event. Inbox state: {0}",
+            inbox);
 
         return replica.Value;
+    }
+
+    /// <summary>
+    /// Dumps the module's inbox rows. Used only to explain a timeout: whether the event never
+    /// reached the inbox at all (lost between publish and consume) or reached it and was never
+    /// dispatched (or dispatched and failed) is the difference between a broker-side and a
+    /// job-side fault, and the assertion message is the only place CI can tell us which.
+    /// </summary>
+    private async Task<string> DescribeInboxAsync(CancellationToken cancellationToken)
+    {
+        const string sql =
+            """
+            SELECT id, type, processed_on_utc, error
+            FROM inbox_messages
+            ORDER BY occurred_on_utc
+            """;
+
+        try
+        {
+            await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+
+            var connectionFactory = scope.ServiceProvider.GetRequiredService<IDbConnectionFactory>();
+
+            await using DbConnection connection = await connectionFactory.OpenConnectionAsync();
+
+            await using DbCommand command = connection.CreateCommand();
+            command.CommandText = sql;
+
+            await using DbDataReader reader = await command.ExecuteReaderAsync(cancellationToken);
+
+            var rows = new List<string>();
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                rows.Add(
+                    $"[{reader.GetGuid(0)} {reader.GetString(1)} " +
+                    $"processed={(await reader.IsDBNullAsync(2, cancellationToken) ? "no" : "yes")} " +
+                    $"error={(await reader.IsDBNullAsync(3, cancellationToken) ? "none" : reader.GetString(3))}]");
+            }
+
+            return rows.Count == 0 ? "the inbox is empty" : string.Join(" ", rows);
+        }
+#pragma warning disable CA1031 // Diagnostics only: a broken dump must not replace the real failure.
+        catch (Exception exception)
+#pragma warning restore CA1031
+        {
+            return $"the inbox could not be read: {exception.Message}";
+        }
     }
 
     protected sealed record SeededRecipient(Guid UserId, string Email, string FirstName, string LastName);
