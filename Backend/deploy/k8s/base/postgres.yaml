@@ -76,16 +76,28 @@ spec:
             # /var/lib/postgresql/data arrives holding lost+found on some CSI drivers.
             - name: PGDATA
               value: /var/lib/postgresql/data/pgdata
+          # Both probes are execs, and an exec probe has to fork a process inside a CPU-limited
+          # container: under load `pg_isready` routinely takes longer than the 1s Kubernetes
+          # defaults `timeoutSeconds` to. Left at the default, three slow-but-successful checks in
+          # a row make the kubelet kill a perfectly healthy database — observed as a restart loop
+          # (14 restarts) whenever the integration suites run concurrently against the cluster,
+          # which drops every in-flight connection and fails the tests with a premature response.
+          # rabbitmq.yaml already sets explicit timeouts on its exec probes for the same reason.
           readinessProbe:
             exec:
               command: ["pg_isready", "-U", "postgres", "-d", "fooddeliveryservice"]
             initialDelaySeconds: 5
             periodSeconds: 5
+            timeoutSeconds: 5
+          # Liveness restarts the process, so it is deliberately slacker than readiness: a stalled
+          # database should be taken out of the Service (readiness) long before it is killed.
           livenessProbe:
             exec:
               command: ["pg_isready", "-U", "postgres"]
             initialDelaySeconds: 20
             periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 6
           resources:
             requests:
               cpu: 100m

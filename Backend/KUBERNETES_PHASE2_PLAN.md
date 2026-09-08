@@ -301,3 +301,23 @@ PITR backups; secret-rotation automation; multi-region, blue-green and canary de
   `fooddeliveryservice-cluster` that was never defined. The dead catch-all route was deleted and the
   two anonymous routes (`users/register`, `users/accept-invitation`) repointed at
   `fooddeliveryservice-users-cluster`.
+
+- **An exec probe needs an explicit `timeoutSeconds`.** `timeoutSeconds` defaults to **1 second**,
+  and an exec probe has to fork a process inside a CPU-limited container, so `pg_isready` and
+  `redis-cli ping` routinely overrun it under load — three slow-but-successful liveness checks in a
+  row and the kubelet kills a perfectly healthy database. This showed up as a 14-restart loop on
+  `fooddeliveryservice-database-0` whenever the integration suites ran concurrently: Postgres was
+  killed mid-run, Identity dropped every in-flight connection, and the Orders, RealTime and
+  Restaurants fixtures failed in `InitializeAsync` with
+  `HttpIOException: The response ended prematurely` from their Identity calls — 83 test failures
+  that looked nothing like a probe problem. `rabbitmq.yaml` had always set explicit timeouts on its
+  exec probes; `postgres.yaml` and `redis.yaml` had not. Both now do, and Postgres liveness also
+  carries `failureThreshold: 6`, because liveness restarts the process and readiness should pull a
+  stalled database out of the Service long before it is killed.
+- **The integration suites reach `localhost:18080` through this cluster, not docker-compose.**
+  `kind-cluster.yaml` maps the Identity NodePort to host `:18080`, which is the same port the
+  compose Identity binds and the same port every `IntegrationTestWebAppFactory` hard-codes. With the
+  cluster up and compose down — the normal state after a `kind-up` — the fixtures silently run
+  against the in-cluster Identity, so its pod's resource limits and its database's probes become
+  test infrastructure. Worth knowing before debugging a fixture that only fails when the whole
+  solution's suites run at once.

@@ -147,6 +147,13 @@ public static readonly Permission AdministerPayments   = new("payments:administe
 
 Seeding: `ManagePaymentMethods` + `GetPayments` → `Customer`; all three → `Administrator`. Nothing to `RestaurantManager`, `DeliveryDriver` or `SupportAgent` — an agent who needs to see a payment gets it through the ticket context, not a direct grant.
 
+Two things the mirror of `SUPPORT_PHASE3_PLAN.md` §2 does not carry over:
+
+- **`Administrator` is not in `Role.Assignable`**, so it cannot be provisioned and its grants cannot be asserted through `ProvisionUserRequest` the way `SupportPermissionTests` asserts the agent's. `PaymentPermissionTests.Seeding_Should_GrantAdministratorAllThreePaymentCodes` reads the seeded `role_permissions` rows directly over `IDbConnectionFactory` instead (`const` SQL, per `SqlParameterisationTests`). The other two cases — `Customer` gets its two codes and not `payments:administer`, `SupportAgent` gets none of the three — do go through provisioning.
+- **The migration EF generates needs hand-editing** before it builds: warnings are errors, so it wants the file-scoped namespace and the two `SuppressMessage` attributes (`IDE0300`, `CA1861`) on `Up`/`Down` that every other seeding migration here carries. Copy the shape from `20260828131508_Add_Support_Ticket_Administer_Permission.cs`.
+
+Shipped: `20260908074005_Add_Payment_Permissions`, `PermissionTests.PaymentCodes_ShouldBeTheirOwnNamespace` (Users.UnitTests 26/26), `PaymentPermissionTests` (3 cases, Users.IntegrationTests green against the real Identity on :18080).
+
 ---
 
 ## 4. Milestone B — Payments service skeleton

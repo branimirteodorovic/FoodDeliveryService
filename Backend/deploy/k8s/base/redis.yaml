@@ -79,11 +79,15 @@ spec:
           ports:
             - name: redis
               containerPort: 6379
+          # Exec probe: same 1s default timeout trap as postgres.yaml — forking redis-cli in a
+          # CPU-limited container can exceed it under load. Liveness below is a tcpSocket check,
+          # which costs nothing and needs no such allowance.
           readinessProbe:
             exec:
               command: ["redis-cli", "ping"]
             initialDelaySeconds: 3
             periodSeconds: 5
+            timeoutSeconds: 5
           livenessProbe:
             tcpSocket:
               port: redis

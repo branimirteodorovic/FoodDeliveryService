@@ -42,7 +42,10 @@ internal sealed class PermissionConfiguration : IEntityTypeConfiguration<Permiss
             Permission.AdministerSupportTickets,
             Permission.RequestRefund,
             Permission.ApproveRefund,
-            Permission.GetSupportAnalytics);
+            Permission.GetSupportAnalytics,
+            Permission.ManagePaymentMethods,
+            Permission.GetPayments,
+            Permission.AdministerPayments);
 
         builder
             .HasMany<Role>()
@@ -70,6 +73,11 @@ internal sealed class PermissionConfiguration : IEntityTypeConfiguration<Permiss
                     // handlers — a customer reading someone else's ticket gets a 404, not a 403.
                     CreateRolePermission(Role.Customer, Permission.OpenSupportTicket),
                     CreateRolePermission(Role.Customer, Permission.GetSupportTickets),
+                    // Payments (Feature 3.8): the customer manages their own saved cards and reads
+                    // their own payments. Ownership is enforced in the Payments handlers, not here —
+                    // payments:read is scoped to the caller unless payments:administer is also held.
+                    CreateRolePermission(Role.Customer, Permission.ManagePaymentMethods),
+                    CreateRolePermission(Role.Customer, Permission.GetPayments),
                     // Admin permissions
                     CreateRolePermission(Role.Administrator, Permission.GetUser),
                     CreateRolePermission(Role.Administrator, Permission.ModifyUser),
@@ -108,6 +116,13 @@ internal sealed class PermissionConfiguration : IEntityTypeConfiguration<Permiss
                     CreateRolePermission(Role.Administrator, Permission.RequestRefund),
                     CreateRolePermission(Role.Administrator, Permission.ApproveRefund),
                     CreateRolePermission(Role.Administrator, Permission.GetSupportAnalytics),
+                    // Payments oversight: read any payment and force-release an authorization.
+                    // payments:administer is the ownership bypass, and it is administrator-only —
+                    // a support agent who needs to see a payment gets it through the ticket context,
+                    // never through a direct grant.
+                    CreateRolePermission(Role.Administrator, Permission.ManagePaymentMethods),
+                    CreateRolePermission(Role.Administrator, Permission.GetPayments),
+                    CreateRolePermission(Role.Administrator, Permission.AdministerPayments),
                     // RestaurantManager: manage only their own restaurant/menu (ownership-enforced in handlers)
                     // + their own profile. No CreateRestaurant/ProvisionUsers. Seeded now, exercised in later milestones.
                     CreateRolePermission(Role.RestaurantManager, Permission.GetRestaurants),

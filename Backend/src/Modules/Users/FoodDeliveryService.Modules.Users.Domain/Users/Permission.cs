@@ -48,6 +48,15 @@ public sealed class Permission
     public static readonly Permission ApproveRefund = new("refunds:approve");                 // admin only — segregation of duties
     public static readonly Permission GetSupportAnalytics = new("support-analytics:read");
 
+    // Payments (Phase 3, Feature 3.8). Deliberately NOT expressed by widening an existing support
+    // code: `refunds:approve` must never also mean "can see payments" — that is the privilege leak
+    // the `support-*` namespace was carved out to avoid in the first place.
+    public static readonly Permission ManagePaymentMethods = new("payment-methods:manage"); // customer: attach/detach own cards
+    public static readonly Permission GetPayments = new("payments:read");                   // customer: own; admin: any — ownership-scoped in the handler
+    // Administrator ONLY — the ownership bypass, mirroring deliveries:administer and
+    // support-tickets:administer: read any payment, force-release an authorization.
+    public static readonly Permission AdministerPayments = new("payments:administer");
+
     public Permission(string code)
     {
         Code = code;
