@@ -1,7 +1,7 @@
 # `deploy/` — running the solution on Kubernetes
 
-All nine services (Gateway, Identity, Users, Orders, Restaurants, Delivery, Notifications,
-RealTime, Support) plus PostgreSQL, Redis and RabbitMQ, deployed to a local Kubernetes cluster with plain
+All ten services (Gateway, Identity, Users, Orders, Restaurants, Delivery, Notifications,
+RealTime, Support, Payments) plus PostgreSQL, Redis and RabbitMQ, deployed to a local Kubernetes cluster with plain
 manifests and `kubectl`. No Helm, no Kustomize, no extra tooling to learn.
 
 ```

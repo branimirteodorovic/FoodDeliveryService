@@ -166,7 +166,7 @@ One shared `builder.Services.AddApiDocumentation(builder.Configuration, ApiDocum
 - New API hosts must replicate this setup; new external calls must be instrumented
 
 ## Data
-- One PostgreSQL server, **one database per service**: `fooddeliveryservice_{identity|users|orders|restaurants|notifications|delivery|realtime|support}`
+- One PostgreSQL server, **one database per service**: `fooddeliveryservice_{identity|users|orders|restaurants|notifications|delivery|realtime|support|payments}`
 - Snake_case naming (`UseSnakeCaseNamingConvention`), default (`public`) schema — custom schemas were removed
 - Each module has its own `DbContext` (implements the module's `IUnitOfWork`) + `InsertOutboxMessagesInterceptor`
 - Migrations live in `Infrastructure/Database/Migrations` and are auto-applied at startup via `app.ApplyMigrations()`

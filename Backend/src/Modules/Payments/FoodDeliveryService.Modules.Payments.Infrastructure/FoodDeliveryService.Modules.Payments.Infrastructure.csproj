@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Common\FoodDeliveryService.Common.Infrastructure\FoodDeliveryService.Common.Infrastructure.csproj" />
+    <ProjectReference Include="..\FoodDeliveryService.Modules.Payments.Application\FoodDeliveryService.Modules.Payments.Application.csproj" />
+    <ProjectReference Include="..\FoodDeliveryService.Modules.Payments.Presentation\FoodDeliveryService.Modules.Payments.Presentation.csproj" />
+    <!-- Users' contracts are not optional for any module host: GetUserPermissionsRequest is declared
+         there, and this module's PermissionService and AddRequestClient<> both name it. The rest
+         arrive with the consumers that handle them — Orders for the authorize/capture/release path
+         (§8, §9) and Support for the approved refund (§10) — because a reference to a contract this
+         module does not handle is a subscription nobody decided to make. -->
+    <ProjectReference Include="..\..\Users\FoodDeliveryService.Modules.Users.IntegrationEvents\FoodDeliveryService.Modules.Users.IntegrationEvents.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="FoodDeliveryService.Modules.Payments.IntegrationTests" />
+  </ItemGroup>
+
+</Project>

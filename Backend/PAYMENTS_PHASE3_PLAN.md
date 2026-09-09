@@ -186,19 +186,83 @@ Every row here has a test that fails if it is skipped. This table is the milesto
 | `Common.UnitTests/Security/DatabaseRoleTests.cs` | Add to the hardcoded `Hosts` tuple array. It then asserts the `\connect` set matches the host set exactly, the app/owner connection-string split, `platform-secrets` keys, the k8s mapping, migration pool ≤ 2, and total bounded pools < `max_connections - 20`. |
 | `docker-compose.yml` + `docker-compose.override.yml` | Service on **5800/5801** (next free after Support's 5700), env + the four user-secrets/https volume mounts. |
 | `docker/prometheus/prometheus.yml` | Blackbox targets for `/health/live` (~line 48) and `/health/ready` (~line 82). |
-| `deploy/k8s/services/payments.yaml` | Copy `support.yaml`. **Distinct numeric `runAsUser`** — Support uses 1654. Four `secretKeyRef` envs, all three probes, requests+limits, `drop: ["ALL"]`, no `ASPNETCORE_HTTPS_PORTS`. |
+| `deploy/k8s/services/payments.yaml` | Copy `support.yaml`. Four `secretKeyRef` envs, all three probes, requests+limits, `drop: ["ALL"]`, no `ASPNETCORE_HTTPS_PORTS`. **`runAsUser` stays 1654** — see §4.5. |
 | `deploy/k8s/base/config.yaml` | `Database__Payments` / `DatabaseMigrations__Payments` in `platform-secrets`. |
 | `deploy/kind/scripts/kind-up.{sh,ps1}`, `deploy/k8s/scripts/cluster-smoke.sh` | `IMAGES` and `DEPLOYMENTS` arrays. |
 | `.github/workflows/ci.yml` | The hardcoded `projects=( … )` array (lines 57–67). Unit suite only — Identity-dependent integration suites run in the `cluster` job by design. |
 | Gateway — **both** tables | `src/API/FoodDeliveryService.Gateway/appsettings.Development.json` **and** the `appsettings.Kubernetes.json` ConfigMap embedded in `deploy/k8s/services/gateway.yaml` (dashes not dots in the k8s address). `GatewayRouteTests` asserts both and their non-drift. |
 | `Common.Presentation/Documentation/ApiDocumentation.cs` | A `Payments` descriptor **added to `All`**, with a matching anonymous `docs/payments/**` Gateway route. |
 | `Common.UnitTests/…csproj` | `ProjectReference` to `Payments.Presentation` (needed by `EndpointAuthorizationTests` and `ValidatorCoverageTests`). |
-| `ValidatorCoverageTests` | A `using PaymentsApplication = …` alias and a `new("Payments", PaymentsApplication.AssemblyReference.Assembly, DeclaresRequests: true)` entry. |
+| `ValidatorCoverageTests` | A `using PaymentsApplication = …` alias and a `new("Payments", PaymentsApplication.AssemblyReference.Assembly, DeclaresRequests: **false**)` entry — §4.5. |
+| `EndpointAuthorizationTests`, `OpenApiDocumentTests` | **Not in the original table, and both fail without an entry.** `ModuleSurfaces` (`HasHttpSurface: false`), `ModulePermissionSets` (`typeof(PaymentsApplication.Permissions)`), and `Modules` (`HasDocumentedOperations: false`). |
+| `DatabaseRoleTests` + `deploy/k8s/base/postgres.yaml` + `docker-compose.yml` | The ninth database costs 22 connections and breaks the server's headroom budget — §4.5. |
 | `deploy/README.md`, `docs/api-documentation.md` | Service list and URL table. |
 
 ### 4.4 `PaymentsModule.cs`
 
 Same shape as `SupportModule.cs`: `AddDomainEventHandlers()` → `AddIntegrationEventHandlers()` → private `AddInfrastructure(configuration)` → `AddEndpoints(Presentation.AssemblyReference.Assembly)`. The private half registers `PaymentsDbContext` (Npgsql + snake_case + `InsertOutboxMessagesInterceptor`), `IUnitOfWork`, one `AddScoped` per repository, `IPermissionService`, `IPaymentsContext`, and the two Quartz option/configure pairs for outbox and inbox. `ConfigureConsumers()` registers one `IntegrationEventConsumer<T>` per subscribed event with `.Endpoint(c => c.InstanceId = instanceId)`, plus the mandatory `AddRequestClient<GetUserPermissionsRequest>()`.
+
+
+### 4.5 What Milestone B shipped, and where it departed from §4.1–4.4
+
+Ports **5800/5801** in compose, local launch profile **5109/7210** (Support's 5108/7209 are already
+shared with Notifications; a third copy was not worth adding). One migration,
+`20260908114955_Add_Payments_Outbox_And_Inbox` — no aggregate, so it creates the outbox and inbox
+tables and their four dispatch/correlation indexes and nothing else. `dotnet build` clean,
+`Common.UnitTests` 458/458, `policy-check.py` and `kubeconform -strict` green.
+
+**The `runAsUser` instruction in §4.3 was wrong and is not implemented.** 1654 is not Support's
+choice — it is `APP_UID` in `mcr.microsoft.com/dotnet/aspnet`, it owns `/app` in the published
+layer, and every one of the nine existing manifests uses it. A distinct UID is a pod that cannot
+read its own binaries. Isolation between services comes from the namespace, the per-service database
+roles and the network; the container UID was never carrying it.
+
+**The ninth database broke the connection budget, and the fix was the server ceiling.** Payments adds
+2 × 10 app + 2 migration = 22 connections, taking the bounded worst case from 176 to 198 —
+`DatabaseRoleTests.BoundedConnectionTotal_FitsInsideTheServersMaxConnections` requires 20
+connections of headroom under `max_connections`, so 198 against 200 fails. The pools are already as
+small as they usefully go (and §4.3's own row forbids raising the migration pool above 2), so
+`max_connections` went **200 → 250** in both `deploy/k8s/base/postgres.yaml` and
+`docker-compose.yml`. `docker-compose.yml`'s existing comment had predicted exactly this: *"bounding
+the pools alone leaves no room for the tenth service this repo will add."* A tenth database costs
+another 22 and still fits.
+
+**Three coverage suites carry Payments as an explicit "nothing here yet", not as `true`.** §4.3 asks
+for `DeclaresRequests: true`, which cannot hold in a milestone whose whole point is that there is no
+business logic: the flag's own vacuity guard fails on an empty assembly. So Payments is registered
+in `ValidatorCoverageTests` (`DeclaresRequests: false`), `EndpointAuthorizationTests`
+(`HasHttpSurface: false`) and `OpenApiDocumentTests` (`HasDocumentedOperations: false`), each with
+the reason written next to it, exactly as Notifications and RealTime are. **Milestone D flips all
+three to `true` in the same change as its first endpoint** — and each one fails loudly if it forgets,
+which is the point of registering them now rather than later.
+
+Four things that cost time and are not in §4.1–4.4:
+
+- **`Payments.Infrastructure` must reference `Users.IntegrationEvents` even though it consumes
+  nothing.** `GetUserPermissionsRequest` is declared there, and both `PermissionService` and
+  `AddRequestClient<>` name it. Omitting it is two compile errors, and the host's `Dockerfile` needs
+  the matching `COPY` line or the Release image fails to restore.
+- **The generated migration needs the same hand-edit as the seeding migrations in §3** — file-scoped
+  namespace, or `IDE0161` fails the build. That applies to an entity-free migration too; the
+  `.Designer.cs` and the snapshot are fine as generated.
+- **The host does not call `AddModuleDiagnostics`.** `PaymentsDiagnostics` does not exist until
+  §11.1, and there is a comment in `Program.cs` saying so. Adding the registration first would
+  register a name nothing records into — harmless, but indistinguishable from the failure §11.1
+  warns about.
+- **The CI array lists `Payments.UnitTests` while it is empty.** `dotnet test` exits 0 on an
+  assembly with no tests, so the entry asserts nothing until Milestone C's `Money` tests land. It is
+  listed now because the array is hand-maintained and a suite added in a later pull request than its
+  project is a suite nobody runs in between.
+
+The `payments/**` routes fall through `RateLimitRoutePolicy` to the default Read/Write tiers, which
+is correct for now — the webhook path's exemption is §7.3's job and must not be pre-empted here.
+
+Verified beyond the build: `01-roles.sql` was run into a throwaway `postgres:17`, which created
+`fooddeliveryservice_payments` owned by `fds_payments_owner`; the host then booted against it and
+reported `/health/ready` **Healthy on all five checks** — including `masstransit-bus`, which
+confirms a `ConfigureConsumers` registering no consumer at all still yields a working bus. The
+compose and KinD stacks still need the `.containers/db` / PVC wipe from §13.5 before they will see
+the new database.
 
 ---
 

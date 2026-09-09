@@ -7,6 +7,7 @@ using MediatR;
 using DeliveryApplication = FoodDeliveryService.Modules.Delivery.Application;
 using NotificationsApplication = FoodDeliveryService.Modules.Notifications.Application;
 using OrdersApplication = FoodDeliveryService.Modules.Orders.Application;
+using PaymentsApplication = FoodDeliveryService.Modules.Payments.Application;
 using RealTimeApplication = FoodDeliveryService.Modules.RealTime.Application;
 using RestaurantsApplication = FoodDeliveryService.Modules.Restaurants.Application;
 using SupportApplication = FoodDeliveryService.Modules.Support.Application;
@@ -56,15 +57,19 @@ public partial class ValidatorCoverageTests
     };
 
     /// <summary>
-    /// The seven module Application assemblies. RealTime is carried with
-    /// <c>DeclaresRequests: false</c> because it has no commands or queries at all — its endpoint is
-    /// a SignalR hub — so "nothing found" reads as a decision rather than as a broken scan.
+    /// The module Application assemblies. Two are carried with <c>DeclaresRequests: false</c>, and
+    /// both are decisions rather than gaps in the scan, so that "nothing found" cannot pass for
+    /// either one. RealTime has no commands or queries at all — its endpoint is a SignalR hub.
+    /// Payments is a skeleton: Feature 3.8 Milestone B shipped the service, its host, its database
+    /// and its registrations with no business logic behind them, and the flag flips to
+    /// <c>true</c> with the first command in Milestone D.
     /// </summary>
     private static readonly ModuleApplication[] Modules =
     [
         new("Delivery", DeliveryApplication.AssemblyReference.Assembly, DeclaresRequests: true),
         new("Notifications", NotificationsApplication.AssemblyReference.Assembly, DeclaresRequests: true),
         new("Orders", OrdersApplication.AssemblyReference.Assembly, DeclaresRequests: true),
+        new("Payments", PaymentsApplication.AssemblyReference.Assembly, DeclaresRequests: false),
         new("RealTime", RealTimeApplication.AssemblyReference.Assembly, DeclaresRequests: false),
         new("Restaurants", RestaurantsApplication.AssemblyReference.Assembly, DeclaresRequests: true),
         new("Support", SupportApplication.AssemblyReference.Assembly, DeclaresRequests: true),

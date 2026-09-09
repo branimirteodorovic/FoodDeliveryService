@@ -51,6 +51,12 @@ jobs:
       # They are re-enabled in Milestone G's KinD job, where Identity runs in the cluster.
       # Notifications' integration suite is purely event-driven, so it runs here on the runner's
       # Docker via Testcontainers.
+      #
+      # The Payments unit suite is listed from the day the project exists (Feature 3.8 Milestone B)
+      # rather than the day it gets its first test — the array is hand-maintained, and a suite added
+      # here in a later pull request than the project is a suite nobody runs in between. It holds no
+      # tests yet and `dotnet test` exits 0 on an empty assembly, so until Milestone C's Money tests
+      # land this entry asserts nothing.
       - name: Test (unit suites + Identity-independent integration suites)
         run: |
           set -euo pipefail
@@ -59,6 +65,7 @@ jobs:
             "Backend/src/Modules/Delivery/FoodDeliveryService.Modules.Delivery.UnitTests/FoodDeliveryService.Modules.Delivery.UnitTests.csproj"
             "Backend/src/Modules/Notifications/FoodDeliveryService.Modules.Notifications.UnitTests/FoodDeliveryService.Modules.Notifications.UnitTests.csproj"
             "Backend/src/Modules/Orders/FoodDeliveryService.Modules.Orders.UnitTests/FoodDeliveryService.Modules.Orders.UnitTests.csproj"
+            "Backend/src/Modules/Payments/FoodDeliveryService.Modules.Payments.UnitTests/FoodDeliveryService.Modules.Payments.UnitTests.csproj"
             "Backend/src/Modules/RealTime/FoodDeliveryService.Modules.RealTime.UnitTests/FoodDeliveryService.Modules.RealTime.UnitTests.csproj"
             "Backend/src/Modules/Restaurants/FoodDeliveryService.Modules.Restaurants.UnitTests/FoodDeliveryService.Modules.Restaurants.UnitTests.csproj"
             "Backend/src/Modules/Support/FoodDeliveryService.Modules.Support.UnitTests/FoodDeliveryService.Modules.Support.UnitTests.csproj"

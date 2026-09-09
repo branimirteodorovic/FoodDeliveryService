@@ -1,12 +1,12 @@
 namespace FoodDeliveryService.Common.Presentation.Documentation;
 
 /// <summary>
-/// The seven documented services, in one place — Feature 3.7 Milestone G.
+/// The documented services, in one place — Feature 3.7 Milestone G.
 /// <para>
 /// Naming the services from <c>Common.Presentation</c> looks at first like a layering violation, and
 /// is not: these are strings, not references, and the same argument already put
-/// <see cref="RateLimiting.RateLimitRoutePolicy"/>'s route table here. The alternative was seven
-/// descriptors built inline in seven <c>Program.cs</c> files, which is where the seven copies of
+/// <see cref="RateLimiting.RateLimitRoutePolicy"/>'s route table here. The alternative was a
+/// descriptor built inline in every <c>Program.cs</c>, which is where the seven copies of
 /// <c>SwaggerExtensions</c> came from — and it would also put the titles somewhere
 /// <c>OpenApiDocumentTests</c> cannot read them, so the completeness test would be asserting against
 /// a second transcription of the same strings.
@@ -95,6 +95,21 @@ public static class ApiDocumentation
             "endpoint authorizes any authenticated principal instead of naming a permission.");
 
     /// <summary>
+    /// The Payments service — <c>payments/**</c> at the Gateway, hosted by
+    /// <c>FoodDeliveryService.Payments.Api</c>.
+    /// </summary>
+    public static ApiDocumentationDescriptor Payments { get; } = new(
+        Slug: "payments",
+        Title: "FoodDeliveryService — Payments API",
+        Description:
+            "Card payments through Stripe: a customer saves a card, an order authorizes against " +
+            "it when it is placed, the authorization is captured when the restaurant accepts and " +
+            "released when the order is rejected or cancelled, and an approved refund request is " +
+            "settled back to the card. The service stores Stripe identifiers, card brand and last " +
+            "four digits only — no card number ever reaches this platform. This document has no " +
+            "operations yet: the service exists, its API surface does not.");
+
+    /// <summary>
     /// The Notifications service — <c>notifications/**</c> at the Gateway, hosted by
     /// <c>FoodDeliveryService.Notifications.Api</c>.
     /// </summary>
@@ -120,6 +135,7 @@ public static class ApiDocumentation
         Delivery,
         Support,
         RealTime,
-        Notifications
+        Notifications,
+        Payments
     ];
 }

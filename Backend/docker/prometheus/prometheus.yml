@@ -46,6 +46,7 @@ scrape_configs:
           - http://fooddeliveryservice.delivery.api:8080/health/live
           - http://fooddeliveryservice.realtime.api:8080/health/live
           - http://fooddeliveryservice.support.api:8080/health/live
+          - http://fooddeliveryservice.payments.api:8080/health/live
     relabel_configs: &probe_relabel
       # The scrape goes to the blackbox exporter; the "target" is what the exporter is asked to
       # probe. This three-step swap is the documented blackbox pattern.
@@ -80,4 +81,5 @@ scrape_configs:
           - http://fooddeliveryservice.delivery.api:8080/health/ready
           - http://fooddeliveryservice.realtime.api:8080/health/ready
           - http://fooddeliveryservice.support.api:8080/health/ready
+          - http://fooddeliveryservice.payments.api:8080/health/ready
     relabel_configs: *probe_relabel

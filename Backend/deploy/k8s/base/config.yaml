@@ -78,9 +78,11 @@ stringData:
   # least-privilege fds_{service}_app account every request-serving pool holds; `DatabaseMigrations__*`
   # is the fds_{service}_owner account, used by exactly one code path — app.ApplyMigrations() at
   # startup — and capped at 2 because that is all a single sequential migration run can want. The
-  # arithmetic moves from 7 x 20 + 20 = 160 to 160 + 8 x 2 = 176, still inside the server's
-  # max_connections=200 with room for psql and the seeder. Do not raise that 2: a large migration
-  # pool is a privileged pool sitting idle for the life of the process. docs/security.md §4.
+  # arithmetic moves from 7 x 20 + 20 = 160 to 160 + 8 x 2 = 176. Feature 3.8 Milestone B's Payments
+  # host adds 8 x 20 + 20 = 180 plus 9 x 2 = 198, which is why postgres.yaml's max_connections went
+  # from 200 to 250 in the same change — DatabaseRoleTests requires 20 connections of headroom for
+  # psql and the seeder, and 198 no longer left it. Do not raise that 2: a large migration pool is a
+  # privileged pool sitting idle for the life of the process. docs/security.md §4.
   Database__Identity: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_identity;Username=fds_identity_app;Password=fds_identity_app_dev;Maximum Pool Size=20
   DatabaseMigrations__Identity: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_identity;Username=fds_identity_owner;Password=fds_identity_owner_dev;Maximum Pool Size=2
   Database__Users: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_users;Username=fds_users_app;Password=fds_users_app_dev;Maximum Pool Size=10
@@ -97,6 +99,8 @@ stringData:
   DatabaseMigrations__RealTime: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_realtime;Username=fds_realtime_owner;Password=fds_realtime_owner_dev;Maximum Pool Size=2
   Database__Support: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_support;Username=fds_support_app;Password=fds_support_app_dev;Maximum Pool Size=10
   DatabaseMigrations__Support: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_support;Username=fds_support_owner;Password=fds_support_owner_dev;Maximum Pool Size=2
+  Database__Payments: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_payments;Username=fds_payments_app;Password=fds_payments_app_dev;Maximum Pool Size=10
+  DatabaseMigrations__Payments: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_payments;Username=fds_payments_owner;Password=fds_payments_owner_dev;Maximum Pool Size=2
 
   # The client-credentials secret Users presents to Identity's api/users provisioning endpoint —
   # the one sanctioned service-to-service HTTP call in the system. Both sides read the same value,

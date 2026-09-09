@@ -37,6 +37,7 @@ public class GatewayRouteTests
         "notifications/",
         "delivery/",
         "support/",
+        "payments/",
         "hubs/"
     ];
 

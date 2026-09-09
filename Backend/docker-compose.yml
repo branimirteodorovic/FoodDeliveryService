@@ -71,6 +71,16 @@ services:
       - 5700:8080
       - 5701:8081
 
+  fooddeliveryservice.payments.api:
+    image: ${DOCKER_REGISTRY-}fooddeliveryservicepaymentsapi
+    container_name: FoodDeliveryService.Payments.Api
+    build:
+      context: .
+      dockerfile: src/API/FoodDeliveryService.Payments.Api/Dockerfile
+    ports:
+      - 5800:8080
+      - 5801:8081
+
   fooddeliveryservice.gateway:
     image: ${DOCKER_REGISTRY-}fooddeliveryservicegateway
     container_name: FoodDeliveryService.Gateway
@@ -104,15 +114,18 @@ services:
     # The real fix is on the client side: every service's connection string now carries an explicit
     # `Maximum Pool Size` (10 per module host, 20 for Identity). Each module host builds two pools
     # from that string — the shared NpgsqlDataSource for Dapper and the outbox/inbox jobs, and EF
-    # Core's own — so its worst case is 20, seven module hosts are 140, Identity adds 20, and the
-    # bounded total is 160. This raises the server's ceiling to 200 so that total has real headroom
-    # and a psql session or the seeder can still get in when everything is at its limit.
+    # Core's own — so its worst case is 20, eight module hosts are 160, Identity adds 20, and with
+    # the migration credentials the bounded total is 198. The server's ceiling is raised so that
+    # total has real headroom and a psql session or the seeder can still get in when everything is
+    # at its limit.
     #
     # Both halves are needed. Raising the ceiling alone just moves an unbounded pool's collision
-    # further out; bounding the pools alone leaves no room for the tenth service this repo will add.
+    # further out; bounding the pools alone leaves no room for the next service this repo adds —
+    # which is exactly what Payments (Feature 3.8) turned out to be: it took the total from 176 to
+    # 198 and the ceiling from 200 to 250.
     command:
       - -c
-      - max_connections=200
+      - max_connections=250
     environment:
       - POSTGRES_DB=fooddeliveryservice
       - POSTGRES_USER=postgres

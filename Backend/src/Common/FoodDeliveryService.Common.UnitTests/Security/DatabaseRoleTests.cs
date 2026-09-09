@@ -38,7 +38,8 @@ public class DatabaseRoleTests
         ("FoodDeliveryService.Notifications.Api", "notifications", "Notifications"),
         ("FoodDeliveryService.Delivery.Api", "delivery", "Delivery"),
         ("FoodDeliveryService.RealTime.Api", "realtime", "RealTime"),
-        ("FoodDeliveryService.Support.Api", "support", "Support")
+        ("FoodDeliveryService.Support.Api", "support", "Support"),
+        ("FoodDeliveryService.Payments.Api", "payments", "Payments")
     ];
 
     public static TheoryData<string, string, string> HostData()

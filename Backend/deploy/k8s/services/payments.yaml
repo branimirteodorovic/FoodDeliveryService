@@ -1,0 +1,118 @@
+# Payments — card payments through Stripe: authorize on placement, capture on accept, release on
+# reject or cancel, and settle an approved refund. Tenth host, eighth module. This milestone ships
+# the service skeleton, so the pod starts, migrates and answers its probes while exposing no
+# endpoint of its own.
+#
+# runAsUser is 1654 like every other host here, NOT a distinct UID: 1654 is APP_UID in the
+# mcr.microsoft.com/dotnet/aspnet image and owns /app in the published layer, so a different number
+# is a pod that cannot read its own binaries. Isolation between services comes from the namespace,
+# the per-service database roles and the network, not from the container UID.
+#
+# Same shape as orders.yaml, which carries the explanatory comments for all of them.
+apiVersion: v1
+kind: Service
+metadata:
+  name: fooddeliveryservice-payments-api
+  namespace: fooddeliveryservice
+  labels:
+    app.kubernetes.io/name: fooddeliveryservice-payments-api
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: fooddeliveryservice
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: fooddeliveryservice-payments-api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fooddeliveryservice-payments-api
+  namespace: fooddeliveryservice
+  labels:
+    app.kubernetes.io/name: fooddeliveryservice-payments-api
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: fooddeliveryservice
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fooddeliveryservice-payments-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fooddeliveryservice-payments-api
+        app.kubernetes.io/component: api
+        app.kubernetes.io/part-of: fooddeliveryservice
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1654
+        runAsGroup: 1654
+        fsGroup: 1654
+      containers:
+        - name: payments-api
+          image: fooddeliveryservice/payments-api:local-dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: platform-config
+          env:
+            - name: ConnectionStrings__Database
+              valueFrom:
+                secretKeyRef:
+                  name: platform-secrets
+                  key: Database__Payments
+            # The DDL-capable fds_payments_owner account, read by app.ApplyMigrations() at startup and
+            # by nothing else. Kept out of ConnectionStrings__Database on purpose: that one is the
+            # credential every request-serving pool holds. docs/security.md §4.
+            - name: ConnectionStrings__DatabaseMigrations
+              valueFrom:
+                secretKeyRef:
+                  name: platform-secrets
+                  key: DatabaseMigrations__Payments
+            - name: ConnectionStrings__Cache
+              valueFrom:
+                secretKeyRef:
+                  name: platform-secrets
+                  key: ConnectionStrings__Cache
+            - name: ConnectionStrings__Queue
+              valueFrom:
+                secretKeyRef:
+                  name: platform-secrets
+                  key: ConnectionStrings__Queue
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]

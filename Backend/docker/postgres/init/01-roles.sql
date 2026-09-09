@@ -6,7 +6,7 @@
 --
 -- What it establishes, and why:
 --
---   * Every service owned all eight databases before this, because every service connected as the
+--   * Every service owned all of the databases before this, because every service connected as the
 --     superuser `postgres`. A SQL-injection or deserialisation bug in any one host was a
 --     full-platform compromise, and Hard Rule #5 ("never query another service's tables") was
 --     enforced by convention alone. It is enforced by the server now.
@@ -33,7 +33,7 @@
 \set ON_ERROR_STOP on
 
 -- ---------------------------------------------------------------------------------------------
--- 1. The sixteen roles.
+-- 1. The eighteen roles.
 -- ---------------------------------------------------------------------------------------------
 DO $$
 DECLARE
@@ -41,7 +41,8 @@ DECLARE
     role_name text;
 BEGIN
     FOREACH service IN ARRAY ARRAY[
-        'identity', 'users', 'orders', 'restaurants', 'notifications', 'delivery', 'realtime', 'support'
+        'identity', 'users', 'orders', 'restaurants', 'notifications', 'delivery', 'realtime', 'support',
+    'payments'
     ]
     LOOP
         FOREACH role_name IN ARRAY ARRAY['owner', 'app']
@@ -60,7 +61,7 @@ END
 $$;
 
 -- ---------------------------------------------------------------------------------------------
--- 2. The eight databases, each owned by its service's owner role.
+-- 2. The nine databases, each owned by its service's owner role.
 --
 -- These used to be created by EF Core's Migrate() on first boot, as a side effect of connecting to
 -- a database that did not exist. That cannot survive least privilege — CREATE DATABASE is a
@@ -69,7 +70,8 @@ $$;
 -- ---------------------------------------------------------------------------------------------
 SELECT format('CREATE DATABASE %I OWNER %I', 'fooddeliveryservice_' || s, 'fds_' || s || '_owner')
 FROM unnest(ARRAY[
-    'identity', 'users', 'orders', 'restaurants', 'notifications', 'delivery', 'realtime', 'support'
+    'identity', 'users', 'orders', 'restaurants', 'notifications', 'delivery', 'realtime', 'support',
+    'payments'
 ]) AS s
 WHERE NOT EXISTS (SELECT 1 FROM pg_database d WHERE d.datname = 'fooddeliveryservice_' || s)
 \gexec
@@ -78,7 +80,8 @@ WHERE NOT EXISTS (SELECT 1 FROM pg_database d WHERE d.datname = 'fooddeliveryser
 -- how the Testcontainers fixtures arrive here) exists already and is owned by `postgres`.
 SELECT format('ALTER DATABASE %I OWNER TO %I', 'fooddeliveryservice_' || s, 'fds_' || s || '_owner')
 FROM unnest(ARRAY[
-    'identity', 'users', 'orders', 'restaurants', 'notifications', 'delivery', 'realtime', 'support'
+    'identity', 'users', 'orders', 'restaurants', 'notifications', 'delivery', 'realtime', 'support',
+    'payments'
 ]) AS s
 \gexec
 
@@ -87,13 +90,15 @@ FROM unnest(ARRAY[
 -- ---------------------------------------------------------------------------------------------
 SELECT format('REVOKE CONNECT ON DATABASE %I FROM PUBLIC', 'fooddeliveryservice_' || s)
 FROM unnest(ARRAY[
-    'identity', 'users', 'orders', 'restaurants', 'notifications', 'delivery', 'realtime', 'support'
+    'identity', 'users', 'orders', 'restaurants', 'notifications', 'delivery', 'realtime', 'support',
+    'payments'
 ]) AS s
 \gexec
 
 SELECT format('GRANT CONNECT ON DATABASE %I TO %I', 'fooddeliveryservice_' || s, 'fds_' || s || '_app')
 FROM unnest(ARRAY[
-    'identity', 'users', 'orders', 'restaurants', 'notifications', 'delivery', 'realtime', 'support'
+    'identity', 'users', 'orders', 'restaurants', 'notifications', 'delivery', 'realtime', 'support',
+    'payments'
 ]) AS s
 \gexec
 
@@ -101,7 +106,7 @@ FROM unnest(ARRAY[
 -- 4. In-database privileges, one block per database.
 --
 -- `\connect` is a psql client command: it cannot be looped or driven by \gexec, so this section is
--- eight copies of the same six statements. ALTER DEFAULT PRIVILEGES is the important one — the
+-- nine copies of the same six statements. ALTER DEFAULT PRIVILEGES is the important one — the
 -- tables do not exist yet when this file runs, so the app role is granted rights over whatever the
 -- owner creates *later*, which is every table any future migration adds.
 -- ---------------------------------------------------------------------------------------------
@@ -193,3 +198,14 @@ ALTER DEFAULT PRIVILEGES FOR ROLE fds_support_owner IN SCHEMA public
     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO fds_support_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE fds_support_owner IN SCHEMA public
     GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO fds_support_app;
+
+\connect fooddeliveryservice_payments
+
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+GRANT USAGE ON SCHEMA public TO fds_payments_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO fds_payments_app;
+GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO fds_payments_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE fds_payments_owner IN SCHEMA public
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO fds_payments_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE fds_payments_owner IN SCHEMA public
+    GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO fds_payments_app;

@@ -14,6 +14,8 @@ using DeliveryPresentation = FoodDeliveryService.Modules.Delivery.Presentation;
 using NotificationsPresentation = FoodDeliveryService.Modules.Notifications.Presentation;
 using OrdersApplication = FoodDeliveryService.Modules.Orders.Application;
 using OrdersPresentation = FoodDeliveryService.Modules.Orders.Presentation;
+using PaymentsApplication = FoodDeliveryService.Modules.Payments.Application;
+using PaymentsPresentation = FoodDeliveryService.Modules.Payments.Presentation;
 using RealTimeApplication = FoodDeliveryService.Modules.RealTime.Application;
 using RealTimePresentation = FoodDeliveryService.Modules.RealTime.Presentation;
 using RestaurantsApplication = FoodDeliveryService.Modules.Restaurants.Application;
@@ -99,16 +101,19 @@ public class EndpointAuthorizationTests
     ];
 
     /// <summary>
-    /// The seven module Presentation assemblies, with whether the module is expected to have an HTTP
-    /// surface at all. Notifications is deliberately <c>false</c>: it is a pure consumer that reacts
-    /// to integration events and sends email, and it has never exposed an endpoint. Written down so
-    /// that "no endpoints found" reads as a decision rather than as a broken test.
+    /// The module Presentation assemblies, with whether the module is expected to have an HTTP
+    /// surface at all. Two are deliberately <c>false</c>. Notifications is a pure consumer that
+    /// reacts to integration events and sends email, and it has never exposed an endpoint. Payments
+    /// is a skeleton — Feature 3.8 Milestone B shipped the service with no business logic behind it
+    /// — and flips to <c>true</c> with its first endpoint in Milestone D. Written down so that "no
+    /// endpoints found" reads as a decision rather than as a broken test.
     /// </summary>
     private static readonly ModuleSurface[] ModuleSurfaces =
     [
         new("Delivery", DeliveryPresentation.AssemblyReference.Assembly, HasHttpSurface: true),
         new("Notifications", NotificationsPresentation.AssemblyReference.Assembly, HasHttpSurface: false),
         new("Orders", OrdersPresentation.AssemblyReference.Assembly, HasHttpSurface: true),
+        new("Payments", PaymentsPresentation.AssemblyReference.Assembly, HasHttpSurface: false),
         new("RealTime", RealTimePresentation.AssemblyReference.Assembly, HasHttpSurface: true),
         new("Restaurants", RestaurantsPresentation.AssemblyReference.Assembly, HasHttpSurface: true),
         new("Support", SupportPresentation.AssemblyReference.Assembly, HasHttpSurface: true),
@@ -119,12 +124,15 @@ public class EndpointAuthorizationTests
     /// The <c>Permissions</c> constant sets, one per module that has any. Referenced as types rather
     /// than looked up by name so that renaming the class is a compile error here instead of a test
     /// that quietly starts checking nothing. Users declares none (its two endpoints are anonymous)
-    /// and Notifications has no HTTP surface at all.
+    /// and Notifications has no HTTP surface at all. Payments is here without an HTTP surface yet on
+    /// purpose: its three codes were seeded a milestone before the endpoints that carry them, which
+    /// is precisely the window in which a typo in a constant goes unnoticed.
     /// </summary>
     private static readonly Type[] ModulePermissionSets =
     [
         typeof(DeliveryApplication.Permissions),
         typeof(OrdersApplication.Permissions),
+        typeof(PaymentsApplication.Permissions),
         typeof(RealTimeApplication.Permissions),
         typeof(RestaurantsApplication.Permissions),
         typeof(SupportApplication.Permissions)

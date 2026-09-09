@@ -54,12 +54,17 @@ spec:
         - name: postgres
           image: postgres:17
           imagePullPolicy: IfNotPresent
-          # The image's default is max_connections=100 and this one server holds all seven
-          # databases. The bounded worst case from config.yaml's `Maximum Pool Size` values is 140,
-          # so 100 is below what a fully-loaded stack asks for — measured in compose as 192
+          # The image's default is max_connections=100 and this one server holds every service's
+          # database. The bounded worst case from config.yaml's `Maximum Pool Size` values is 198,
+          # so 100 is far below what a fully-loaded stack asks for — measured in compose as 192
           # `53300: sorry, too many clients already` inside a single ramp (Feature 3.5 Milestone F).
-          # 200 leaves the arithmetic 60 connections of slack for psql, the seeder and a job pod.
-          args: ["-c", "max_connections=200"]
+          #
+          # Raised from 200 to 250 by Feature 3.8 Milestone B. Payments is the ninth database and
+          # costs 22 connections (2 x 10 app + 2 migration), which took the bounded total from 176
+          # to 198 — past the 180 that DatabaseRoleTests requires as headroom for psql, the seeder
+          # and a job pod. The pools are already as small as they usefully go, so the ceiling is the
+          # half that moves. 250 leaves the arithmetic 52 connections of slack.
+          args: ["-c", "max_connections=250"]
           ports:
             - name: postgres
               containerPort: 5432

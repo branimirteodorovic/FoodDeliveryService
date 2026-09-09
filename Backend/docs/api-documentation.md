@@ -22,27 +22,33 @@ ephemeral ports, so the Gateway is in practice the only stable way in:
 | Support | `http://localhost:3000/docs/support` | `…/docs/support/openapi/v1.json` |
 | RealTime | `http://localhost:3000/docs/realtime` | `…/docs/realtime/openapi/v1.json` |
 | Notifications | `http://localhost:3000/docs/notifications` | `…/docs/notifications/openapi/v1.json` |
+| Payments | `http://localhost:3000/docs/payments` | `…/docs/payments/openapi/v1.json` |
 
 Each landing page redirects to **Scalar** at `/docs/{slug}/scalar`. **Swagger UI** renders the same
 document at `/docs/{slug}/swagger`. Both are kept: Swagger UI is the one every .NET reviewer already
 knows, Scalar is the one worth showing someone.
 
-Two of those documents are empty, and both deliberately:
+Three of those documents are empty, and all three deliberately:
 
 - **Notifications** is a pure event consumer — it reacts to integration events and sends email, and
   has never exposed an HTTP endpoint.
 - **RealTime**'s only endpoint is the `hubs/tracking` SignalR hub, and `MapHub` contributes no
   `ApiDescription`, so a hub cannot appear in a generated OpenAPI document however it is annotated.
   What a client needs to know about the handshake is in that service's description instead.
+- **Payments** is a skeleton. Feature 3.8 Milestone B shipped the service, its host, its database and
+  every registration it needs, with no business logic behind them; its endpoints arrive in the
+  milestones after it. It is documented from day one on the same argument that publishes
+  Notifications' empty document — a service with an empty API surface and a service whose
+  documentation was forgotten look identical otherwise.
 
-`OpenApiDocumentTests` asserts both, so "no operations" cannot quietly become a symptom instead of a
-decision.
+`OpenApiDocumentTests` asserts all three, so "no operations" cannot quietly become a symptom instead
+of a decision.
 
 ### Why not one aggregated document at the Gateway
 
-There isn't one to aggregate. These are seven separately deployed services with seven schemas; a
-merged document would imply a single API surface behind a single process, which is the exact thing
-the old shared title ("built using the modular monolith architecture", on all seven) got wrong. The
+There isn't one to aggregate. These are separately deployed services with a schema each; a merged
+document would imply a single API surface behind a single process, which is the exact thing the old
+shared title ("built using the modular monolith architecture", on all seven) got wrong. The
 Gateway routes to each document instead of pretending to own them.
 
 ## 2. Reachability and authorization

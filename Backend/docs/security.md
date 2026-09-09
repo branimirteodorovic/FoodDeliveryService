@@ -309,9 +309,12 @@ out (`KUBERNETES_PHASE2_PLAN.md`), so the two-credential split is what ships.
 near-idle pool per host, capped at **2** — all a single sequential migration run can want, and a
 privileged pool sitting idle for the life of the process is not something to be generous with.
 
-The bounded worst case moves from `7 × 20 + 20 = 160` to `160 + 8 × 2 = 176`, against the server's
-`max_connections=200`. `DatabaseRoleTests.BoundedConnectionTotal_FitsInsideTheServersMaxConnections`
-re-derives that from the manifests rather than trusting the comment beside them.
+The bounded worst case moves from `7 × 20 + 20 = 160` to `160 + 8 × 2 = 176`. Feature 3.8's Payments
+host — the ninth database — took it to `8 × 20 + 20 = 180` plus `9 × 2 = 198`, past the 20
+connections of headroom the assertion below demands, so `max_connections` went from **200 to 250** in
+the same change. `DatabaseRoleTests.BoundedConnectionTotal_FitsInsideTheServersMaxConnections`
+re-derives all of that from the manifests rather than trusting the comment beside them: a new service
+that does not fit fails the build.
 
 ### 4.4 Guardrails
 
