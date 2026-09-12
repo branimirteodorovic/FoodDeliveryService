@@ -10,6 +10,7 @@ using FoodDeliveryService.Modules.Payments.Infrastructure.Authorization;
 using FoodDeliveryService.Modules.Payments.Infrastructure.Database;
 using FoodDeliveryService.Modules.Payments.Infrastructure.Inbox;
 using FoodDeliveryService.Modules.Payments.Infrastructure.Outbox;
+using FoodDeliveryService.Modules.Payments.Infrastructure.Stripe;
 using FoodDeliveryService.Modules.Users.IntegrationEvents;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
@@ -75,6 +76,8 @@ public static class PaymentsModule
         services.AddScoped<IPaymentsContext, PaymentsContext>();
 
         services.AddScoped<IPermissionService, PermissionService>();
+
+        services.AddStripe(configuration);
 
         services.Configure<OutboxOptions>(configuration.GetSection("MessageProcessor:Outbox"));
 

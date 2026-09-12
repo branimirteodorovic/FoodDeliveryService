@@ -20,6 +20,20 @@ title = "FoodDeliveryService"
 # secrets) rather than hand-rolling rules that would rot.
 useDefault = true
 
+# Feature 3.8 Milestone C — Stripe. The default rule set already carries `stripe-access-token`,
+# which covers sk_/rk_ in both test and live mode, so only the webhook signing secret needs a rule
+# of its own: it is not in gitleaks' defaults, and it is the value that lets anyone forge a
+# `payment_intent.succeeded` into this platform.
+#
+# The body has to be long enough to be a real secret. The Kubernetes Secret ships a placeholder that
+# says in words that it is one (`whsec_kind_local_no_stripe_account`), and a rule that flagged it
+# would be a rule someone disables.
+[[rules]]
+id = "stripe-webhook-secret"
+description = "Stripe webhook signing secret"
+regex = '''\bwhsec_[A-Za-z0-9]{16,}\b'''
+keywords = ["whsec_"]
+
 [allowlist]
 description = "Local-only development credentials, valid against a throwaway compose/KinD stack."
 targets = ["file"]

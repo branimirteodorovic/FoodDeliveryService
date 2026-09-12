@@ -124,7 +124,7 @@ public sealed class DatabasePrivilegeTests : IAsyncLifetime
             }
         }
 
-        owners.Should().HaveCount(8, "one database per service, created by the init script");
+        owners.Should().HaveCount(9, "one database per service, created by the init script");
 
         foreach ((string database, string owner) in owners)
         {

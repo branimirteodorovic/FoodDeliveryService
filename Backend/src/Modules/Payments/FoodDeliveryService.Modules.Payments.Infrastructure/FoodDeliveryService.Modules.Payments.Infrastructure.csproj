@@ -1,6 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <!-- Feature 3.8 Milestone C. The only project in the solution that references the Stripe SDK,
+         and it stays that way: Application talks to IPaymentGateway, Presentation cannot see this
+         assembly at all, and the API keys are bound here. -->
+    <PackageReference Include="Stripe.net" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\..\Common\FoodDeliveryService.Common.Infrastructure\FoodDeliveryService.Common.Infrastructure.csproj" />
     <ProjectReference Include="..\FoodDeliveryService.Modules.Payments.Application\FoodDeliveryService.Modules.Payments.Application.csproj" />
     <ProjectReference Include="..\FoodDeliveryService.Modules.Payments.Presentation\FoodDeliveryService.Modules.Payments.Presentation.csproj" />
@@ -14,6 +21,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="FoodDeliveryService.Modules.Payments.IntegrationTests" />
+    <InternalsVisibleTo Include="FoodDeliveryService.Modules.Payments.UnitTests" />
   </ItemGroup>
 
 </Project>

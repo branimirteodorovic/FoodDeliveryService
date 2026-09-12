@@ -87,6 +87,21 @@ spec:
                 secretKeyRef:
                   name: platform-secrets
                   key: ConnectionStrings__Queue
+            # Feature 3.8 Milestone C. Both are required outside Development — the host runs
+            # AddRequiredConfiguration for them and refuses to start on a blank one, so a Payments
+            # pod that omits either of these CrashLoopBackOffs rather than serving orders it cannot
+            # charge for. The values in platform-secrets are placeholders and say so; this cluster
+            # has no Stripe account behind it.
+            - name: Stripe__SecretKey
+              valueFrom:
+                secretKeyRef:
+                  name: platform-secrets
+                  key: Stripe__SecretKey
+            - name: Stripe__WebhookSecret
+              valueFrom:
+                secretKeyRef:
+                  name: platform-secrets
+                  key: Stripe__WebhookSecret
           startupProbe:
             httpGet:
               path: /health/live

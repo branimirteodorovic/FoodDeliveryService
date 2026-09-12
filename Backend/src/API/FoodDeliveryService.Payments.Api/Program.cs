@@ -12,6 +12,7 @@ using FoodDeliveryService.Payments.Api.Extensions;
 using FoodDeliveryService.Payments.Api.Middleware;
 using FoodDeliveryService.Payments.Api.OpenTelemetry;
 using FoodDeliveryService.Modules.Payments.Infrastructure;
+using Microsoft.Extensions.Options;
 using RabbitMQ.Client;
 using Serilog;
 using StackExchange.Redis;
@@ -37,6 +38,21 @@ builder.Host.UseSerilog((context, loggerConfig) => loggerConfig.ReadFrom.Configu
 // reason: KestrelServerOptions.AddServerHeader is read when the server starts and cannot be set from
 // the pipeline.
 builder.Services.AddSecurityHeaders(builder.Configuration);
+
+// Feature 3.8 Milestone C — configuration fail-fast for the Stripe credentials, the same mechanism
+// Feature 3.7 Milestone E gave Identity and Users. Both keys ship blank in appsettings.json and are
+// supplied by the environment, so without this a deployment that forgets one boots perfectly happily
+// and fails at the first order with a 401 from Stripe that points at nothing.
+//
+// It skips Development by design, and that carve-out is load-bearing here: a `docker-compose up`
+// without Stripe user secrets, and every integration test that boots this host against a fake
+// gateway, must still start. The checks that DO run everywhere — that a key is a test key and not a
+// live one — live in StripeOptionsValidator instead.
+builder.Services.AddRequiredConfiguration(
+    builder.Configuration,
+    builder.Environment,
+    "Stripe:SecretKey",
+    "Stripe:WebhookSecret");
 
 // Last-resort exception handling: unhandled exceptions become RFC 7807 ProblemDetails responses.
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
@@ -105,6 +121,11 @@ builder.Services.AddHealthChecks()
 builder.Services.AddPaymentsModule(builder.Configuration);
 
 WebApplication app = builder.Build();
+
+// Feature 3.7 Milestone E — run the AddRequiredConfiguration and options checks HERE rather than
+// leaving them to ValidateOnStart(), which defers them into app.RunAsync(): that is after the
+// migration below, so a host missing its Stripe key would otherwise touch the database first.
+app.Services.GetRequiredService<IStartupValidator>().Validate();
 
 // EF Core migrations are applied automatically at startup — no manual `dotnet ef database update`.
 app.ApplyMigrations();

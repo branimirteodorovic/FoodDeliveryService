@@ -85,6 +85,11 @@
          Microsoft.Extensions.Caching.StackExchangeRedis; the Gateway takes no Common.Infrastructure
          dependency, so it names the one package it actually needs. -->
     <PackageVersion Include="StackExchange.Redis" Version="2.13.17" />
+    <!-- Feature 3.8 Milestone C. The payment gateway seam's one implementation. First-party and
+         current, which is most of why Stripe was chosen (PAYMENTS_PHASE3_PLAN.md §0.3); referenced
+         only by Payments.Infrastructure, so the SDK, the API keys and the webhook parsing stay
+         inside the one service that owns them. -->
+    <PackageVersion Include="Stripe.net" Version="52.4.1" />
     <PackageVersion Include="Swashbuckle.AspNetCore" Version="10.2.3" />
     <!-- 4.14.0, not 4.13.0, and the reason is a build break rather than a feature: Testcontainers
          4.13.0 depends on SSH.NET 2025.1.0, which picked up a high-severity advisory

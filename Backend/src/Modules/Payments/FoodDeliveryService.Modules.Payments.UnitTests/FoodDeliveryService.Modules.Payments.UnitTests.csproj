@@ -21,6 +21,14 @@
 
   <ItemGroup>
     <ProjectReference Include="..\FoodDeliveryService.Modules.Payments.Domain\FoodDeliveryService.Modules.Payments.Domain.csproj" />
+    <!-- Feature 3.8 Milestone C. Wider than the Domain-only reference most unit suites take, and
+         deliberately so — two of the three things this milestone ships live above the Domain:
+         PaymentIdempotencyKeys (Application) and the Stripe error mapping (Infrastructure, reached
+         through InternalsVisibleTo). Both are asserted here rather than in the integration suite
+         because CI runs this one and does not yet run that one. Restaurants.UnitTests already
+         references its Application, and RealTime.UnitTests its Infrastructure. -->
+    <ProjectReference Include="..\FoodDeliveryService.Modules.Payments.Application\FoodDeliveryService.Modules.Payments.Application.csproj" />
+    <ProjectReference Include="..\FoodDeliveryService.Modules.Payments.Infrastructure\FoodDeliveryService.Modules.Payments.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>

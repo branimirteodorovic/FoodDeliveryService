@@ -40,6 +40,76 @@ public class SecretHygieneTests
         ("Authentication:TokenValidationParameters", "JWT *validation* parameters — public issuer/audience values")
     ];
 
+    /// <summary>
+    /// A live Stripe key, a test Stripe key, or a webhook signing secret with a real body — Feature
+    /// 3.8 Milestone C, §5.4.
+    /// <para>
+    /// The prefix alone is not enough to match, and that is deliberate: the placeholders in
+    /// <c>deploy/k8s/base/config.yaml</c>, the prose in the plan and the literals in
+    /// <c>StripeOptionsValidator</c> all name these prefixes legitimately. A real key carries at
+    /// least 16 unbroken alphanumeric characters after its prefix; a placeholder that spells out why
+    /// it is a placeholder cannot.
+    /// </para>
+    /// </summary>
+    private static readonly Regex StripeCredential = new(
+        @"\b(?:(?:sk|rk)_(?:live|test)|whsec)_[A-Za-z0-9]{16,}\b",
+        RegexOptions.Compiled);
+
+    /// <summary>
+    /// Directory names whose contents are build output, containers or test artefacts rather than
+    /// tracked source. Walking into them turns a sub-second test into a minute-long one.
+    /// </summary>
+    private static readonly string[] NotTrackedSource =
+        ["bin", "obj", "node_modules", ".vs", ".containers", "TestResults", "results"];
+
+    /// <summary>
+    /// The text formats a credential could plausibly be pasted into. Binary and image files are
+    /// skipped because reading them as text is slow and finds nothing.
+    /// </summary>
+    private static readonly string[] ScannedExtensions =
+    [
+        ".cs", ".json", ".yml", ".yaml", ".sh", ".ps1", ".md",
+        ".env", ".sql", ".props", ".csproj", ".txt", ".js", ".mjs"
+    ];
+
+    /// <summary>
+    /// gitleaks already carries a Stripe rule and CI runs it, so why this too: gitleaks scans the
+    /// tracked tree at push time, this fails the build on a developer's machine before the commit
+    /// exists. For a credential that a third party revokes on your behalf — Stripe scans public
+    /// repositories and kills committed keys, usually before you have noticed — the earlier gate is
+    /// the one that saves the embarrassment. <c>whsec_</c> is not in the gitleaks default rule set
+    /// at all; <c>.gitleaks.toml</c> adds it for the push-time half.
+    /// </summary>
+    [Fact]
+    public void NoStripeCredential_IsCommittedAnywhereUnderBackend()
+    {
+        string backend = RepositoryPaths.Backend();
+
+        List<string> offenders = [];
+
+        foreach (string path in Directory.EnumerateFiles(backend, "*", SearchOption.AllDirectories))
+        {
+            string relative = Path.GetRelativePath(backend, path);
+
+            if (relative.Split(Path.DirectorySeparatorChar).Any(NotTrackedSource.Contains) ||
+                !ScannedExtensions.Contains(Path.GetExtension(path)))
+            {
+                continue;
+            }
+
+            if (StripeCredential.IsMatch(File.ReadAllText(path)))
+            {
+                offenders.Add(relative);
+            }
+        }
+
+        offenders.Should().BeEmpty(
+            "a Stripe key belongs in user secrets locally and in the platform-secrets Secret in " +
+            "Kubernetes — never in a file. This platform runs in Stripe test mode only, so the worst " +
+            "case is a revoked test key rather than a stolen card, but a live key committed to a " +
+            "public repository is the single worst outcome this feature has available");
+    }
+
     [Theory]
     [MemberData(nameof(HostSettingsFiles))]
     public void BaseAppSettings_ShipsEveryCredentialBlank(string relativePath)

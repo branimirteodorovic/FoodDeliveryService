@@ -312,8 +312,9 @@ Error mapping is the subtle part, because it decides whether the outbox retries:
 | Stripe outcome | Maps to | Why |
 |---|---|---|
 | `card_error` (decline, expired, insufficient funds) | `Result.Failure(PaymentErrors.Declined(reason))` | A business failure. Retrying will decline again. |
-| `invalid_request_error` | `Result.Failure` | Our bug. Retrying will not fix it; alert instead. |
-| `api_connection_error`, `api_error`, `rate_limit_error`, HTTP 5xx | **throw** `Common.Application.Exceptions.ApplicationException` | Transient. The outbox/inbox job must retry. |
+| `invalid_request_error`, `idempotency_error` | `Result.Failure` | Our bug. Retrying will not fix it; alert instead. |
+| `authentication_error` | `Result.Failure(PaymentErrors.GatewayNotAuthenticated)` | The API key was rejected — configuration, not the card. Added in the build; it is the symptom of a missing user secret and deserved its own error rather than a generic one. |
+| `api_connection_error`, `api_error`, `rate_limit_error`, HTTP 5xx | **throw** `Common.Application.Exceptions.ApplicationException` | Transient. ~~The outbox/inbox job must retry.~~ **It does not — see §5.6.** The throw still matters: it records the failure as a fault on the message row rather than letting it be mistaken for a decline. |
 
 ### 5.4 Options and secrets
 
@@ -326,6 +327,119 @@ Values go to user-secrets in Development and `platform-secrets` in Kubernetes; n
 ### 5.5 `FakePaymentGateway`
 
 In the test project. Deterministic, scriptable per test (`succeed`, `decline`, `require_action`, `throw_transient`), and **records every call with its idempotency key** — that recording is what §11.1's double-charge regression test asserts against.
+
+### 5.6 What Milestone C shipped, and where it departed from §5.1–5.5
+
+`Stripe.net` **52.4.1**, referenced by `Payments.Infrastructure` and by nothing else. No endpoints, no
+aggregate, no migration. Green: `dotnet build` on the solution, `Payments.UnitTests` **69/69** (new —
+the §4.5 CI entry now asserts something), `Payments.IntegrationTests` **10/10** (the fake's own
+tests), `Common.UnitTests` **459/459** (458 + the new Stripe scan), `policy-check.py`. `kubeconform`
+is not installed on this machine and was not run; the manifest change is two `secretKeyRef` env
+entries copied from the four already there, and both changed YAML files were parsed.
+
+**Nine departures and constraints, in the order they cost time.**
+
+- **§5.3's "the outbox/inbox job must retry" is false, and §8/§9 must not be built on it.**
+  `ProcessInboxJob` was already known not to retry (§8.1 says so). `ProcessOutboxJob` does not
+  either: its per-message `catch` writes the exception into the message's `error` column and then
+  marks the row `processed_on_utc` in the same transaction as the successes. So a transient Stripe
+  fault does not come back around — the payment is stranded until something re-drives it, which is
+  the reconciling webhook (§7) and nothing else. Throwing is still the right response, because it is
+  what distinguishes a provider fault from a decline in the message row and the logs; it is just not
+  a retry. **§8's terminal-state no-ops and §7's reconciliation are therefore load-bearing, not
+  belt-and-braces.**
+
+- **`Money` has a private constructor, not the positional form in §5.1.** A positional record's
+  primary constructor is public, so `new Money(-5m, "XYZ")` compiles and skips `Create` — which
+  makes the type decorative. Same shape as every aggregate here. `Create` allows **zero** (a
+  running "refunds settled so far" total starts there); a charge being strictly positive is the
+  `Payment` aggregate's rule in §8, not this type's.
+
+- **`Currency` is not on `StripeOptions`.** §5.4 puts it there; it cannot go there. The handler that
+  turns `Order.Subtotal` into a `Money` is an Application-layer handler, and Application cannot
+  reference Infrastructure. It is `PaymentsOptions.Currency` in
+  `Payments.Application/Abstractions/Payments/`, bound from `Payments:Currency` — which is the key
+  §0.4 named in the first place. Validated at boot through `Money.Create`, so the startup check and
+  the per-amount check cannot drift. The gateway never reads it: the amount carries its own
+  currency, which is most of the point of having the type.
+
+- **`StripeOptions` lives in Infrastructure and is invisible to Presentation — a constraint on §7.**
+  Infrastructure references Presentation, not the reverse, so an endpoint cannot see `StripeOptions`
+  *or* any Stripe SDK type. §7.2's sketch, which calls `EventUtility.ConstructEvent` inside the
+  endpoint, does not compile in this solution. The webhook signature check has to sit behind an
+  Application-layer abstraction implemented in Infrastructure, with the endpoint reading the raw body
+  and handing over bytes plus the signature header. The note is repeated at §7.2.
+
+- **Presence and shape are two different checks, deliberately split.** Presence is
+  `AddRequiredConfiguration(builder.Configuration, builder.Environment, "Stripe:SecretKey",
+  "Stripe:WebhookSecret")` in `Program.cs` plus the `IStartupValidator.Validate()` call after
+  `Build()` — the Feature 3.7 Milestone E pattern, which **skips Development**. That carve-out is
+  load-bearing: a `docker-compose up` without Stripe user secrets, and every integration-test host
+  from §6 onwards, must still start. Shape is `StripeOptionsValidator`, which runs everywhere and
+  never skips. It **refuses a live key (`sk_live_`/`rk_live_`) in every environment** — an addition
+  beyond §5.4, because §0.3 and the README both claim this platform cannot move real money, and a
+  claim with no enforcement behind it is a claim. It also rejects a publishable `pk_` pasted into the
+  secret slot, which is the common version of that mistake and otherwise surfaces as an opaque 401.
+
+- **The KinD cluster needed placeholder Stripe values or it stops deploying.** With presence enforced
+  outside Development, `ASPNETCORE_ENVIRONMENT=Kubernetes` means the Payments pod CrashLoopBackOffs
+  without the two keys, and `cluster-smoke` fails on it. Committing a real test key is out of the
+  question (§5.4's own reasoning). So `platform-secrets` carries
+  `Stripe__SecretKey: sk_test_kind_local_no_stripe_account` and
+  `Stripe__WebhookSecret: whsec_kind_local_no_stripe_account`, labelled as placeholders, with
+  `payments.yaml` mapping both. Any call that reaches Stripe from that cluster fails with a visible
+  `invalid_api_key`, which is the honest behaviour for a cluster that has no Stripe account.
+  `StripeOptionsValidatorTests` pins that these two placeholders still pass the shape rules, so a
+  later tightening cannot silently break the cluster gate.
+
+- **The namespace `…Infrastructure.Stripe` collides with the SDK's root namespace.** Inside it, a
+  plain `using Stripe;` binds to the enclosing namespace and every SDK type stops resolving.
+  `using global::Stripe;` is the fix and it is needed in every file in that folder. Same trap as the
+  `Delivery` class versus the Delivery module namespace.
+
+- **A decline needs to carry its reason as data, so there is a `PaymentDeclinedError`.** §5.3 says a
+  decline is a `Result.Failure`; §8.4 says the resulting integration event carries the bounded reason
+  code. An `Error` has a code, a description and a type, none of which is a place to put a reason a
+  consumer can switch on — and encoding it into the code string means parsing it back out. So
+  `PaymentErrors.Declined(reason)` returns a `PaymentDeclinedError : Error` with a `Reason` property,
+  and **§8 recovers it with `if (result.Error is PaymentDeclinedError declined)`** rather than
+  inventing a second channel. The five reasons themselves are `PaymentFailureReason` in the Domain,
+  declared here rather than in §8 because mapping Stripe's decline codes onto them is the seam's job.
+
+- **3-D Secure is resolved in the seam, not in §8's handler.** `AuthorizeAsync` sets
+  `ErrorOnRequiresAction = true`, so an off-session card that wants a challenge comes back as a
+  `card_error` with code `authentication_required` instead of leaving a `requires_action` intent
+  hanging until it expires. §8.5's instruction — "treat it as an authorization failure with reason
+  `authentication_required`" — is therefore already true by the time a handler sees the result.
+
+**Two smaller things worth knowing.**
+
+- **§5.4's "add the patterns to `SecretHygieneTests`" had nowhere to add them.** That suite has no
+  pattern list — it asserts that credential-shaped *keys* in `appsettings.json` are blank. So the
+  check is a new test, `NoStripeCredential_IsCommittedAnywhereUnderBackend`, scanning the text files
+  under `Backend/` for `sk_`/`rk_`/`whsec_` followed by **16 or more unbroken alphanumeric
+  characters**. The length floor is what lets the placeholders, the prose in this plan and the
+  literals in the validator coexist with the rule. `.gitleaks.toml` gains a matching
+  `stripe-webhook-secret` rule — gitleaks' defaults already cover `sk_`/`rk_` but carry nothing for
+  `whsec_`, which is the value that lets anyone forge a `payment_intent.succeeded`. Consequence for
+  future test fixtures: **a realistic-looking fake key fails the build**, so use segments shorter than
+  16 characters (`sk_test_not_a_real_key`).
+
+- **`Payments.UnitTests` references Application and Infrastructure, not just Domain.** Two of the
+  three things this milestone ships live above the Domain, and CI runs this suite while it does not
+  yet run the integration one. `Payments.Infrastructure` grew a second `InternalsVisibleTo`.
+  Precedent: `Restaurants.UnitTests` already references its Application, `RealTime.UnitTests` its
+  Infrastructure. `FakePaymentGateway` stays in `Payments.IntegrationTests` where §13.2 needs it —
+  and it **replays a repeated idempotency key with the first response, the way Stripe does**, marking
+  the call `Replayed` rather than hiding it, so §13.2 can tell "the handler retried harmlessly" from
+  "the customer was charged twice".
+
+**Local setup**, since nothing writes a Stripe key to a file:
+
+```bash
+dotnet user-secrets set "Stripe:SecretKey" "sk_test_..." --project src/API/FoodDeliveryService.Payments.Api
+dotnet user-secrets set "Stripe:WebhookSecret" "whsec_..." --project src/API/FoodDeliveryService.Payments.Api
+```
 
 ---
 
@@ -385,6 +499,15 @@ app.MapPost("payments/webhooks/stripe", async (HttpRequest request, ISender send
 
 Take `HttpRequest` and read the stream yourself. **Never bind a model** — binding consumes the stream, and re-serializing the bound object changes the bytes, so the signature will not verify. The failure mode is a 100% webhook rejection rate that looks like a bad secret.
 
+**The sketch above does not compile in this solution, and Milestone C is why (§5.6).** The endpoint
+lives in `Payments.Presentation`, which `Payments.Infrastructure` *references* — so Presentation can
+see neither `EventUtility` nor `StripeOptions`, and inverting that reference would put the Stripe SDK
+in the assembly every other module's endpoints are modelled on. Put the verification behind an
+Application-layer abstraction (`IPaymentWebhookParser` or similar) implemented in
+`Payments.Infrastructure/Stripe/`, taking the raw body and the `Stripe-Signature` header and
+returning a provider-neutral result. The endpoint still reads the stream itself — that part of the
+rule is unchanged and is the one that actually bites.
+
 ### 7.3 The rate limiter will shed Stripe's webhooks
 
 `Common.Presentation/RateLimiting/RateLimitRoutePolicy.cs` partitions anonymous callers **by IP**. Every Stripe webhook arrives from a small set of Stripe IPs and therefore shares **one** bucket. A busy minute gets `429`d, Stripe backs off exponentially, and payment state silently lags.
@@ -430,6 +553,13 @@ Keys and TTL in **one** shared static (`PaymentLocks`) so the webhook side and t
 
 **A lost acquisition must land somewhere a retry exists.** `ProcessInboxJob` does **not** retry — it records the error and marks the message processed. Returning `Result.Success()` strands the payment. Return a failure; the reconciling webhook re-drives it.
 
+**And `ProcessOutboxJob` does not retry either — Milestone C checked (§5.6).** Its per-message
+`catch` writes the exception into the row's `error` column and marks it processed alongside the
+successes. So there is no retry anywhere on either async leg: a transient Stripe fault, a lost lock
+and a handler bug all end the same way, with a recorded error and a payment sitting in whatever state
+it was in. The webhook reconciliation in §7 is the only thing that moves it, which makes §7 a
+correctness requirement of §8 rather than a refinement of it.
+
 ### 8.2 Orders: the payment dimension
 
 - `PaymentMethod.Card = 2`. `PlaceOrderCommandValidator` already parses the enum, so `Card` becomes accepted automatically — add the replica check from §6.3 in the same PR or an unpayable order is placeable.
@@ -446,9 +576,19 @@ Reusing `Order.Cancel()` raises `OrderCancelledDomainEvent`, which Payments cons
 
 `PaymentAuthorizationFailedIntegrationEvent` carries a **bounded** reason code (`card_declined`, `insufficient_funds`, `expired_card`, `authentication_required`, `gateway_error`) — never Stripe's raw message, which is unbounded free text and would blow up metric cardinality in §11.1.
 
+Those five are already declared as `PaymentFailureReason` in `Payments.Domain/Payments/`, and the
+Stripe decline-code mapping onto them shipped with the seam (§5.6). Read the reason off the failure
+with a type test — `if (result.Error is PaymentDeclinedError declined) { … declined.Reason … }` — not
+by parsing the error code or description.
+
 ### 8.5 3-D Secure
 
 An off-session charge can return `requires_action`. Test with `4000 0025 0000 3155`. Treat it as an authorization failure with reason `authentication_required`. A proper on-session retry (notify the customer, have them re-authenticate, resume) is frontend work and is **explicitly out of scope** — say so in `docs/payments.md` rather than leaving a reader to wonder whether it was missed.
+
+Already handled in the seam: `AuthorizeAsync` sets `ErrorOnRequiresAction = true`, so Stripe raises a
+`card_error` with code `authentication_required` instead of returning a `requires_action` intent that
+would hang until it expired. §8's handler sees an ordinary decline with that reason and needs no
+special case (§5.6).
 
 ### 8.6 Terminal states are no-ops
 

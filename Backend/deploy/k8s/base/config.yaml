@@ -102,6 +102,24 @@ stringData:
   Database__Payments: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_payments;Username=fds_payments_app;Password=fds_payments_app_dev;Maximum Pool Size=10
   DatabaseMigrations__Payments: Host=fooddeliveryservice-database;Port=5432;Database=fooddeliveryservice_payments;Username=fds_payments_owner;Password=fds_payments_owner_dev;Maximum Pool Size=2
 
+  # Feature 3.8 Milestone C — the Stripe credentials. These two are PLACEHOLDERS, and they are the
+  # only values in this file that are not working ones.
+  #
+  # The Payments host fails to start without them outside Development (AddRequiredConfiguration in
+  # its Program.cs), which is the point of the fail-fast — but this cluster has no Stripe account
+  # behind it, and committing a real test key to a public repository is the single worst outcome
+  # this feature has available. Stripe's own scanner finds and revokes committed keys, usually
+  # before you notice.
+  #
+  # So the cluster boots and passes its probes, and any call that actually reaches Stripe fails with
+  # a 401 invalid_api_key, visibly, in the Payments logs. That is the intended behaviour here: the
+  # KinD stack exists to prove the deployment topology, not to move money. To exercise the payment
+  # flow, replace these with your own test-mode values from dashboard.stripe.com — the SecretKey
+  # must start with sk_test_ (StripeOptionsValidator refuses a live key in every environment) and
+  # the WebhookSecret is what `stripe listen --forward-to ...` prints.
+  Stripe__SecretKey: sk_test_kind_local_no_stripe_account
+  Stripe__WebhookSecret: whsec_kind_local_no_stripe_account
+
   # The client-credentials secret Users presents to Identity's api/users provisioning endpoint —
   # the one sanctioned service-to-service HTTP call in the system. Both sides read the same value,
   # so it is stored once. Registration fails at that call if it drifts.
