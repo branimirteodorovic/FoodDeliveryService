@@ -24,6 +24,7 @@ internal sealed class StripePaymentGateway(
 {
     private readonly CustomerService _customers = new(client);
     private readonly SetupIntentService _setupIntents = new(client);
+    private readonly PaymentMethodService _paymentMethods = new(client);
     private readonly PaymentIntentService _paymentIntents = new(client);
     private readonly RefundService _refunds = new(client);
 
@@ -76,6 +77,42 @@ internal sealed class StripePaymentGateway(
             (requestOptions, ct) => _setupIntents.CreateAsync(options, requestOptions, ct),
             setupIntent => new GatewaySetupIntent(setupIntent.Id, setupIntent.ClientSecret),
             cancellationToken);
+    }
+
+    public Task<Result<GatewayPaymentMethod>> AttachPaymentMethodAsync(
+        string stripeCustomerId,
+        string paymentMethodId,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default)
+    {
+        var options = new PaymentMethodAttachOptions { Customer = stripeCustomerId };
+
+        return InvokeAsync(
+            "attach_payment_method",
+            idempotencyKey,
+            (requestOptions, ct) => _paymentMethods.AttachAsync(paymentMethodId, options, requestOptions, ct),
+            ToGatewayPaymentMethod,
+            cancellationToken);
+    }
+
+    public async Task<Result> DetachPaymentMethodAsync(
+        string paymentMethodId,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default)
+    {
+        var options = new PaymentMethodDetachOptions();
+
+        // Detach returns the payment method, but nothing here has any use for it: the card is being
+        // forgotten. Mapped to a bare Result so no caller is tempted to read display fields off a
+        // card that no longer exists.
+        Result<GatewayPaymentMethod> result = await InvokeAsync(
+            "detach_payment_method",
+            idempotencyKey,
+            (requestOptions, ct) => _paymentMethods.DetachAsync(paymentMethodId, options, requestOptions, ct),
+            ToGatewayPaymentMethod,
+            cancellationToken);
+
+        return result.IsSuccess ? Result.Success() : Result.Failure(result.Error);
     }
 
     public Task<Result<GatewayPaymentIntent>> AuthorizeAsync(
@@ -183,6 +220,18 @@ internal sealed class StripePaymentGateway(
                 refund.Amount),
             cancellationToken);
     }
+
+    /// <summary>
+    /// The four display fields, and nothing else off a Stripe <c>PaymentMethod</c> — §0.5. The
+    /// <c>Card</c> property is null for every non-card type, and the SetupIntent asks for cards
+    /// only, so a null here is a fact to carry rather than a reason to throw.
+    /// </summary>
+    private static GatewayPaymentMethod ToGatewayPaymentMethod(PaymentMethod paymentMethod) => new(
+        paymentMethod.Id,
+        paymentMethod.Card?.Brand,
+        paymentMethod.Card?.Last4,
+        (int?)paymentMethod.Card?.ExpMonth,
+        (int?)paymentMethod.Card?.ExpYear);
 
     /// <summary>
     /// Amount is what was authorized; AmountReceived is what was actually taken, and it stays zero

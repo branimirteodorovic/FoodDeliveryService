@@ -43,6 +43,11 @@ internal sealed class FakePaymentGateway : IPaymentGateway
     private readonly Dictionary<string, object> _responsesByIdempotencyKey = new(StringComparer.Ordinal);
     private readonly Dictionary<string, long> _authorizedMinorUnits = new(StringComparer.Ordinal);
 
+    /// <summary>Far enough out that a card in a fixture never expires mid-suite.</summary>
+    private const int ExpiryMonth = 12;
+
+    private const int ExpiryYear = 2099;
+
     /// <summary>What every operation does unless <see cref="Script"/> says otherwise.</summary>
     public FakeGatewayOutcome DefaultOutcome { get; set; } = FakeGatewayOutcome.Succeed;
 
@@ -115,6 +120,41 @@ internal sealed class FakePaymentGateway : IPaymentGateway
 
                 return new GatewaySetupIntent(id, $"{id}_secret_{Identifier("sec", idempotencyKey)}");
             }));
+
+    public Task<Result<GatewayPaymentMethod>> AttachPaymentMethodAsync(
+        string stripeCustomerId,
+        string paymentMethodId,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(Execute(
+            FakeGatewayOperation.AttachPaymentMethod,
+            idempotencyKey,
+            subject: paymentMethodId,
+            amountMinorUnits: null,
+            () =>
+            {
+                // The card details Stripe would report back. Derived from the token so that
+                // pm_card_visa is always a Visa: a fake that returned the same brand for every token
+                // would let a display bug through unnoticed.
+                (string brand, string last4) = Card(paymentMethodId);
+
+                return new GatewayPaymentMethod(paymentMethodId, brand, last4, ExpiryMonth, ExpiryYear);
+            }));
+
+    public Task<Result> DetachPaymentMethodAsync(
+        string paymentMethodId,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default)
+    {
+        Result<GatewayPaymentMethod> result = Execute(
+            FakeGatewayOperation.DetachPaymentMethod,
+            idempotencyKey,
+            subject: paymentMethodId,
+            amountMinorUnits: null,
+            () => new GatewayPaymentMethod(paymentMethodId, null, null, null, null));
+
+        return Task.FromResult(result.IsSuccess ? Result.Success() : Result.Failure(result.Error));
+    }
 
     public Task<Result<GatewayPaymentIntent>> AuthorizeAsync(
         GatewayAuthorization authorization,
@@ -243,6 +283,21 @@ internal sealed class FakePaymentGateway : IPaymentGateway
         }
     }
 
+    /// <summary>
+    /// Brand and last four for one of Stripe's test tokens. The ones this platform's tests use are
+    /// mapped by name; anything else gets a plausible default rather than a null, because a null
+    /// brand is a legitimate non-card payment method and should not be produced by accident.
+    /// </summary>
+    private static (string Brand, string Last4) Card(string paymentMethodId) => paymentMethodId switch
+    {
+        "pm_card_visa" => ("visa", "4242"),
+        "pm_card_visa_chargeDeclined" => ("visa", "0341"),
+        "pm_card_mastercard" => ("mastercard", "4444"),
+        "pm_card_amex" => ("amex", "8431"),
+        "pm_card_threeDSecure2Required" => ("visa", "3155"),
+        _ => ("visa", "4242")
+    };
+
     private long AuthorizedMinorUnits(string paymentIntentId)
     {
         lock (_gate)
@@ -266,11 +321,13 @@ internal sealed class FakePaymentGateway : IPaymentGateway
     }
 }
 
-/// <summary>The six calls <see cref="IPaymentGateway"/> makes.</summary>
+/// <summary>The eight calls <see cref="IPaymentGateway"/> makes.</summary>
 internal enum FakeGatewayOperation
 {
     CreateCustomer,
     CreateSetupIntent,
+    AttachPaymentMethod,
+    DetachPaymentMethod,
     Authorize,
     Capture,
     Release,

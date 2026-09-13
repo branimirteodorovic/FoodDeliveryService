@@ -3,6 +3,10 @@
   <ItemGroup>
     <ProjectReference Include="..\..\..\Common\FoodDeliveryService.Common.Presentation\FoodDeliveryService.Common.Presentation.csproj" />
     <ProjectReference Include="..\FoodDeliveryService.Modules.Payments.Application\FoodDeliveryService.Modules.Payments.Application.csproj" />
+    <!-- Feature 3.8 Milestone D. The integration-event HANDLERS live in this assembly (they are
+         discovered from it by AddIntegrationEventHandlers), so the contracts they handle are
+         referenced here as well as in Infrastructure, which registers the consumers. -->
+    <ProjectReference Include="..\..\Users\FoodDeliveryService.Modules.Users.IntegrationEvents\FoodDeliveryService.Modules.Users.IntegrationEvents.csproj" />
   </ItemGroup>
 
   <ItemGroup>

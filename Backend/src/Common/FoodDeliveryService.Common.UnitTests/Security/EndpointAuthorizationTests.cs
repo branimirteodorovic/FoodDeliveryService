@@ -102,18 +102,18 @@ public class EndpointAuthorizationTests
 
     /// <summary>
     /// The module Presentation assemblies, with whether the module is expected to have an HTTP
-    /// surface at all. Two are deliberately <c>false</c>. Notifications is a pure consumer that
-    /// reacts to integration events and sends email, and it has never exposed an endpoint. Payments
-    /// is a skeleton — Feature 3.8 Milestone B shipped the service with no business logic behind it
-    /// — and flips to <c>true</c> with its first endpoint in Milestone D. Written down so that "no
-    /// endpoints found" reads as a decision rather than as a broken test.
+    /// surface at all. One is deliberately <c>false</c>: Notifications is a pure consumer that
+    /// reacts to integration events and sends email, and it has never exposed an endpoint. Written
+    /// down so that "no endpoints found" reads as a decision rather than as a broken test. Payments
+    /// was carried the same way through Milestones B and C and flipped here with its first endpoints
+    /// (Feature 3.8 Milestone D).
     /// </summary>
     private static readonly ModuleSurface[] ModuleSurfaces =
     [
         new("Delivery", DeliveryPresentation.AssemblyReference.Assembly, HasHttpSurface: true),
         new("Notifications", NotificationsPresentation.AssemblyReference.Assembly, HasHttpSurface: false),
         new("Orders", OrdersPresentation.AssemblyReference.Assembly, HasHttpSurface: true),
-        new("Payments", PaymentsPresentation.AssemblyReference.Assembly, HasHttpSurface: false),
+        new("Payments", PaymentsPresentation.AssemblyReference.Assembly, HasHttpSurface: true),
         new("RealTime", RealTimePresentation.AssemblyReference.Assembly, HasHttpSurface: true),
         new("Restaurants", RestaurantsPresentation.AssemblyReference.Assembly, HasHttpSurface: true),
         new("Support", SupportPresentation.AssemblyReference.Assembly, HasHttpSurface: true),
@@ -124,9 +124,9 @@ public class EndpointAuthorizationTests
     /// The <c>Permissions</c> constant sets, one per module that has any. Referenced as types rather
     /// than looked up by name so that renaming the class is a compile error here instead of a test
     /// that quietly starts checking nothing. Users declares none (its two endpoints are anonymous)
-    /// and Notifications has no HTTP surface at all. Payments is here without an HTTP surface yet on
-    /// purpose: its three codes were seeded a milestone before the endpoints that carry them, which
-    /// is precisely the window in which a typo in a constant goes unnoticed.
+    /// and Notifications has no HTTP surface at all. Payments was here for two milestones before it
+    /// had an HTTP surface, on purpose: its three codes were seeded well before the endpoints that
+    /// carry them, which is precisely the window in which a typo in a constant goes unnoticed.
     /// </summary>
     private static readonly Type[] ModulePermissionSets =
     [

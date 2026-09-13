@@ -26,11 +26,17 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\API\FoodDeliveryService.Payments.Api\FoodDeliveryService.Payments.Api.csproj" />
-    <!-- The real Users host, in-process, so the permission RPC is answered by the real consumer.
-         Aliased because both hosts declare a top-level Program class. Arrives with the first
-         authorized endpoint (§6.3); the harness itself lands in the same milestone. -->
+    <!-- The real Users host, in-process, so the permission RPC is answered by the real consumer,
+         and so UserRegisteredIntegrationEvent is published by the service that owns it. Aliased
+         because every host declares a top-level Program class. -->
     <ProjectReference Include="..\..\..\API\FoodDeliveryService.Users.Api\FoodDeliveryService.Users.Api.csproj">
       <Aliases>UsersApi</Aliases>
+    </ProjectReference>
+    <!-- The real Orders host, in-process, so the CanPayByCard replica (§6.3) is asserted in the
+         database that actually holds it. The consuming half of a replication is the half that goes
+         wrong, and it is invisible from the publishing side. -->
+    <ProjectReference Include="..\..\..\API\FoodDeliveryService.Orders.Api\FoodDeliveryService.Orders.Api.csproj">
+      <Aliases>OrdersApi</Aliases>
     </ProjectReference>
   </ItemGroup>
 

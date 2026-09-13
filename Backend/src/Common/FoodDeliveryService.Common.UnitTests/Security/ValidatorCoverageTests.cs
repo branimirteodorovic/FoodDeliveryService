@@ -53,23 +53,32 @@ public partial class ValidatorCoverageTests
     {
         ["SetDriverAvailabilityCommand"] =
             "One bool. The driver is the authenticated caller, so there is no id to tamper with, and " +
-            "both values of the flag are legitimate."
+            "both values of the flag are legitimate.",
+
+        ["CreateSetupIntentCommand"] =
+            "No fields at all. The customer is the JWT subject, which is the point: a customer id " +
+            "here would let anyone start card collection against somebody else's Stripe customer.",
+
+        ["GetPaymentMethodsQuery"] =
+            "No fields at all, for the same reason — the caller reads their own saved cards and " +
+            "there is no parameter with which to ask for anyone else's. Unpaged because at most " +
+            "one card exists per customer."
     };
 
     /// <summary>
-    /// The module Application assemblies. Two are carried with <c>DeclaresRequests: false</c>, and
-    /// both are decisions rather than gaps in the scan, so that "nothing found" cannot pass for
-    /// either one. RealTime has no commands or queries at all — its endpoint is a SignalR hub.
-    /// Payments is a skeleton: Feature 3.8 Milestone B shipped the service, its host, its database
-    /// and its registrations with no business logic behind them, and the flag flips to
-    /// <c>true</c> with the first command in Milestone D.
+    /// The module Application assemblies. One is carried with <c>DeclaresRequests: false</c>, and it
+    /// is a decision rather than a gap in the scan, so that "nothing found" cannot pass for it:
+    /// RealTime has no commands or queries at all — its endpoint is a SignalR hub. Payments was
+    /// carried the same way through Milestones B and C and flipped here with its first endpoints
+    /// (Feature 3.8 Milestone D), which is the whole point of having registered it while it was
+    /// empty.
     /// </summary>
     private static readonly ModuleApplication[] Modules =
     [
         new("Delivery", DeliveryApplication.AssemblyReference.Assembly, DeclaresRequests: true),
         new("Notifications", NotificationsApplication.AssemblyReference.Assembly, DeclaresRequests: true),
         new("Orders", OrdersApplication.AssemblyReference.Assembly, DeclaresRequests: true),
-        new("Payments", PaymentsApplication.AssemblyReference.Assembly, DeclaresRequests: false),
+        new("Payments", PaymentsApplication.AssemblyReference.Assembly, DeclaresRequests: true),
         new("RealTime", RealTimeApplication.AssemblyReference.Assembly, DeclaresRequests: false),
         new("Restaurants", RestaurantsApplication.AssemblyReference.Assembly, DeclaresRequests: true),
         new("Support", SupportApplication.AssemblyReference.Assembly, DeclaresRequests: true),

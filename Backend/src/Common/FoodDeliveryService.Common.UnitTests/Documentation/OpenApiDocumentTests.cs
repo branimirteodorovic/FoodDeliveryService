@@ -48,9 +48,8 @@ public class OpenApiDocumentTests
 {
     /// <summary>
     /// The documented services, paired with the Presentation assembly whose endpoints make up
-    /// the document. Three of them produce an <em>empty</em> document, and all three are decisions
-    /// rather than omissions — written down here so that "no operations" cannot pass for any of
-    /// them.
+    /// the document. Two of them produce an <em>empty</em> document, and both are decisions rather
+    /// than omissions — written down here so that "no operations" cannot pass for either.
     /// <list type="bullet">
     /// <item><b>Notifications</b> is a pure event consumer and has never exposed an endpoint, the
     /// same call <see cref="Security.EndpointAuthorizationTests"/> records.</item>
@@ -59,12 +58,13 @@ public class OpenApiDocumentTests
     /// <c>WithSummary</c> on it reaches an OpenAPI document. Its metadata is still written (see
     /// <c>TrackingHubEndpoint</c>); it is read by people, not by this generator. What a client needs
     /// to know about the handshake is in the service description instead.</item>
-    /// <item><b>Payments</b> is a skeleton: Feature 3.8 Milestone B shipped the service, its host and
-    /// its documentation with no endpoints behind them, on the same argument that publishes
-    /// Notifications' empty document — a service with an empty API surface and a service whose
-    /// documentation was forgotten look identical otherwise. It flips to <c>true</c> with its first
-    /// endpoint in Milestone D.</item>
     /// </list>
+    /// <para>
+    /// <b>Payments</b> was a third, through Milestones B and C: the service, its host and its
+    /// documentation shipped with no endpoints behind them, on the same argument that publishes
+    /// Notifications' empty document. It flipped to <c>true</c> with its first endpoints in
+    /// Milestone D, which is what registering it while it was empty was for.
+    /// </para>
     /// </summary>
     private static readonly ModuleDocumentation[] Modules =
     [
@@ -75,7 +75,7 @@ public class OpenApiDocumentTests
         new(ApiDocumentation.Support, SupportPresentation.AssemblyReference.Assembly, HasDocumentedOperations: true),
         new(ApiDocumentation.RealTime, RealTimePresentation.AssemblyReference.Assembly, HasDocumentedOperations: false),
         new(ApiDocumentation.Notifications, NotificationsPresentation.AssemblyReference.Assembly, HasDocumentedOperations: false),
-        new(ApiDocumentation.Payments, PaymentsPresentation.AssemblyReference.Assembly, HasDocumentedOperations: false)
+        new(ApiDocumentation.Payments, PaymentsPresentation.AssemblyReference.Assembly, HasDocumentedOperations: true)
     ];
 
     /// <summary>

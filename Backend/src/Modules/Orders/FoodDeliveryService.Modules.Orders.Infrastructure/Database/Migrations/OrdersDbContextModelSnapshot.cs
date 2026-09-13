@@ -194,6 +194,26 @@ namespace FoodDeliveryService.Modules.Orders.Infrastructure.Database.Migrations
                     b.ToTable("customers", (string)null);
                 });
 
+            modelBuilder.Entity("FoodDeliveryService.Modules.Orders.Domain.Customers.CustomerPaymentProfile", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("CanPayByCard")
+                        .HasColumnType("boolean")
+                        .HasColumnName("can_pay_by_card");
+
+                    b.Property<DateTime>("ChangedOnUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("changed_on_utc");
+
+                    b.HasKey("Id")
+                        .HasName("pk_customer_payment_profiles");
+
+                    b.ToTable("customer_payment_profiles", (string)null);
+                });
+
             modelBuilder.Entity("FoodDeliveryService.Modules.Orders.Domain.Orders.Order", b =>
                 {
                     b.Property<Guid>("Id")

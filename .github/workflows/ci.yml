@@ -47,16 +47,14 @@ jobs:
         run: dotnet build "$SOLUTION" --configuration Release --no-restore
 
       # Suites excluded here need the `fooddeliveryservice.identity` host on :18080 for real
-      # Duende JWTs (Users, Orders, Restaurants, Delivery, RealTime, Support integration tests).
-      # They are re-enabled in Milestone G's KinD job, where Identity runs in the cluster.
+      # Duende JWTs (Users, Orders, Restaurants, Delivery, RealTime, Support, Payments integration
+      # tests). They are re-enabled in Milestone G's KinD job, where Identity runs in the cluster.
       # Notifications' integration suite is purely event-driven, so it runs here on the runner's
       # Docker via Testcontainers.
       #
-      # The Payments unit suite is listed from the day the project exists (Feature 3.8 Milestone B)
-      # rather than the day it gets its first test — the array is hand-maintained, and a suite added
-      # here in a later pull request than the project is a suite nobody runs in between. It holds no
-      # tests yet and `dotnet test` exits 0 on an empty assembly, so until Milestone C's Money tests
-      # land this entry asserts nothing.
+      # The Payments unit suite was listed from the day the project existed (Feature 3.8 Milestone B)
+      # rather than the day it got its first test — the array is hand-maintained, and a suite added
+      # here in a later pull request than the project is a suite nobody runs in between.
       - name: Test (unit suites + Identity-independent integration suites)
         run: |
           set -euo pipefail

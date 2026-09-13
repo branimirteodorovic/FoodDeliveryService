@@ -17,6 +17,7 @@ using FoodDeliveryService.Modules.Orders.Infrastructure.Orders;
 using FoodDeliveryService.Modules.Orders.Infrastructure.Outbox;
 using FoodDeliveryService.Modules.Orders.Infrastructure.Restaurants;
 using FoodDeliveryService.Modules.Delivery.IntegrationEvents;
+using FoodDeliveryService.Modules.Payments.IntegrationEvents;
 using FoodDeliveryService.Modules.Restaurants.IntegrationEvents;
 using FoodDeliveryService.Modules.Users.IntegrationEvents;
 using MassTransit;
@@ -71,6 +72,14 @@ public static class OrdersModule
         registrationConfigurator.AddConsumer<IntegrationEventConsumer<OrderDeliveredIntegrationEvent>>()
             .Endpoint(c => c.InstanceId = instanceId);
 
+        // Payments tells Orders one fact and no more: whether this customer can be charged by card
+        // (Feature 3.8 Milestone D, §6.3). It is what lets PlaceOrderCommandHandler refuse a card
+        // order without asking Payments anything — the authoritative check still happens there.
+        registrationConfigurator.AddConsumer<IntegrationEventConsumer<PaymentMethodAttachedIntegrationEvent>>()
+            .Endpoint(c => c.InstanceId = instanceId);
+        registrationConfigurator.AddConsumer<IntegrationEventConsumer<PaymentMethodDetachedIntegrationEvent>>()
+            .Endpoint(c => c.InstanceId = instanceId);
+
         //registrationConfigurator
         //    .AddSagaStateMachine<CancelEventSaga, CancelEventState>()
         //    .RedisRepository(redisConnectionString);
@@ -93,6 +102,8 @@ public static class OrdersModule
         services.AddScoped<IOrdersRepository, OrdersRepository>();
 
         services.AddScoped<ICustomerRepository, CustomersRepository>();
+
+        services.AddScoped<ICustomerPaymentProfileRepository, CustomerPaymentProfileRepository>();
 
         services.AddScoped<IRestaurantReplicaRepository, RestaurantReplicaRepository>();
 

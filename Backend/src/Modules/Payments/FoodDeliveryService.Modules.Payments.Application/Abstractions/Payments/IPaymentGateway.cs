@@ -47,6 +47,30 @@ public interface IPaymentGateway
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Records an already-collected card against the customer at the provider, and reads back the
+    /// display fields. Milestone D, §6.3.
+    /// <para>
+    /// In production the browser has already confirmed a SetupIntent, so this is the reconciling
+    /// call the webhook makes rather than the moment of collection; the Development-only endpoint in
+    /// §6.4 uses it directly with a Stripe test token, because nothing can drive Stripe.js yet.
+    /// </para>
+    /// </summary>
+    Task<Result<GatewayPaymentMethod>> AttachPaymentMethodAsync(
+        string stripeCustomerId,
+        string paymentMethodId,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Releases a saved card at the provider. Called before the local row is cleared: the other
+    /// order leaves this platform claiming a card the provider has already let go.
+    /// </summary>
+    Task<Result> DetachPaymentMethodAsync(
+        string paymentMethodId,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Places a hold: a manual-capture PaymentIntent, confirmed off-session against the saved card.
     /// Success means the funds are reserved and <b>not</b> taken —
     /// <see cref="GatewayPaymentIntentStatus.RequiresCapture"/>.

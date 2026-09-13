@@ -15,6 +15,12 @@ public sealed class OrdersDbContext(DbContextOptions<OrdersDbContext> options)
 
     internal DbSet<Customer> Customers { get; set; }
 
+    /// <summary>
+    /// One flag per customer, replicated from Payments: whether they can be charged by card.
+    /// Feature 3.8 Milestone D.
+    /// </summary>
+    internal DbSet<CustomerPaymentProfile> CustomerPaymentProfiles { get; set; }
+
     internal DbSet<Restaurant> Restaurants { get; set; }
 
     internal DbSet<MenuItem> MenuItems { get; set; }

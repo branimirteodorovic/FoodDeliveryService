@@ -157,7 +157,7 @@ graph TB
 
 ### C3 — Event Topology
 
-The C2 diagram draws one dashed line per service to a RabbitMQ box, which is honest about the transport and says nothing about the system. This is what actually travels those lines: **25 integration events**, who publishes each and who reacts to it.
+The C2 diagram draws one dashed line per service to a RabbitMQ box, which is honest about the transport and says nothing about the system. This is what actually travels those lines: **27 integration events**, who publishes each and who reacts to it.
 
 **The hop every one of them takes.** Nothing publishes to the broker from a command handler. A state change and the record of that state change are committed together, and everything after that is out of band:
 
@@ -196,12 +196,14 @@ graph LR
     notif["✉️ <b>Notifications</b>"]
     rt["📡 <b>RealTime</b>"]
     sup["🎧 <b>Support</b>"]
+    pay["💳 <b>Payments</b>"]
 
     users -->|"UserRegistered · UserProfileUpdated"| orders
     users -->|"UserRegistered · UserProfileUpdated"| rest
     users -->|"UserProfileUpdated"| deliv
     users -->|"UserRegistered · UserProfileUpdated"| sup
     users -->|"UserRegistered · UserProfileUpdated<br/>UserInvited"| notif
+    users -->|"UserRegistered"| pay
 
     rest -->|"RestaurantRegistered<br/>MenuItemAdded · MenuItemUpdated<br/>MenuItemAvailabilityChanged"| orders
     rest -->|"RestaurantRegistered<br/>RestaurantAddressUpdated"| deliv
@@ -217,8 +219,10 @@ graph LR
 
     sup -->|"TicketMessagePosted<br/>RefundApproved · RefundRejected"| notif
 
+    pay -->|"PaymentMethodAttached · PaymentMethodDetached"| orders
+
     classDef svc fill:#438dd5,stroke:#2e6295,color:#fff
-    class users,rest,orders,deliv,notif,rt,sup svc
+    class users,rest,orders,deliv,notif,rt,sup,pay svc
 ```
 
 Three things the picture makes obvious that the prose does not:

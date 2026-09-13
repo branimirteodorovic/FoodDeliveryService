@@ -163,6 +163,68 @@ namespace FoodDeliveryService.Modules.Payments.Infrastructure.Database.Migration
 
                     b.ToTable("outbox_message_consumers", (string)null);
                 });
+
+            modelBuilder.Entity("FoodDeliveryService.Modules.Payments.Domain.PaymentMethods.CustomerPaymentProfile", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime?>("AttachedOnUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("attached_on_utc");
+
+                    b.Property<string>("Brand")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("brand");
+
+                    b.Property<DateTime>("CreatedOnUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_on_utc");
+
+                    b.Property<int?>("ExpiryMonth")
+                        .HasColumnType("integer")
+                        .HasColumnName("expiry_month");
+
+                    b.Property<int?>("ExpiryYear")
+                        .HasColumnType("integer")
+                        .HasColumnName("expiry_year");
+
+                    b.Property<string>("Last4")
+                        .HasMaxLength(4)
+                        .HasColumnType("character varying(4)")
+                        .HasColumnName("last4");
+
+                    b.Property<Guid?>("PaymentMethodId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("payment_method_id");
+
+                    b.Property<string>("StripeCustomerId")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("stripe_customer_id");
+
+                    b.Property<string>("StripePaymentMethodId")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("stripe_payment_method_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_customer_payment_profiles");
+
+                    b.HasIndex("PaymentMethodId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_customer_payment_profiles_payment_method_id")
+                        .HasFilter("payment_method_id IS NOT NULL");
+
+                    b.HasIndex("StripeCustomerId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_customer_payment_profiles_stripe_customer_id");
+
+                    b.ToTable("customer_payment_profiles", (string)null);
+                });
 #pragma warning restore 612, 618
         }
     }

@@ -474,6 +474,94 @@ Nothing can confirm a `SetupIntent` in a browser yet. Two supported paths:
 - **Integration tests:** `FakePaymentGateway` attaches a synthetic method directly.
 - **Manual demo:** attach Stripe's `pm_card_visa` **test token** (not a card number) server-side from a `Development`-only endpoint, guarded by `app.Environment.IsDevelopment()`. Delete it when the Angular flow lands.
 
+### 6.5 What Milestone D shipped, and where it departed from §6.1–6.4
+
+Endpoints, all four under `payments/payment-methods` and all four carrying `payment-methods:manage`:
+`POST …/setup-intents`, `GET …`, `DELETE …/{id:guid}`, and the Development-only
+`POST …/test-cards` from §6.4. Two integration events, `PaymentMethodAttached` and
+`PaymentMethodDetached`. Two migrations, `20260912114303_Add_Customer_Payment_Profiles` (Payments)
+and `20260912114514_Add_Orders_Customer_Payment_Profile` (Orders). Green: `dotnet build` on the
+solution, `Payments.UnitTests` **77/77** (69 + 8 aggregate cases), `Orders.UnitTests` **29/29**
+(25 + 4 replica cases), `Payments.IntegrationTests` **18/18** (10 + 8, and the suite's harness is
+new), `Common.UnitTests` **459/459**. No manifest, compose or Gateway change: `payments/**` already
+routes to the host, and this milestone adds no configuration key or secret.
+
+**The three coverage suites §4.5 registered as "nothing here yet" all flipped to `true` in this
+change**, which is what registering them empty was for — `ValidatorCoverageTests`
+(`DeclaresRequests`), `EndpointAuthorizationTests` (`HasHttpSurface`) and `OpenApiDocumentTests`
+(`HasDocumentedOperations`). `IntegrationEventTopologyTests` also needed a `pay` node in
+`DiagramNodes` and the two new edges drawn in the README's C3 section (25 events → 27).
+
+**Seven departures and constraints.**
+
+- **The HTTP surface never carries a `pm_…` identifier, so the aggregate has a surrogate.** §6.3
+  writes `DELETE payments/payment-methods/{id}`, which with §6.1's fields can only mean the Stripe
+  id — an unbounded provider string in a route, and one that would have to be re-issued the day the
+  provider changes. `CustomerPaymentProfile` therefore carries **both** `PaymentMethodId` (a v7
+  `Guid`, this platform's identifier, the one in the route and in the response) and
+  `StripePaymentMethodId` (`pm_…`, which never leaves the service). The `:guid` route constraint
+  comes free with it. §6.3's rule about the *integration events* is unchanged and now also true of
+  the API.
+
+- **`Money` is not involved, and neither is `PaymentsOptions`.** Nothing in this milestone has an
+  amount. Worth saying because §6 sits between two milestones that are entirely about amounts.
+
+- **`IPaymentGateway` grew two methods and `PaymentIdempotencyKeys` grew three keys.** §5.2 fixes
+  five key formats "used nowhere else"; §6.3's endpoints mutate at the provider, and every method on
+  that interface takes a key by construction. `AttachPaymentMethodAsync` and
+  `DetachPaymentMethodAsync` take `pm-attach-{pm_…}` / `pm-detach-{pm_…}` — keyed on the payment
+  method, not the customer, because a customer attaches and detaches repeatedly and
+  `pm-attach-{customerId}` would replay the first card's response for 24 hours.
+
+- **`setup-{attemptId}` is the one key not derived from a durable id, deliberately.** Creating a
+  SetupIntent moves no money, is driven by a synchronous request nobody retries, and produces an
+  object that expires on its own if unconfirmed. Every durable alternative is worse: keying on the
+  customer replays a client secret Stripe.js may already have consumed, and keying on a timestamp is
+  the anti-pattern §5.2 names. The reasoning is written on the method, because a reader who copies
+  it onto an *authorization* would double-charge a card. `CreateSetupIntent_Should_MintAFreshKeyPerAttempt`
+  pins it.
+
+- **§7 needs a gateway method this milestone did not add.** The webhook resolves
+  `setup_intent.succeeded` to a payment method it did not attach itself, so it needs to *read* one —
+  a `GetPaymentMethodAsync`, or an attach that tolerates an already-attached card. `AttachPaymentMethodAsync`
+  is the latter as written (Stripe's attach is idempotent for a card already on the customer), so §7
+  can reuse it; if it prefers a read, that is a third method rather than a change to this one.
+
+- **Orders' replica is its own table, and F reads it — D only fills it.** §1.1 says "a one-flag
+  `CustomerPaymentProfile` replica" and that is what shipped, rather than a column on the existing
+  `Customer` replica: the two are fed by different services' events, and sharing the row would make
+  a card attached before Orders had seen the registration depend on an event that had not arrived.
+  It carries `ChangedOnUtc` and **ignores an event older than the one already applied** — MassTransit
+  guarantees no ordering between two messages, and an attach delivered after the detach that
+  superseded it would leave a customer being offered a card they removed. Nothing reads
+  `CanPayByCard` yet: §8.2 adds `PaymentMethod.Card` and the placement guard in one change, which is
+  the right order — the replica must already be populating before a card order can be placed.
+
+- **The Development-only endpoint is invisible to the coverage suites, and that is a consequence
+  worth knowing.** `AttachTestPaymentMethod` returns from `MapEndpoint` without mapping anything
+  outside Development, and `EndpointAuthorizationTests` builds its route table from a
+  `CreateSlimBuilder` whose environment is Production — so the endpoint is simply not in the table
+  those tests read. It is written as if it were (a permission, a tag, a summary, a description, a
+  `Produces`), because the day it is not Development-only is the day that matters. **Delete it when
+  the Angular card flow lands**, as §6.4 says.
+
+**Two things about the test harness**, which is new in this milestone and is what §8 onwards will
+extend.
+
+- **Three hosts, built strictly in order, all before the first user is seeded.** Users (publishes
+  `UserRegistered`, answers the permissions RPC), Payments, then Orders. Seeding raises
+  `UserRegisteredDomainEvent` and the outbox publishes within a second; MassTransit publishes to an
+  exchange, so a message with **no queue bound to it is dropped rather than queued** — seed before
+  the consumers exist and the payment profile is never created, with nothing reporting an error. All
+  three hosts read the same `ConnectionStrings:*` environment-variable keys, so they must build one
+  after another and never interleaved.
+- **The suite needs Identity on `:18080`** (docker-compose, not a testcontainer) like every other
+  integration suite here, which is why CI runs the unit suites only. The Payments container's
+  connection string is exposed as a property on the factory rather than read back from
+  `ConnectionStrings:Database`: all three hosts write that key, and the last one to build wins.
+
+---
+
 ---
 
 ## 7. Milestone E — webhook ingress

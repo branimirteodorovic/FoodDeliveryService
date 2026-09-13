@@ -37,7 +37,8 @@ public class IntegrationEventTopologyTests
         ["deliv"] = "Delivery",
         ["notif"] = "Notifications",
         ["rt"] = "RealTime",
-        ["sup"] = "Support"
+        ["sup"] = "Support",
+        ["pay"] = "Payments"
     };
 
     /// <summary>A published event and the module whose <c>IntegrationEvents</c> project declares it.</summary>

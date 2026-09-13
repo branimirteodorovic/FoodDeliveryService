@@ -5,11 +5,13 @@ using FoodDeliveryService.Common.Infrastructure.Outbox;
 using FoodDeliveryService.Common.Presentation.Endpoints;
 using FoodDeliveryService.Modules.Payments.Application.Abstractions.Authentication;
 using FoodDeliveryService.Modules.Payments.Application.Abstractions.Data;
+using FoodDeliveryService.Modules.Payments.Domain.PaymentMethods;
 using FoodDeliveryService.Modules.Payments.Infrastructure.Authentication;
 using FoodDeliveryService.Modules.Payments.Infrastructure.Authorization;
 using FoodDeliveryService.Modules.Payments.Infrastructure.Database;
 using FoodDeliveryService.Modules.Payments.Infrastructure.Inbox;
 using FoodDeliveryService.Modules.Payments.Infrastructure.Outbox;
+using FoodDeliveryService.Modules.Payments.Infrastructure.PaymentMethods;
 using FoodDeliveryService.Modules.Payments.Infrastructure.Stripe;
 using FoodDeliveryService.Modules.Users.IntegrationEvents;
 using MassTransit;
@@ -40,15 +42,17 @@ public static class PaymentsModule
 
     public static Action<IRegistrationConfigurator, string, string> ConfigureConsumers()
     {
-        return (registration, _, _) =>
+        return (registration, instanceId, _) =>
         {
-            // No integration-event subscriptions yet. They arrive one per milestone and each is one
-            // AddConsumer<IntegrationEventConsumer<T>> line here, with the same
-            // .Endpoint(c => c.InstanceId = instanceId) so this service gets its own queue:
-            // UserRegistered (§6.2), OrderPlaced (§8), OrderAccepted/Rejected/Cancelled (§9) and
-            // RefundApproved (§10). Every one of them must also be drawn in the README's C3 event
-            // topology in the same change — IntegrationEventTopologyTests diffs the two.
-            // The explicit request client is not optional even for a service that consumes nothing:
+            // Every registered user gets a Stripe customer, so the card form has something to attach
+            // to when they first reach it (§6.2). The remaining subscriptions arrive one per
+            // milestone, each one line here: OrderPlaced (§8), OrderAccepted/Rejected/Cancelled (§9)
+            // and RefundApproved (§10). Every one of them must also be drawn in the README's C3
+            // event topology in the same change — IntegrationEventTopologyTests diffs the two.
+            registration.AddConsumer<IntegrationEventConsumer<UserRegisteredIntegrationEvent>>()
+                .Endpoint(c => c.InstanceId = instanceId);
+
+            // The explicit request client is not optional even for a service that consumes little:
             // without it MassTransit's implicit IRequestClient<T> resolution silently fails to route
             // the request and every permission lookup times out, which surfaces as a blanket 403
             // rather than as an error.
@@ -69,9 +73,10 @@ public static class PaymentsModule
 
         services.AddScoped<IUnitOfWork>(sp => sp.GetRequiredService<PaymentsDbContext>());
 
-        // The repositories land here alongside their aggregates, one AddScoped each: IPaymentRepository
-        // and ICustomerPaymentProfileRepository (§6, §8), IRefundRepository and IStripeEventLogRepository
-        // (§7, §10).
+        services.AddScoped<ICustomerPaymentProfileRepository, CustomerPaymentProfileRepository>();
+
+        // The remaining repositories land here alongside their aggregates, one AddScoped each:
+        // IPaymentRepository (§8), IStripeEventLogRepository (§7) and IRefundRepository (§10).
 
         services.AddScoped<IPaymentsContext, PaymentsContext>();
 
