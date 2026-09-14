@@ -85,6 +85,12 @@ internal static class StripeServiceCollectionExtensions
 
         services.AddScoped<IPaymentGateway, StripePaymentGateway>();
 
+        // The inbound half of the seam — Milestone E, §7.2. It exists so that the webhook endpoint,
+        // which lives in Presentation, can verify a signature without seeing either the Stripe SDK
+        // or Stripe:WebhookSecret. Singleton: it holds the options snapshot and nothing per request,
+        // and it is on the path of every delivery Stripe makes.
+        services.AddSingleton<IPaymentWebhookParser, StripeWebhookParser>();
+
         return services;
     }
 

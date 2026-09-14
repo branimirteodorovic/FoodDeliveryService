@@ -57,6 +57,10 @@ public class EndpointAuthorizationTests
     /// asking why. <c>users/register</c> is customer self-registration (the handler forces the role
     /// to Customer) and <c>users/accept-invitation</c> is redeemed with a single-use token that is
     /// itself the credential — neither can require a token the caller does not have yet.
+    /// <c>payments/webhooks/stripe</c> is Stripe's ingress (Feature 3.8 Milestone E): the provider
+    /// holds no token for this platform and cannot be given one, so the request is authenticated by
+    /// an HMAC over its raw body against a shared signing secret, and a request that does not verify
+    /// is refused before anything is recorded.
     /// </para>
     /// <para>
     /// The three health probes are anonymous too, but they are mapped by <c>MapHealthProbes</c>
@@ -67,7 +71,8 @@ public class EndpointAuthorizationTests
     private static readonly HashSet<string> AnonymousRoutes =
     [
         "users/register",
-        "users/accept-invitation"
+        "users/accept-invitation",
+        "payments/webhooks/stripe"
     ];
 
     /// <summary>

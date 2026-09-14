@@ -32,7 +32,7 @@ before proxying it.
 | Property | Guardrail |
 |---|---|
 | Every endpoint carries a permission policy or an explicit `AllowAnonymous` | `Common.UnitTests/Security/EndpointAuthorizationTests.cs` |
-| The anonymous surface is exactly `users/register` + `users/accept-invitation` | same file — an allow-list asserted in both directions |
+| The anonymous surface is exactly `users/register` + `users/accept-invitation` + `payments/webhooks/stripe` | same file — an allow-list asserted in both directions |
 | Every policy string names a permission the Users module actually seeds | same file, against `Users.Domain/Users/Permission.cs` |
 | Every module's `Permissions` constant names a seeded code | same file |
 | The three health probes are anonymous, and nothing else in that mapping is | same file |
@@ -709,7 +709,7 @@ Being *present* is not the same as being *bounded*, and the unbounded cases were
 | Bound | Was | Why it mattered |
 |---|---|---|
 | `GetOrdersQuery` / `GetDeliveriesQuery` page size | unvalidated | `?pageSize=1000000` is a full-table read the caller asks for in **one** request — which the edge rate limiter charges as one request (§5). The two other paged queries were already bounded to 100; these two had no validator at all. |
-| Registration / invitation free text | `NotEmpty` only | `users/register` and `users/accept-invitation` are the platform's only anonymous writes. Unbounded names went straight into a row that Identity, the Users module and every replica consumer store; an unbounded password went into PBKDF2, which is CPU billed as a single request. |
+| Registration / invitation free text | `NotEmpty` only | `users/register` and `users/accept-invitation` were the platform's only anonymous writes until Stripe's webhook ingress joined them (Feature 3.8 Milestone E — bounded the same way, at 8 KB of payload and 512 characters of signature header, both checked *before* any HMAC is computed). Unbounded names went straight into a row that Identity, the Users module and every replica consumer store; an unbounded password went into PBKDF2, which is CPU billed as a single request. |
 | `MenuItem.Price` | `GreaterThan(0)` | The column is `numeric(10,2)`. A larger price was an Npgsql overflow — a 500 carrying a database message — where the caller should have been told 400. |
 | `PlaceOrderItem.Quantity` | `GreaterThan(0)` | Multiplies into the same `numeric(10,2)` line total. Same overflow, one step further in. |
 

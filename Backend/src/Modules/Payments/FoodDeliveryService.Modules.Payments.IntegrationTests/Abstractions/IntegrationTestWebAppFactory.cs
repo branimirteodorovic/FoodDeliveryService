@@ -92,6 +92,12 @@ public class IntegrationTestWebAppFactory : WebApplicationFactory<Program>, IAsy
     /// <summary>Shared password for every user this suite seeds.</summary>
     public string TestUserPassword { get; } = "Payments-Tests-P@ssw0rd";
 
+    /// <summary>
+    /// The Stripe webhook signing secret this host verifies against — the tests sign with it. It is
+    /// a fixture value, not a credential: it authenticates nothing outside this process.
+    /// </summary>
+    public const string WebhookSigningSecret = "whsec_not_a_real_secret";
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // Program.cs reads these in its own top-level statements, evaluated before
@@ -115,7 +121,17 @@ public class IntegrationTestWebAppFactory : WebApplicationFactory<Program>, IAsy
             "Authentication:MetadataAddress",
             $"{IdentityBaseUrl}/.well-known/openid-configuration");
 
-        // No Stripe keys are set, and none are needed: the host runs in Development, where the
+        // The webhook signing secret IS set, and it is the one Stripe value this suite needs.
+        // IPaymentWebhookParser is NOT substituted (Milestone E): the signature is the only
+        // authentication the webhook endpoint has, and a suite that faked the verification would
+        // assert nothing about the thing being verified. So the tests sign their own payloads under
+        // this secret exactly as Stripe does, and the real StripeWebhookParser checks them.
+        //
+        // Short segments on purpose — SecretHygieneTests fails the build on `whsec_` followed by 16
+        // or more unbroken alphanumerics (§5.6).
+        Environment.SetEnvironmentVariable("Stripe:WebhookSecret", WebhookSigningSecret);
+
+        // No Stripe *API* key is set, and none is needed: the host runs in Development, where the
         // presence check in Program.cs deliberately skips (Milestone C, §5.6), and the registration
         // below means the IStripeClient that would complain is never resolved.
         builder.ConfigureTestServices(services =>

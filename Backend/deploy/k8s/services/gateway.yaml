@@ -76,6 +76,12 @@ data:
             "Match": { "Path": "support/{**catch-all}" },
             "Transforms": [ { "PathPattern": "support/{**catch-all}" } ]
           },
+          "fooddeliveryservice-payments-webhook-route": {
+            "ClusterId": "fooddeliveryservice-payments-cluster",
+            "AuthorizationPolicy": "anonymous",
+            "Match": { "Path": "payments/webhooks/stripe" },
+            "Transforms": [ { "PathPattern": "payments/webhooks/stripe" } ]
+          },
           "fooddeliveryservice-payments-route1": {
             "ClusterId": "fooddeliveryservice-payments-cluster",
             "AuthorizationPolicy": "default",

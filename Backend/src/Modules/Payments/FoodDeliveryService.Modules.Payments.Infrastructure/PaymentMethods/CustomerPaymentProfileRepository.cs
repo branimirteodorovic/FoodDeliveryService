@@ -15,6 +15,14 @@ internal sealed class CustomerPaymentProfileRepository(PaymentsDbContext context
             .SingleOrDefaultAsync(p => p.Id == customerId, cancellationToken);
     }
 
+    public async Task<CustomerPaymentProfile?> GetByStripeCustomerIdAsync(
+        string stripeCustomerId,
+        CancellationToken cancellationToken = default)
+    {
+        return await context.CustomerPaymentProfiles
+            .SingleOrDefaultAsync(p => p.StripeCustomerId == stripeCustomerId, cancellationToken);
+    }
+
     public void Insert(CustomerPaymentProfile profile)
     {
         context.CustomerPaymentProfiles.Add(profile);

@@ -6,6 +6,7 @@ using FoodDeliveryService.Common.Presentation.Endpoints;
 using FoodDeliveryService.Modules.Payments.Application.Abstractions.Authentication;
 using FoodDeliveryService.Modules.Payments.Application.Abstractions.Data;
 using FoodDeliveryService.Modules.Payments.Domain.PaymentMethods;
+using FoodDeliveryService.Modules.Payments.Domain.Webhooks;
 using FoodDeliveryService.Modules.Payments.Infrastructure.Authentication;
 using FoodDeliveryService.Modules.Payments.Infrastructure.Authorization;
 using FoodDeliveryService.Modules.Payments.Infrastructure.Database;
@@ -13,6 +14,7 @@ using FoodDeliveryService.Modules.Payments.Infrastructure.Inbox;
 using FoodDeliveryService.Modules.Payments.Infrastructure.Outbox;
 using FoodDeliveryService.Modules.Payments.Infrastructure.PaymentMethods;
 using FoodDeliveryService.Modules.Payments.Infrastructure.Stripe;
+using FoodDeliveryService.Modules.Payments.Infrastructure.Webhooks;
 using FoodDeliveryService.Modules.Users.IntegrationEvents;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
@@ -75,8 +77,10 @@ public static class PaymentsModule
 
         services.AddScoped<ICustomerPaymentProfileRepository, CustomerPaymentProfileRepository>();
 
+        services.AddScoped<IStripeEventLogRepository, StripeEventLogRepository>();
+
         // The remaining repositories land here alongside their aggregates, one AddScoped each:
-        // IPaymentRepository (§8), IStripeEventLogRepository (§7) and IRefundRepository (§10).
+        // IPaymentRepository (§8) and IRefundRepository (§10).
 
         services.AddScoped<IPaymentsContext, PaymentsContext>();
 

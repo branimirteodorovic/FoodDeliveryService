@@ -32,6 +32,15 @@ public static class RateLimitRoutePolicy
         new(null, "health", RateLimitTier.Exempt),
         // negotiate + connect + the WebSocket itself. See RateLimitTier.Exempt.
         new(null, "hubs/**", RateLimitTier.Exempt),
+        // Stripe's webhook ingress — Feature 3.8 Milestone E, §7.3. The one exemption here that is
+        // NOT self-evident, so the reasoning stays next to it: anonymous callers are partitioned by
+        // IP (RateLimitClient), and every delivery Stripe makes arrives from a small set of Stripe
+        // addresses — so the entire provider shares ONE bucket. A busy minute is 429'd, Stripe backs
+        // off exponentially, and payment state lags reality with nothing reporting it. The path is
+        // not a free pass to the platform: its handler verifies an HMAC before it does anything at
+        // all, so an unsigned flood costs a hash and a 400 and never reaches the database. Exact,
+        // not a prefix: `payments/**` would exempt the customer-facing card endpoints too.
+        new(HttpMethods.Post, "payments/webhooks/stripe", RateLimitTier.Exempt),
 
         // ── Critical: advancing work already accepted ─────────────────────────────────────────
         // The kitchen driving an order it has taken, and a customer cancelling one. A 429 here

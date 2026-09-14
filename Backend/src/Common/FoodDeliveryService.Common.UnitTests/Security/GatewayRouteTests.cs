@@ -42,16 +42,23 @@ public class GatewayRouteTests
     ];
 
     /// <summary>
-    /// The only two <em>API</em> routes allowed to skip authentication at the edge, matching the
+    /// The only three <em>API</em> routes allowed to skip authentication at the edge, matching the
     /// anonymous endpoint allow-list in <see cref="EndpointAuthorizationTests"/>. The two lists are
     /// separate on purpose: the gateway policy and the endpoint metadata are enforced by different
     /// components, and an anonymous route in front of an authorized endpoint (or the reverse) is
     /// exactly the mismatch worth failing on.
+    /// <para>
+    /// <c>payments/webhooks/stripe</c> is Stripe's ingress (Feature 3.8 Milestone E, §7.1). Its
+    /// route must be declared <b>before</b> the <c>payments/{**catch-all}</c> default-auth route,
+    /// the same carve-out shape as <c>users/register</c> — and it is authenticated, just not by a
+    /// bearer token: the signature over the raw body is the credential.
+    /// </para>
     /// </summary>
     private static readonly string[] AnonymousApiPaths =
     [
         "users/register",
-        "users/accept-invitation"
+        "users/accept-invitation",
+        "payments/webhooks/stripe"
     ];
 
     /// <summary>

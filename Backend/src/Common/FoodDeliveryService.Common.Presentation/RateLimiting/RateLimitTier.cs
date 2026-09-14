@@ -21,7 +21,10 @@ public enum RateLimitTier
     /// limiter would manufacture the incident it exists to prevent. The SignalR paths
     /// (<c>hubs/**</c>) because negotiate-then-connect is one logical connection across two requests,
     /// and because a long-lived WebSocket held in a concurrency slot would exhaust the global limit
-    /// with clients that are idle by design.
+    /// with clients that are idle by design. Stripe's webhook ingress
+    /// (<c>POST payments/webhooks/stripe</c>) because it is anonymous and therefore partitioned by
+    /// IP, and every delivery the provider makes shares that one bucket — shedding it puts Stripe
+    /// into exponential backoff and leaves payment state silently behind reality.
     /// </para>
     /// </summary>
     Exempt,

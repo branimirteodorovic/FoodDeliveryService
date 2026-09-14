@@ -157,7 +157,7 @@ public static class EdgeRateLimitingExtensions
         logger.LogInformation(
             "Edge rate limiting is on ({Store}): global concurrency {Concurrency} (queue {Queue}), " +
             "per client per {Window}s — read {Read}, write {Write}, critical {Critical}. " +
-            "Health and hub paths are exempt; the critical tier bypasses the concurrency limit.",
+            "Health, hub and Stripe webhook paths are exempt; the critical tier bypasses the concurrency limit.",
             store.GetType().Name,
             options.GlobalConcurrencyLimit,
             options.GlobalQueueLimit,

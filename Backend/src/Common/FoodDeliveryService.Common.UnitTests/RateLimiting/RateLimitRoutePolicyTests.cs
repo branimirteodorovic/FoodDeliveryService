@@ -43,6 +43,39 @@ public class RateLimitRoutePolicyTests
         tier.Should().Be(RateLimitTier.Exempt);
     }
 
+    [Fact]
+    public void Classify_Should_ExemptTheStripeWebhook()
+    {
+        // Feature 3.8 Milestone E, §7.3. Anonymous callers partition by IP and every delivery Stripe
+        // makes comes from a small set of Stripe addresses, so the whole provider shares ONE bucket:
+        // a busy minute would be 429'd, Stripe would back off exponentially, and payment state would
+        // lag reality with nothing reporting it. This is the exemption that will not show up in
+        // testing and will show up in a demo.
+        // Act
+        RateLimitTier tier = RateLimitRoutePolicy.Classify(HttpMethods.Post, "/payments/webhooks/stripe");
+
+        // Assert
+        tier.Should().Be(RateLimitTier.Exempt);
+    }
+
+    [Theory]
+    // The exemption is one exact path, not a prefix: the customer-facing card endpoints next door
+    // are ordinary traffic and must keep their per-client budget. A GET on the webhook path is not
+    // the webhook either — the endpoint is a POST, and nothing else should inherit its exemption.
+    [InlineData("POST", "/payments/payment-methods")]
+    [InlineData("POST", "/payments/payment-methods/setup-intents")]
+    [InlineData("GET", "/payments/webhooks/stripe")]
+    [InlineData("POST", "/payments/webhooks")]
+    [InlineData("POST", "/payments/webhooks/stripe/replay")]
+    public void Classify_Should_NotExemptTheRestOfPayments(string method, string path)
+    {
+        // Act
+        RateLimitTier tier = RateLimitRoutePolicy.Classify(method, path);
+
+        // Assert
+        tier.Should().NotBe(RateLimitTier.Exempt);
+    }
+
     [Theory]
     // Everything a kitchen or a driver does to an order or delivery that already exists. A 429 here
     // strands work a human is standing next to.

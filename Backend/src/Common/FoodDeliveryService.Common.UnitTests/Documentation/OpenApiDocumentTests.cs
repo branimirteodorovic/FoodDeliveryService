@@ -80,7 +80,7 @@ public class OpenApiDocumentTests
 
     /// <summary>
     /// The operations allowed to carry no security requirement, by <c>{METHOD} {path}</c>. The same
-    /// two paths as <see cref="Security.EndpointAuthorizationTests"/>'s allow-list, and listed a
+    /// three paths as <see cref="Security.EndpointAuthorizationTests"/>'s allow-list, and listed a
     /// second time on purpose: that one asserts the endpoint metadata, this one asserts what the
     /// document <em>tells a reader</em>, and an endpoint that is authorized but documented as
     /// anonymous is its own kind of wrong.
@@ -88,7 +88,8 @@ public class OpenApiDocumentTests
     private static readonly HashSet<string> AnonymousOperations =
     [
         "POST /users/register",
-        "POST /users/accept-invitation"
+        "POST /users/accept-invitation",
+        "POST /payments/webhooks/stripe"
     ];
 
     private static readonly ConcurrentDictionary<string, Task<OpenApiDocument>> Documents = new(StringComparer.Ordinal);

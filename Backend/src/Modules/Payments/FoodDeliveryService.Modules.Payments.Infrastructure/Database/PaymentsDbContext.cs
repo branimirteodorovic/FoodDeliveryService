@@ -2,6 +2,7 @@ using FoodDeliveryService.Common.Infrastructure.Inbox;
 using FoodDeliveryService.Common.Infrastructure.Outbox;
 using FoodDeliveryService.Modules.Payments.Application.Abstractions.Data;
 using FoodDeliveryService.Modules.Payments.Domain.PaymentMethods;
+using FoodDeliveryService.Modules.Payments.Domain.Webhooks;
 using Microsoft.EntityFrameworkCore;
 
 namespace FoodDeliveryService.Modules.Payments.Infrastructure.Database;
@@ -25,6 +26,13 @@ public sealed class PaymentsDbContext(DbContextOptions<PaymentsDbContext> option
     /// the customers who can actually pay by card.
     /// </summary>
     internal DbSet<CustomerPaymentProfile> CustomerPaymentProfiles { get; set; }
+
+    /// <summary>
+    /// One row per verified Stripe webhook. It is the dedupe table for provider redeliveries and is
+    /// deliberately <b>not</b> <c>inbox_messages</c>, which is for MassTransit envelopes and knows
+    /// nothing about an <c>evt_…</c> — Milestone E, §7.4.
+    /// </summary>
+    internal DbSet<StripeEventLog> StripeEventLogs { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

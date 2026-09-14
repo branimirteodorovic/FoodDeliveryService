@@ -616,6 +616,106 @@ Webhooks arrive out of order. `payment_intent.succeeded` can land before `paymen
 
 Persist the event, raise a domain event, return. Do not call Stripe back inside the request and do not do the aggregate work synchronously — Stripe times out at 20 s and treats a slow endpoint as a failed one.
 
+### 7.7 What Milestone E shipped, and where it departed from §7.1–7.6
+
+One endpoint, one aggregate, one migration `20260913120932_Add_Stripe_Event_Log`, and the two
+routing-table entries §7.1 asks for. Green: `dotnet build` on the solution, `Payments.UnitTests`
+**98/98** (77 + 10 aggregate cases + 11 parser cases), `Payments.IntegrationTests` **24/24** (18 + 6),
+`Common.UnitTests` **465/465** (459 + 6 route-ranking cases), `policy-check.py`. No manifest change
+beyond the Gateway ConfigMap's new route, and no new configuration key: `Stripe:WebhookSecret` has
+been read from `platform-secrets` since Milestone C — this is the milestone that finally uses it.
+
+**Where it departed, and what the next milestones inherit.**
+
+- **The dispatch is a domain-event handler with a `switch`, and every later milestone adds one arm
+  and one command.** §7.6 says "persist the event, raise a domain event, return", which leaves open
+  who does the work. It is `StripeEventReceivedDomainEventHandler`
+  (`Application/Webhooks/RecordWebhookEvent/`): it runs on `ProcessOutboxJob` a second after the
+  endpoint answered, switches on the event type, sends the command for that arm, and then sends
+  `MarkWebhookEventProcessedCommand`. §8's `payment_intent.amount_capturable_updated` and
+  `payment_intent.payment_failed`, §9's `payment_intent.succeeded` and §10's `charge.refunded` each
+  become one `case` and one command — **not** a second handler, and not work inlined into the
+  recording handler, which must stay one insert long.
+
+- **`stripe_event_logs` stores the provider's *facts*, not its payload.** §7.4 names four columns
+  (event id, type, received, processed); the table has four more — `object_id`, `object_status`,
+  `customer_reference`, `payment_method_reference` — and no raw JSON. The extra columns exist because
+  §7.6 defers the work past the response, so the facts the work needs have to be somewhere: the
+  alternative is either a raw-payload column (a permanent, backed-up copy of whatever Stripe chose to
+  send, which is the opposite of what §0.5 spent the feature achieving) or copying them onto the
+  domain event, which makes the outbox row a second, diverging record of what the provider said. The
+  domain event therefore carries only the log id, the `evt_…` and the type. A question the log cannot
+  answer is answerable from the Stripe dashboard against the `evt_…`.
+
+- **A failure leaves the row *unprocessed* and carrying its reason, and that is load-bearing.**
+  `MarkFailed` writes `error` and deliberately does not stamp `processed_on_utc`. Neither outbox job
+  retries (§5.6), so `SELECT … WHERE processed_on_utc IS NULL` — backed by a partial index — is the
+  only answer to "what does this platform still owe Stripe?". The reconciling path is a fresh
+  delivery of the same event from the Stripe dashboard, and `MarkProcessed` clears the stale reason
+  when one arrives.
+
+- **An unrecognised event type is recorded and marked processed, not refused.** The log is a record
+  of what the provider said, not of what this module chose to act on. Turning an unsubscribed type
+  into a `400` would mean every event type somebody enables in the Stripe dashboard puts Stripe into
+  exponential backoff. `PaymentWebhookEventTypes` (Application) holds the subscribed types and is
+  where §8–§10 add theirs.
+
+- **`IPaymentWebhookParser` returns provider-neutral facts, and the endpoint is the only thing that
+  touches the stream.** §7.2's own note about the reference direction held exactly as written. The
+  endpoint reads `HttpRequest.Body` with a `StreamReader` and hands the string plus the
+  `Stripe-Signature` header into `RecordWebhookEventCommand`; `StripeWebhookParser`
+  (`Infrastructure/Stripe/`) verifies and projects onto `PaymentWebhookEvent`. It is registered as a
+  **singleton** — it holds the options snapshot and nothing per request. `using global::Stripe;` was
+  needed again; that trap catches every new file in that folder.
+
+- **`throwOnApiVersionMismatch: false`.** The account's API version is set in the Stripe dashboard
+  and the SDK's by the package reference, and they drift independently. A mismatch is a reason to
+  read the payload carefully, not to refuse a legitimately signed event — and the default is to
+  throw, which would have turned a dashboard setting into a total outage of the ingress.
+
+- **An unconfigured `Stripe:WebhookSecret` refuses everything, loudly.** Verifying against an empty
+  secret would accept anything that can compute an HMAC under `""`, which is everyone. The parser
+  checks the secret first and logs at **error** — a deployment failure, distinguished from the
+  signature failures around it, because from outside the two look identical and this is exactly the
+  state a local run without the user secret is in.
+
+- **The rate-limiter exemption is one exact `POST` path, not a prefix.** `payments/**` would have
+  exempted the customer-facing card endpoints next door. It is the one entry in
+  `RateLimitRoutePolicy` whose reasoning is not self-evident from the path, so the argument sits next
+  to it: anonymous callers partition **by IP**, every delivery Stripe makes comes from a small set of
+  Stripe addresses, and the whole provider therefore shares one bucket. `RateLimitTier.Exempt` also
+  bypasses the global concurrency limit, which is the part worth being deliberate about — the
+  endpoint's own defence is that it verifies an HMAC before touching anything, so an unsigned flood
+  costs a hash and a `400` and never reaches the database. `docs/rate-limiting.md` and the startup
+  log line both say so now.
+
+- **There is no `IDistributedLock` on this path, and §8 must not read that as precedent.** Rule 2
+  (§1.4) is about the `Payment` aggregate, which does not exist yet. What this milestone mutates is
+  `CustomerPaymentProfile`, where the unique index on `provider_event_id` already makes a redelivery
+  a no-op and `Attach` is a no-op for a `pm_…` the profile already holds. **The moment a webhook arm
+  touches a `Payment`, it takes the lock** — that arm is §8's, and it is the second of the two
+  processes rule 2 names.
+
+- **A fourth allow-list needed the new anonymous route, not the two the plan implies.**
+  `EndpointAuthorizationTests.AnonymousRoutes` and `OpenApiDocumentTests.AnonymousOperations` were
+  expected; `GatewayRouteTests.AnonymousApiPaths` also asserts both routing tables against its own
+  list and fails on the Kubernetes copy as readily as the Development one, which is what it is for.
+
+- **The validator's JSON-object rule is what bounds the payload, and the length bound alone would
+  not have satisfied `ValidatorCoverageTests`.** `RecordWebhookEventCommandValidator` caps the
+  payload at 8,192 characters and the signature header at 512, and additionally requires the payload
+  to start with `{`. Both run before any HMAC is computed, which is the point on an endpoint the
+  whole internet can reach: an oversized body costs a string comparison rather than a digest. If a
+  subscribed event type ever approaches that cap, raise it deliberately — the symptom would be a
+  `400` in production on a signature that was perfectly good.
+
+- **The integration suite verifies signatures for real.** `IPaymentWebhookParser` is the one piece of
+  the Stripe seam `Payments.IntegrationTests` does **not** substitute: it is the endpoint's only
+  authentication, and a faked verification asserts nothing about the thing being verified. The
+  factory sets `Stripe:WebhookSecret` to a fixture value and the tests sign their own payloads —
+  `t={unix},v1={hex HMAC-SHA256 of "{t}.{payload}"}` — exactly as Stripe does. Segments stay under 16
+  characters so `SecretHygieneTests` does not fail the build on the fixture (§5.6).
+
 ---
 
 ## 8. Milestone F — authorize on placement
@@ -647,6 +747,12 @@ successes. So there is no retry anywhere on either async leg: a transient Stripe
 and a handler bug all end the same way, with a recorded error and a payment sitting in whatever state
 it was in. The webhook reconciliation in §7 is the only thing that moves it, which makes §7 a
 correctness requirement of §8 rather than a refinement of it.
+
+**The webhook half of this milestone is two `case` arms and two commands, not a new handler** —
+§7.7 built the dispatch seam and says where they go. It is also where the second process rule 2
+(§1.4) names actually appears: the `payment_intent.*` arms mutate a `Payment`, so **they take
+`IDistributedLock` before the read**, which Milestone E's own arm deliberately does not because it
+mutates a `CustomerPaymentProfile` that the event log's unique index already protects.
 
 ### 8.2 Orders: the payment dimension
 
