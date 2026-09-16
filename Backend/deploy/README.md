@@ -50,6 +50,89 @@ through the Gateway, unchanged from the compose topology. To reach a service dir
 kubectl -n fooddeliveryservice port-forward svc/fooddeliveryservice-orders-api 5200:8080
 ```
 
+## When the cluster won't start (Windows)
+
+Two host-port problems account for essentially every "the cluster was working yesterday" failure.
+Neither produces an error that names its cause.
+
+### `bind: An attempt was made to access a socket in a way forbidden by its access permissions`
+
+The control-plane container refuses to start and names a high port — `127.0.0.1:57565`, or whatever
+this cluster drew. Nothing is listening there, and `netstat` shows nothing, which is what makes it
+confusing: **Windows has reserved the port without binding it.**
+
+`kind-cluster.yaml` pins the two published NodePorts but not `networking.apiServerPort`, so kind
+asked the OS for a free port at *creation* time and got one from the ephemeral range
+(`netsh int ipv4 show dynamicport tcp` — typically 49152–65535). Hyper-V and WinNAT carve reserved
+blocks out of that same range, on demand, in 100-port chunks. When one of those blocks lands on the
+API server's port — a Docker engine restart is the usual trigger — the cluster can no longer bind
+it. The port is baked into both the container's port bindings and `~/.kube/config`, so nothing
+renegotiates.
+
+Find the port, then confirm it is the reservation and not a real listener:
+
+```bash
+kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}'
+netsh int ipv4 show excludedportrange protocol=tcp
+```
+
+Three fixes, in increasing order of permanence:
+
+| | Fix | Lasts |
+|---|---|---|
+| 1 | `net stop winnat && net start winnat` (**elevated**) — drops every dynamic reservation | Until the blocks re-form |
+| 2 | `netsh int ipv4 add excludedportrange protocol=tcp startport=<port> numberofports=1 store=persistent` (**elevated**) | Permanently, for this cluster |
+| 3 | Add `networking: { apiServerPort: 16443 }` to `kind-cluster.yaml`, then `kind-down` + `kind-up` | Permanently, for every machine |
+
+Number 2 is the one to reach for, and it reads backwards: *excluding* a port is how you claim it.
+Windows stops handing it out dynamically, but an explicit `bind()` still succeeds — so the
+reservation becomes yours. It only works while the port is currently free, so run 1 first if a block
+already covers it. Verify with the `*` (administered) marker:
+
+```
+     57565       57565     *
+```
+
+Number 3 is the actual fix — 16443 sits below the ephemeral range, so no allocator will ever contend
+for it, and a fresh `kind-up` becomes reproducible instead of drawing a different random port each
+time. It needs a cluster rebuild, so fold it in the next time you recreate one rather than
+rebuilding for it.
+
+### `Bind for 0.0.0.0:18080 failed: port is already allocated`
+
+The cluster and docker-compose **both publish Identity on host port 18080** — deliberately, so the
+same URL works either way, which also means the two cannot run at the same time. The integration
+suites register real users against `localhost:18080`, so this collides with a test run as much as
+with compose.
+
+The failure is worse than a clean refusal. The container that loses usually still *starts*, with a
+half-built network sandbox, so its first lookup of `fooddeliveryservice.database` returns EAGAIN and
+the process dies with **exit 139** — which reads convincingly as a Docker DNS fault and has been
+misdiagnosed as one. The tell is to ask who holds the port rather than who is listening:
+
+```bash
+docker ps -a --format '{{.Names}}' | while read n; do
+  docker inspect "$n" --format "{{.Name}} {{json .HostConfig.PortBindings}}"; done | grep 18080
+```
+
+Stop whichever side you don't need. Before an integration-test run:
+
+```bash
+docker stop fooddeliveryservice-control-plane fooddeliveryservice-worker fooddeliveryservice-worker2
+```
+
+### `28P01: password authentication failed for user "fds_identity_app"`
+
+Not a cluster problem, but it shows up in the same session. The compose Postgres volume predates the
+least-privilege roles, and `docker/postgres/init/01-roles.sql` runs **once, on an empty data
+directory**. Do not wipe `.containers/db` for this — the script is idempotent by design, so replay
+it into the running database (`MSYS_NO_PATHCONV=1` stops Git Bash mangling the container path):
+
+```bash
+MSYS_NO_PATHCONV=1 docker exec -i FoodDeliveryService.Database \
+  psql -U postgres -d postgres -f /docker-entrypoint-initdb.d/01-roles.sql
+```
+
 ## How the files fit together
 
 **`base/config.yaml` is where the configuration lives.** One `ConfigMap` holds what every host

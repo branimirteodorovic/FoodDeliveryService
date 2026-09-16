@@ -1,4 +1,4 @@
-using System.Data.Common;
+﻿using System.Data.Common;
 using System.Diagnostics;
 using System.Net.Http.Json;
 using AwesomeAssertions;
@@ -146,6 +146,7 @@ public class OutboxInboxCorrelationTests(IntegrationTestWebAppFactory factory) :
             Factory.TestUserId,
             Guid.NewGuid(),
             25.00m,
+            PaymentMethod.CashOnDelivery,
             DateTime.UtcNow);
 
         await InsertUncorrelatedOutboxRowAsync(domainEvent);

@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Json;
 using AwesomeAssertions;
 using FoodDeliveryService.Common.Domain;
@@ -331,6 +331,7 @@ public class RefundRequestTests(IntegrationTestWebAppFactory factory) : BaseInte
                 Factory.CustomerUserId,
                 restaurantId: Guid.NewGuid(),
                 OrderSubtotal,
+                paymentMethod: OrderPaymentMethods.CashOnDelivery,
                 placedOnUtc: DateTime.UtcNow),
             TestContext.Current.CancellationToken);
 

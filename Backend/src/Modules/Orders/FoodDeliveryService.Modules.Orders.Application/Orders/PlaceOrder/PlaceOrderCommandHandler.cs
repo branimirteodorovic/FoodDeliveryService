@@ -12,6 +12,7 @@ internal sealed class PlaceOrderCommandHandler(
     IOrdersContext ordersContext,
     IOrdersRepository ordersRepository,
     ICustomerRepository customerRepository,
+    ICustomerPaymentProfileRepository customerPaymentProfileRepository,
     IRestaurantReplicaRepository restaurantReplicaRepository,
     IMenuItemReplicaRepository menuItemReplicaRepository,
     IUnitOfWork unitOfWork)
@@ -61,6 +62,25 @@ internal sealed class PlaceOrderCommandHandler(
             return Result.Failure<Guid>(deliveryAddressResult.Error);
         }
 
+        var paymentMethod = Enum.Parse<PaymentMethod>(request.PaymentMethod, ignoreCase: true);
+
+        if (paymentMethod == PaymentMethod.Card)
+        {
+            // Feature 3.8 Milestone F, §6.3. Checked against the one-flag replica Payments feeds,
+            // not by asking Payments — hard rule #4, and the whole reason that replica exists. It is
+            // allowed to be a second out of date: this only stops an order that is certain to fail,
+            // and the authoritative check happens where the card actually is. A card removed moments
+            // ago slips through here and comes back as a failed payment with its own reason.
+            CustomerPaymentProfile? paymentProfile = await customerPaymentProfileRepository.GetAsync(
+                customerId,
+                cancellationToken);
+
+            if (paymentProfile is null || !paymentProfile.CanPayByCard)
+            {
+                return Result.Failure<Guid>(OrderErrors.CardPaymentUnavailable);
+            }
+        }
+
         Result<List<OrderLine>> linesResult = await PriceLinesFromReplicaAsync(request, cancellationToken);
 
         if (linesResult.IsFailure)
@@ -72,7 +92,7 @@ internal sealed class PlaceOrderCommandHandler(
             customerId,
             request.RestaurantId,
             deliveryAddressResult.Value,
-            Enum.Parse<PaymentMethod>(request.PaymentMethod, ignoreCase: true),
+            paymentMethod,
             linesResult.Value,
             restaurant.CommissionRate,
             request.IdempotencyKey,

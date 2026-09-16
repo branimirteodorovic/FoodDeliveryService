@@ -2,6 +2,7 @@ using FoodDeliveryService.Common.Infrastructure.Inbox;
 using FoodDeliveryService.Common.Infrastructure.Outbox;
 using FoodDeliveryService.Modules.Payments.Application.Abstractions.Data;
 using FoodDeliveryService.Modules.Payments.Domain.PaymentMethods;
+using FoodDeliveryService.Modules.Payments.Domain.Payments;
 using FoodDeliveryService.Modules.Payments.Domain.Webhooks;
 using Microsoft.EntityFrameworkCore;
 
@@ -26,6 +27,12 @@ public sealed class PaymentsDbContext(DbContextOptions<PaymentsDbContext> option
     /// the customers who can actually pay by card.
     /// </summary>
     internal DbSet<CustomerPaymentProfile> CustomerPaymentProfiles { get; set; }
+
+    /// <summary>
+    /// One row per card order: the hold, what became of it, and the provider intent behind it.
+    /// Cash orders have no row here at all — there is nothing to authorize (§8.1).
+    /// </summary>
+    internal DbSet<Payment> Payments { get; set; }
 
     /// <summary>
     /// One row per verified Stripe webhook. It is the dedupe table for provider redeliveries and is

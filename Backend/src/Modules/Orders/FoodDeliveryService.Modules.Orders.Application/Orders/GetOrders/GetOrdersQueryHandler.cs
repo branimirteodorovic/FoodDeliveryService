@@ -30,6 +30,7 @@ internal sealed class GetOrdersQueryHandler(
                  o.status AS {nameof(OrderSummaryResponse.Status)},
                  o.subtotal AS {nameof(OrderSummaryResponse.Subtotal)},
                  o.payment_method AS {nameof(OrderSummaryResponse.PaymentMethod)},
+                 o.payment_status AS {nameof(OrderSummaryResponse.PaymentStatus)},
                  o.placed_on_utc AS {nameof(OrderSummaryResponse.PlacedOnUtc)}
              FROM orders o
              LEFT JOIN restaurants r ON r.id = o.restaurant_id

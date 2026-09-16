@@ -80,6 +80,15 @@ public static class OrdersModule
         registrationConfigurator.AddConsumer<IntegrationEventConsumer<PaymentMethodDetachedIntegrationEvent>>()
             .Endpoint(c => c.InstanceId = instanceId);
 
+        // Feature 3.8 Milestone F: the other half of the loop. Orders publishes OrderPlaced,
+        // Payments authorizes off it, and these two carry the outcome back onto the order's payment
+        // dimension — Authorized lifts the guard on Accept(), Failed cancels the order. Exactly the
+        // shape the delivery closure already has with Delivery: neither service calls the other.
+        registrationConfigurator.AddConsumer<IntegrationEventConsumer<PaymentAuthorizedIntegrationEvent>>()
+            .Endpoint(c => c.InstanceId = instanceId);
+        registrationConfigurator.AddConsumer<IntegrationEventConsumer<PaymentAuthorizationFailedIntegrationEvent>>()
+            .Endpoint(c => c.InstanceId = instanceId);
+
         //registrationConfigurator
         //    .AddSagaStateMachine<CancelEventSaga, CancelEventState>()
         //    .RedisRepository(redisConnectionString);

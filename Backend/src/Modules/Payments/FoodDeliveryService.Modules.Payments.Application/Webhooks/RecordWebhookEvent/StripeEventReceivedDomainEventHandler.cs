@@ -2,6 +2,8 @@ using FoodDeliveryService.Common.Application.Messaging;
 using FoodDeliveryService.Common.Domain;
 using FoodDeliveryService.Modules.Payments.Application.Abstractions.Payments;
 using FoodDeliveryService.Modules.Payments.Application.Webhooks.AttachWebhookPaymentMethod;
+using FoodDeliveryService.Modules.Payments.Application.Webhooks.ConfirmPaymentAuthorization;
+using FoodDeliveryService.Modules.Payments.Application.Webhooks.FailPaymentAuthorization;
 using FoodDeliveryService.Modules.Payments.Application.Webhooks.MarkWebhookEventProcessed;
 using FoodDeliveryService.Modules.Payments.Domain.Webhooks;
 using MediatR;
@@ -18,8 +20,8 @@ namespace FoodDeliveryService.Modules.Payments.Application.Webhooks.RecordWebhoo
 /// </para>
 /// <para>
 /// <b>Every later milestone adds one arm below and one command beside it</b> —
-/// <c>payment_intent.amount_capturable_updated</c> and <c>payment_intent.payment_failed</c> in §8,
-/// <c>payment_intent.succeeded</c> in §9, <c>charge.refunded</c> in §10. Each arm must be idempotent
+/// <c>payment_intent.succeeded</c> in §9 and <c>charge.refunded</c> in §10 (§8's two arrived with
+/// Milestone F and are below). Each arm must be idempotent
 /// on its own, because arrival order carries no meaning (§7.5) and because this handler is
 /// dispatched at least once.
 /// </para>
@@ -44,6 +46,17 @@ internal sealed class StripeEventReceivedDomainEventHandler(
         {
             PaymentWebhookEventTypes.SetupIntentSucceeded => await sender.Send(
                 new AttachWebhookPaymentMethodCommand(domainEvent.EventLogId),
+                cancellationToken),
+
+            // Milestone F's two arms. Both mutate a Payment, so both take IDistributedLock before
+            // their read — which the arm above deliberately does not, because the profile it writes
+            // is already protected by a unique index (§7.7).
+            PaymentWebhookEventTypes.PaymentIntentAmountCapturableUpdated => await sender.Send(
+                new ConfirmPaymentAuthorizationCommand(domainEvent.EventLogId),
+                cancellationToken),
+
+            PaymentWebhookEventTypes.PaymentIntentPaymentFailed => await sender.Send(
+                new FailPaymentAuthorizationCommand(domainEvent.EventLogId),
                 cancellationToken),
 
             _ => Result.Success()

@@ -1,4 +1,4 @@
-using AwesomeAssertions;
+﻿using AwesomeAssertions;
 using FoodDeliveryService.Modules.Delivery.IntegrationEvents;
 using FoodDeliveryService.Modules.Orders.IntegrationEvents;
 using FoodDeliveryService.Modules.RealTime.Application.RealTime;
@@ -16,7 +16,14 @@ public class OrderStatusFrameTests
     public void From_OrderPlaced_MapsToPlacedFrame()
     {
         var integrationEvent = new OrderPlacedIntegrationEvent(
-            Guid.NewGuid(), OccurredOnUtc, OrderId, CustomerId, RestaurantId, subtotal: 42m, placedOnUtc: OccurredOnUtc);
+            Guid.NewGuid(),
+            OccurredOnUtc,
+            OrderId,
+            CustomerId,
+            RestaurantId,
+            subtotal: 42m,
+            paymentMethod: OrderPaymentMethods.CashOnDelivery,
+            placedOnUtc: OccurredOnUtc);
 
         var frame = OrderStatusFrame.From(integrationEvent);
 

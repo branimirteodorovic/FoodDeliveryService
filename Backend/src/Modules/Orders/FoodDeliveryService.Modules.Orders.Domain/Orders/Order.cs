@@ -30,6 +30,13 @@ public sealed class Order : Entity
 
     public PaymentMethod PaymentMethod { get; private set; }
 
+    /// <summary>
+    /// Where the money is — a second, independent dimension beside <see cref="Status"/>, and a
+    /// projection of the Payments service's state rather than a source of truth (§1.2). The one
+    /// decision it drives here is the guard in <see cref="Accept"/>.
+    /// </summary>
+    public PaymentStatus PaymentStatus { get; private set; }
+
     public decimal Subtotal { get; private set; }
 
     // Snapshot from the Restaurant replica at placement — the payout math later must use the rate
@@ -65,6 +72,12 @@ public sealed class Order : Entity
             Status = OrderStatus.Pending,
             DeliveryAddress = deliveryAddress,
             PaymentMethod = paymentMethod,
+            // A card order is placed already waiting on its hold; a cash order never waits on one.
+            // Set here rather than defaulted, because "which dimension applies to this order" is
+            // decided by the payment method and by nothing that happens later.
+            PaymentStatus = paymentMethod == PaymentMethod.Card
+                ? PaymentStatus.Authorizing
+                : PaymentStatus.NotRequired,
             CommissionRate = commissionRate,
             IdempotencyKey = idempotencyKey,
             PlacedOnUtc = utcNow
@@ -82,13 +95,31 @@ public sealed class Order : Entity
             order.CustomerId,
             order.RestaurantId,
             order.Subtotal,
+            order.PaymentMethod,
             order.PlacedOnUtc));
 
         return order;
     }
 
+    /// <summary>
+    /// The restaurant takes the order on. Feature 3.8 Milestone F, §8.2: a card order may not be
+    /// accepted until its hold is actually on the card.
+    /// <para>
+    /// The payment guard runs <b>before</b> the status transition, so a restaurant accepting inside
+    /// the authorization window — typically under a second — gets a clean, retryable
+    /// <c>PaymentNotAuthorized</c> rather than a generic invalid-transition error. The corollary is
+    /// that a card order whose payment failed answers the same way instead of "already cancelled",
+    /// which is the less informative of the two and is accepted deliberately: the reason it cannot
+    /// be accepted really is the payment.
+    /// </para>
+    /// </summary>
     public Result Accept(DateTime utcNow)
     {
+        if (PaymentMethod == PaymentMethod.Card && PaymentStatus != PaymentStatus.Authorized)
+        {
+            return Result.Failure(OrderErrors.PaymentNotAuthorized);
+        }
+
         OrderStatus previousStatus = Status;
 
         Result result = Transition(OrderStatus.Accepted, OrderStatus.Pending);
@@ -184,6 +215,87 @@ public sealed class Order : Entity
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Records that the hold is on the card — projected from <c>PaymentAuthorizedIntegrationEvent</c>.
+    /// <para>
+    /// Raises nothing: this is a projection of another service's state, and an event here would be
+    /// Orders announcing news that Payments already announced. It is a no-op from any status but
+    /// <see cref="PaymentStatus.Authorizing"/>, which covers both the redelivery the inbox is
+    /// entitled to make and the authorization that arrives after a capture has already been
+    /// projected — messages carry no ordering with respect to each other.
+    /// </para>
+    /// </summary>
+    public Result MarkPaymentAuthorized()
+    {
+        if (PaymentMethod != PaymentMethod.Card)
+        {
+            return Result.Failure(OrderErrors.PaymentNotRequired);
+        }
+
+        if (PaymentStatus != PaymentStatus.Authorizing)
+        {
+            return Result.Success();
+        }
+
+        PaymentStatus = PaymentStatus.Authorized;
+
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// The card was refused, so the order ends — Feature 3.8 Milestone F, §8.3. Cancels the order
+    /// and raises <see cref="OrderPaymentFailedDomainEvent"/> rather than reusing
+    /// <see cref="Cancel"/>: see that event for why the distinction is load-bearing rather than
+    /// cosmetic.
+    /// <para>
+    /// Two tolerances, both because the inbox dispatches at least once and messages are unordered.
+    /// A second delivery finds the payment already <see cref="PaymentStatus.Failed"/> and does
+    /// nothing. And an order the customer cancelled while the authorization was still in flight is
+    /// already where a failed payment would put it, so the payment outcome is recorded without a
+    /// second cancellation event.
+    /// </para>
+    /// </summary>
+    public Result FailPayment(string reason, DateTime utcNow)
+    {
+        if (PaymentMethod != PaymentMethod.Card)
+        {
+            return Result.Failure(OrderErrors.PaymentNotRequired);
+        }
+
+        if (PaymentStatus == PaymentStatus.Failed)
+        {
+            return Result.Success();
+        }
+
+        if (Status == OrderStatus.Cancelled)
+        {
+            PaymentStatus = PaymentStatus.Failed;
+
+            return Result.Success();
+        }
+
+        OrderStatus previousStatus = Status;
+
+        Result result = Transition(OrderStatus.Cancelled, OrderStatus.Pending);
+
+        if (result.IsFailure)
+        {
+            return result;
+        }
+
+        PaymentStatus = PaymentStatus.Failed;
+
+        Raise(new OrderPaymentFailedDomainEvent(
+            Id,
+            CustomerId,
+            RestaurantId,
+            previousStatus,
+            reason,
+            utcNow));
+
+        return Result.Success();
     }
 
     private Result Transition(OrderStatus to, params OrderStatus[] from)

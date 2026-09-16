@@ -23,6 +23,7 @@ internal sealed class OrderPlacedDomainEventHandler(IEventBus eventBus)
                 domainEvent.CustomerId,
                 domainEvent.RestaurantId,
                 domainEvent.Subtotal,
+                domainEvent.PaymentMethod.ToString(),
                 domainEvent.PlacedOnUtc),
             cancellationToken);
 

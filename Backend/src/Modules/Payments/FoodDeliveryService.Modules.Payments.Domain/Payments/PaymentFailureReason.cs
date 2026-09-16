@@ -3,9 +3,10 @@ using System.Collections.Frozen;
 namespace FoodDeliveryService.Modules.Payments.Domain.Payments;
 
 /// <summary>
-/// The bounded set of reasons an authorization can fail — §8.4. Every failure the platform reports,
-/// publishes on <c>PaymentAuthorizationFailedIntegrationEvent</c>, emails about or counts in
-/// <c>payments.failed</c> is one of these five strings.
+/// The bounded set of reasons an authorization can fail — §8.4, plus the sixth Milestone F added
+/// (<see cref="NoPaymentMethod"/>). Every failure the platform reports, publishes on
+/// <c>PaymentAuthorizationFailedIntegrationEvent</c>, emails about or counts in
+/// <c>payments.failed</c> is one of these six strings.
 /// <para>
 /// Bounded is the operative word. Stripe's own <c>StripeError.Message</c> is unbounded free text
 /// ("Your card was declined. Your request was in live mode, but used a known test card." and worse),
@@ -43,13 +44,29 @@ public static class PaymentFailureReason
     /// </summary>
     public const string GatewayError = "gateway_error";
 
+    /// <summary>
+    /// There was no saved card to charge — a sixth reason, added in Milestone F beyond the five §8.4
+    /// names.
+    /// <para>
+    /// It earns its place because it is neither of the two buckets either side of it. The issuer
+    /// refused nothing, so <see cref="CardDeclined"/> would be a lie told to a customer; nothing is
+    /// wrong with this platform or with Stripe, so <see cref="GatewayError"/> would send an operator
+    /// to investigate a provider that behaved perfectly. It is the ordinary, expected outcome of
+    /// Orders' <c>CanPayByCard</c> replica being a second out of date (§6.3) — the case that replica
+    /// openly trades away — and the platform should be able to count it separately for exactly that
+    /// reason.
+    /// </para>
+    /// </summary>
+    public const string NoPaymentMethod = "no_payment_method";
+
     public static readonly FrozenSet<string> All = new[]
     {
         CardDeclined,
         InsufficientFunds,
         ExpiredCard,
         AuthenticationRequired,
-        GatewayError
+        GatewayError,
+        NoPaymentMethod
     }.ToFrozenSet(StringComparer.Ordinal);
 
     public static bool IsKnown(string reason) => All.Contains(reason);

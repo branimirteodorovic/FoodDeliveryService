@@ -768,7 +768,7 @@ Reusing `Order.Cancel()` raises `OrderCancelledDomainEvent`, which Payments cons
 
 ### 8.4 Declines
 
-`PaymentAuthorizationFailedIntegrationEvent` carries a **bounded** reason code (`card_declined`, `insufficient_funds`, `expired_card`, `authentication_required`, `gateway_error`) — never Stripe's raw message, which is unbounded free text and would blow up metric cardinality in §11.1.
+`PaymentAuthorizationFailedIntegrationEvent` carries a **bounded** reason code (`card_declined`, `insufficient_funds`, `expired_card`, `authentication_required`, `gateway_error`, and the `no_payment_method` Milestone F added — §8.7) — never Stripe's raw message, which is unbounded free text and would blow up metric cardinality in §11.1.
 
 Those five are already declared as `PaymentFailureReason` in `Payments.Domain/Payments/`, and the
 Stripe decline-code mapping onto them shipped with the seam (§5.6). Read the reason off the failure
@@ -790,6 +790,133 @@ Every handler that mutates a payment returns success without acting when the pay
 
 ---
 
+### 8.7 What Milestone F shipped, and where it departed from §8.1–8.6
+
+Two aggregates' worth of change across two services: the `Payment` aggregate and its two webhook
+arms in Payments, and the payment dimension in Orders. Two migrations,
+`20260915070613_Add_Payments` (the `payments` table plus two columns on `stripe_event_logs`) and
+`20260915070956_Add_Orders_Payment_Status`. Green: `dotnet build` on the solution,
+`Payments.UnitTests` **109/109** (98 + 11 `Payment` cases), `Orders.UnitTests` **43/43** (29 + 14
+payment-dimension cases), `Common.UnitTests` **465/465**, every other module's unit suite unchanged
+and green, `policy-check.py`. No manifest, compose or Gateway change, and no new configuration key —
+`Payments:Currency` has been read since Milestone C and this is the milestone that spends it.
+
+**The integration suites could not be executed on this machine.** They need
+`fooddeliveryservice.identity` on `:18080`, and the Identity container segfaults on startup here
+(exit 139, `getaddrinfo` returning `EAGAIN` for `fooddeliveryservice.database` while a busybox
+container on the same network resolves it fine) — a Docker Desktop fault unrelated to this feature,
+and not one worth restarting the engine and the running KinD cluster to chase. The six new
+integration tests below are written and compile; they have not been run.
+
+**Nine departures and constraints.**
+
+- **`OrderPlacedIntegrationEvent` gained a `PaymentMethod`, because §8.1's "skip cash orders
+  entirely" is not implementable without it.** The event carried the subtotal and not the method, so
+  the only way to tell a cash order from a card one was to ask Orders — the synchronous call this
+  whole feature is shaped to avoid. It is a `string`, not the enum: hard rule #4 keeps
+  `Orders.Domain` out of Payments' reach, and `SupportTicketOpenedIntegrationEvent.Status` and
+  `UserRegisteredIntegrationEvent.Roles` already travel that way. The vocabulary is
+  `OrderPaymentMethods` in `Orders.IntegrationEvents`, so both sides compile against one constant,
+  and `PaymentMethodNames_Should_MatchTheContractVocabulary` pins the enum's member *names* to it —
+  renaming `PaymentMethod.Card` without renaming the constant would otherwise stop every card order
+  being charged, silently, with nothing failing anywhere.
+
+- **The `Payment` row is committed BEFORE the first Stripe call, in its own transaction.** §8.1 does
+  not say which way round, and the other way round has a failure mode with no recovery: an
+  authorization held at the provider that this platform has no row for, no id for, and no way to
+  look up. Writing first costs one extra round trip and buys the reconciling webhook something to
+  find. The handler therefore saves twice — once for the `Authorizing` row, once for the outcome —
+  which is unusual in this codebase and deliberate here.
+
+- **`PaymentWebhookEvent` and `stripe_event_logs` gained `order_reference`, and it is what makes the
+  reconciliation actually work.** `AuthorizeAsync` already wrote `order_id` into the intent's
+  metadata, and Stripe echoes it on every event about that intent. Without reading it back, a
+  `payment_intent.*` could only be resolved by looking its `pi_…` up locally — and the case worth
+  reconciling is exactly the one where the `pi_…` was never recorded, because the call that would
+  have recorded it did not come back. The lookup by `pi_…` remains as the fallback, and it returns an
+  **id rather than an entity** (`FindOrderIdByPaymentIntentIdAsync`, `AsNoTracking`): it happens
+  before the lock, only to discover which lock to take, and a tracked read there would serve the
+  authoritative read inside the lock the same pre-lock snapshot out of EF's identity map.
+
+- **`PaymentLocks.Payment` is keyed on the order id, and the TTL is 30 s rather than Delivery's 5.**
+  The order is the one identifier both writers hold before reading anything — the outbox side from
+  the event, the webhook side from that `order_reference`. The TTL is long because this critical
+  section contains a **provider round trip**, not a geo search and a local transaction; a TTL shorter
+  than a slow Stripe call would expire under the holder at precisely the moment a second caller must
+  not be let in. And if it is outlived anyway, the idempotency key underneath is what stops the
+  second caller charging the card twice — §1.4's two rules stand one behind the other, which is worth
+  knowing before anyone "simplifies" either.
+
+- **A sixth `PaymentFailureReason`: `no_payment_method`.** §8.4 fixes five. A customer whose card
+  vanished between Orders' replica and the authorization is neither of the buckets either side of it:
+  the issuer refused nothing, so `card_declined` would be a lie told to a customer, and nothing is
+  wrong with this platform or with Stripe, so `gateway_error` would send an operator to investigate a
+  provider that behaved perfectly. It is the expected outcome of the staleness §6.3 openly trades
+  for, and the platform should be able to count it as such. §11.1's `payments.failed` tag set is
+  therefore six wide, not five.
+
+- **`stripe_event_logs` also gained `failure_reason`, mapped in the parser.** The failure arm needs a
+  bounded reason and the payload's `last_payment_error` is the provider's unbounded text, so the
+  mapping happens in `StripeWebhookParser` where every other translation of Stripe's vocabulary
+  already lives — sharing `StripeErrorMapping.FailureReason` with the API-response path, because two
+  mappings of one set of decline codes eventually disagree about the same card. It is written only
+  when the payload actually carries a refusal: a successful event carrying `card_declined` in a
+  column is a row somebody misreads at three in the morning. Note the column sits beside `error`,
+  which means something different — why *this platform* failed to act on the event, not why the
+  *payment* failed.
+
+- **`Order.Accept()`'s guard runs before the status transition, which changes one error message.** A
+  card order whose payment failed now answers `PaymentNotAuthorized` rather than "invalid transition
+  from Cancelled" — less specific about the lifecycle, more accurate about the reason, and the
+  restaurant's actual question ("can I take this order?") is answered either way. The alternative was
+  duplicating the transition check in front of the guard.
+
+- **`OrderPaymentFailedDomainEvent` publishes no integration event, and that is a decision.** §8.3
+  asks for the distinct domain event and does not say what handles it. Payments already publishes
+  `PaymentAuthorizationFailedIntegrationEvent` carrying the bounded reason, which is what
+  Notifications will consume for the declined-card email (§10.4); a second message about one fact,
+  with less on it, is not worth the contract. **The consequence to know:** Delivery and RealTime learn
+  of ordinary cancellations from `OrderCancelledIntegrationEvent` and do not learn of this one.
+  Delivery is unaffected — no delivery exists for an order that never left `Pending` — but a customer
+  watching the live tracker sees the order stop rather than turn red until something consuming the
+  payment failure also pushes a frame. It is written on the handler as well as here.
+
+- **`Microsoft.Extensions.Options` is now a package reference of `Payments.Application`.** The
+  handler that turns `Order.Subtotal` into a `Money` reads `PaymentsOptions.Currency`, and no
+  Application project in this solution had ever injected `IOptions<T>`. The abstractions package
+  carries no binder and no container — the same shape and the same argument as
+  `Microsoft.Extensions.Logging.Abstractions` in `Common.Application` — and the binding still happens
+  in Infrastructure, where the configuration lives.
+
+**What the tests cover, and the one that matters.** `Payments.UnitTests/PaymentTests` is mostly about
+what the aggregate *refuses*: a second different intent, a reason outside the bounded set, a failure
+arriving after the hold succeeded, a hold arriving after the failure. `Orders.UnitTests/OrderPaymentTests`
+pairs every card case with its cash counterpart, because the argument for a second column instead of
+a ninth `OrderStatus` member (§1.2) is precisely that the dimensions are independent. The integration
+suite adds `AuthorizePaymentTests` (place → authorize → project back; decline → cancel; a cash order
+that reaches Payments and leaves nothing behind; **and the double-charge regression §13.2 names** — a
+republished placement, asserted to have produced exactly one gateway call) and
+`PaymentReconciliationTests`, which scripts the gateway to throw and then drives the payment to
+completion **through the webhook alone**. That last pair is the test of the claim this milestone
+rests on, and it only works because the row is written before the call and the order id comes back on
+the metadata.
+
+**Two things about the test harness.** The gateway fake is a singleton shared by the whole
+collection, so a scripted decline or fault must be scoped to the **whole test method**, never to the
+act — the authorization runs on the inbox a second after the HTTP call returns, so a script undone
+any earlier was never in force when it mattered (`ScriptedGatewayOutcome`). And webhook signing moved
+into `Abstractions/StripeWebhooks`: two test classes deliver webhooks now, and a second copy of a
+signing routine is a copy that drifts until one of them fails for a reason unrelated to what it was
+testing.
+
+**A generated migration needed a hand-edit beyond the file-scoped namespace (§4.5):**
+`AddColumn<int>` defaults to `0`, and `0` is not a member of `PaymentStatus`. It was changed to `1`
+(`NotRequired`), which is also the correct answer on the merits — `PaymentMethod.Card` did not exist
+until this milestone, so every pre-existing row is a cash order. A generated default of zero on a new
+non-nullable enum column is worth checking every time; the enums in this codebase all start at 1.
+
+---
+
 ## 9. Milestone G — capture and release
 
 **PR size: small**, given §8.
@@ -799,6 +926,15 @@ Every handler that mutates a payment returns success without acting when the pay
 - Orders projects both onto `PaymentStatus`.
 
 Both take the lock (§8.1) and both honour §8.6.
+
+Milestone F built the seams this milestone should use rather than reinvent — see §8.7. The lock key
+and TTL are `PaymentLocks.Payment(orderId)` / 30 s and both new transitions take the same one; the
+`payment_intent.succeeded` arm is one `case` in `StripeEventReceivedDomainEventHandler` plus one
+command, and it resolves its payment through `WebhookPaymentLookup.ResolveOrderIdAsync` (the
+`order_id` on the intent's metadata first, the local `pi_…` index second). `Payment.Capture` and
+`Payment.Release` are no-ops from anything but `Authorized`, the same shape as `Fail` from
+`Authorizing`. On the Orders side `PaymentStatus.Captured` and `.Released` already exist and are
+already read by both Dapper handlers — this milestone gives them a writer, and adds no migration.
 
 ---
 
@@ -844,7 +980,9 @@ Record the reversal in `SUPPORT_PHASE3_PLAN.md` as a departure — what the lite
 
 ### 10.4 Notifications
 
-Two new `NotificationType` members (payment failed, refund settled). Each needs **three** things, not two: the enum member, a template arm, **and** a `NotificationChannelRouter` route. A type missing from that router sends nothing and reports success, leaving a clean outbox/inbox trail and no email — the trap named in `CLAUDE.md`.
+Two new `NotificationType` members (payment failed, refund settled). Each needs **three** things, not two: the enum member, a template arm, **and** a `NotificationChannelRouter` route.
+
+The payment-failed email is driven by **`PaymentAuthorizationFailedIntegrationEvent`**, not by anything Orders publishes: Milestone F deliberately left `OrderPaymentFailedDomainEvent` internal to Orders, because the Payments event already carries the bounded reason the email needs and a second message about one fact would carry less (§8.7). The template may therefore say *"your card was declined"* and name which of the six reasons it was — never Stripe's own text. A type missing from that router sends nothing and reports success, leaving a clean outbox/inbox trail and no email — the trap named in `CLAUDE.md`.
 
 ---
 
@@ -858,7 +996,7 @@ Two new `NotificationType` members (payment failed, refund settled). Each needs 
 |---|---|
 | `payments.authorized` | — |
 | `payments.captured` | — |
-| `payments.failed` | reason (the bounded set from §8.4 — **never** the raw Stripe message) |
+| `payments.failed` | reason (the bounded set from §8.4, which Milestone F widened to **six** — §8.7 — and **never** the raw Stripe message) |
 | `payments.released` | trigger (`rejected` \| `cancelled`) |
 | `payments.gateway.duration` | operation, outcome |
 | `refunds.settled` | — |

@@ -157,7 +157,7 @@ graph TB
 
 ### C3 — Event Topology
 
-The C2 diagram draws one dashed line per service to a RabbitMQ box, which is honest about the transport and says nothing about the system. This is what actually travels those lines: **27 integration events**, who publishes each and who reacts to it.
+The C2 diagram draws one dashed line per service to a RabbitMQ box, which is honest about the transport and says nothing about the system. This is what actually travels those lines: **29 integration events**, who publishes each and who reacts to it.
 
 **The hop every one of them takes.** Nothing publishes to the broker from a command handler. A state change and the record of that state change are committed together, and everything after that is out of band:
 
@@ -212,6 +212,7 @@ graph LR
     orders -->|"OrderReadyForPickup · OrderCancelled"| deliv
     orders -->|"OrderPlaced"| notif
     orders -->|"OrderPlaced"| sup
+    orders -->|"OrderPlaced"| pay
     orders -->|"OrderPlaced · OrderAccepted · OrderRejected<br/>OrderReadyForPickup · OrderCancelled"| rt
 
     deliv -->|"OrderPickedUp · OrderDelivered"| orders
@@ -219,7 +220,7 @@ graph LR
 
     sup -->|"TicketMessagePosted<br/>RefundApproved · RefundRejected"| notif
 
-    pay -->|"PaymentMethodAttached · PaymentMethodDetached"| orders
+    pay -->|"PaymentMethodAttached · PaymentMethodDetached<br/>PaymentAuthorized · PaymentAuthorizationFailed"| orders
 
     classDef svc fill:#438dd5,stroke:#2e6295,color:#fff
     class users,rest,orders,deliv,notif,rt,sup,pay svc
@@ -227,7 +228,7 @@ graph LR
 
 Three things the picture makes obvious that the prose does not:
 
-- **The lifecycle is a loop, not a chain.** Orders tells Delivery an order is ready; Delivery tells Orders it was picked up and delivered, and *those* events are what move the order to `OutForDelivery` and `Delivered`. Neither service calls the other.
+- **The lifecycle is a loop, not a chain.** Orders tells Delivery an order is ready; Delivery tells Orders it was picked up and delivered, and *those* events are what move the order to `OutForDelivery` and `Delivered`. Neither service calls the other. Payments closes the same shape around the money: `OrderPlaced` goes out, the card is authorized off it, and `PaymentAuthorized`/`PaymentAuthorizationFailed` come back to lift the guard on accepting the order or to cancel it.
 - **Notifications and RealTime only ever consume.** They publish nothing. Both are pure projections of other services' state — one into email, one into SignalR frames — which is why either can be down without blocking a single write.
 - **Six events are published that nothing consumes yet.** Delivery's `DeliveryOffered`, `DeliveryOfferRejected` and `DeliveryUnassigned`, and Support's `SupportTicketOpened`, `SupportTicketResolved` and `RefundRequested`. They are the audit and extension surface — an offer's lifecycle and a refund's approval chain are worth publishing whether or not anything listens today — and they are named here rather than omitted, because a topology diagram that quietly drops the unconsumed half is a diagram of what someone wished the system did.
 
@@ -421,7 +422,7 @@ The security posture is written down and, where it can be, asserted as tests rat
 
 ## Testing
 
-Two layers, both run in CI:
+Two layers:
 
 **Unit tests** (`{Module}.UnitTests`) reference the Domain project only. They cover aggregate factories, business methods, invariants and the domain events those methods must — and must not — raise. No DI, no database, no HTTP.
 
@@ -430,6 +431,16 @@ Two layers, both run in CI:
 ```bash
 cd Backend && dotnet test
 ```
+
+**Before running the integration suites**, Identity must be listening on `:18080` — every suite except Notifications registers its test users against it for real, and without it the fixture fails in `InitializeAsync` with a connection refused rather than a test assertion:
+
+```bash
+cd Backend && docker compose up -d fooddeliveryservice.database fooddeliveryservice.identity
+```
+
+Two things make that fail in ways that do not name the cause. The KinD cluster publishes Identity's NodePort on the **same host port 18080**, so the two cannot be up at once — stop the cluster's nodes first, or the container that loses the race starts with a half-built network sandbox and dies resolving the database host. And the compose Postgres volume predates the least-privilege roles, so an older `.containers/db` produces `28P01 password authentication failed` — replay the idempotent `docker/postgres/init/01-roles.sql` into the running database rather than wiping the volume. Both, with the exact commands, are in [`deploy/README.md` → *When the cluster won't start*](Backend/deploy/README.md).
+
+Only the unit suites and the Notifications integration suite run in CI, for the same reason: the rest need that Identity instance, and the workflow has no service to provide it.
 
 These tests have earned their keep: the Users suite surfaced a real outbox serialization bug where a role collection silently broke `UserRegistered` publishing to every downstream consumer, and the first KinD cluster run exposed three latent bugs in the deployment scripts.
 

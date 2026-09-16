@@ -9,6 +9,7 @@ public sealed class OrderPlacedDomainEvent(
     Guid customerId,
     Guid restaurantId,
     decimal subtotal,
+    PaymentMethod paymentMethod,
     DateTime placedOnUtc) : DomainEvent
 {
     public Guid OrderId { get; init; } = orderId;
@@ -18,6 +19,10 @@ public sealed class OrderPlacedDomainEvent(
     public Guid RestaurantId { get; init; } = restaurantId;
 
     public decimal Subtotal { get; init; } = subtotal;
+
+    // Feature 3.8 Milestone F. On the event so the integration event can carry it, which is what
+    // lets Payments skip cash orders without asking Orders anything.
+    public PaymentMethod PaymentMethod { get; init; } = paymentMethod;
 
     public DateTime PlacedOnUtc { get; init; } = placedOnUtc;
 }

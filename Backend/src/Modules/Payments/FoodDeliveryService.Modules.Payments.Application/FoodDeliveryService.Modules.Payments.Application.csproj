@@ -1,6 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <!-- IOptions<T> only, so AuthorizePaymentCommandHandler can read the platform currency off the
+         bound PaymentsOptions. The abstractions package carries no binder and no container; the
+         binding itself still happens in Infrastructure, where the configuration lives. -->
+    <PackageReference Include="Microsoft.Extensions.Options" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\..\Common\FoodDeliveryService.Common.Application\FoodDeliveryService.Common.Application.csproj" />
     <ProjectReference Include="..\FoodDeliveryService.Modules.Payments.Domain\FoodDeliveryService.Modules.Payments.Domain.csproj" />
     <ProjectReference Include="..\FoodDeliveryService.Modules.Payments.IntegrationEvents\FoodDeliveryService.Modules.Payments.IntegrationEvents.csproj" />

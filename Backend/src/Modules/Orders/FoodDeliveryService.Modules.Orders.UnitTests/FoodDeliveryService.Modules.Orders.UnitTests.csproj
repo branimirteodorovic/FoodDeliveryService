@@ -21,6 +21,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\FoodDeliveryService.Modules.Orders.Domain\FoodDeliveryService.Modules.Orders.Domain.csproj" />
+    <!-- Feature 3.8 Milestone F. Wider than Domain-only, for one assertion that has to be able to
+         see both sides: OrderPlacedIntegrationEvent carries the payment method as a string, so the
+         enum's member names are part of a cross-service contract and the two must be compared
+         somewhere. -->
+    <ProjectReference Include="..\FoodDeliveryService.Modules.Orders.IntegrationEvents\FoodDeliveryService.Modules.Orders.IntegrationEvents.csproj" />
   </ItemGroup>
 
   <ItemGroup>

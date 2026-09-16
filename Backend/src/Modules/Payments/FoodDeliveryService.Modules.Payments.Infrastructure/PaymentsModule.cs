@@ -6,6 +6,7 @@ using FoodDeliveryService.Common.Presentation.Endpoints;
 using FoodDeliveryService.Modules.Payments.Application.Abstractions.Authentication;
 using FoodDeliveryService.Modules.Payments.Application.Abstractions.Data;
 using FoodDeliveryService.Modules.Payments.Domain.PaymentMethods;
+using FoodDeliveryService.Modules.Payments.Domain.Payments;
 using FoodDeliveryService.Modules.Payments.Domain.Webhooks;
 using FoodDeliveryService.Modules.Payments.Infrastructure.Authentication;
 using FoodDeliveryService.Modules.Payments.Infrastructure.Authorization;
@@ -13,8 +14,10 @@ using FoodDeliveryService.Modules.Payments.Infrastructure.Database;
 using FoodDeliveryService.Modules.Payments.Infrastructure.Inbox;
 using FoodDeliveryService.Modules.Payments.Infrastructure.Outbox;
 using FoodDeliveryService.Modules.Payments.Infrastructure.PaymentMethods;
+using FoodDeliveryService.Modules.Payments.Infrastructure.Payments;
 using FoodDeliveryService.Modules.Payments.Infrastructure.Stripe;
 using FoodDeliveryService.Modules.Payments.Infrastructure.Webhooks;
+using FoodDeliveryService.Modules.Orders.IntegrationEvents;
 using FoodDeliveryService.Modules.Users.IntegrationEvents;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
@@ -48,10 +51,16 @@ public static class PaymentsModule
         {
             // Every registered user gets a Stripe customer, so the card form has something to attach
             // to when they first reach it (§6.2). The remaining subscriptions arrive one per
-            // milestone, each one line here: OrderPlaced (§8), OrderAccepted/Rejected/Cancelled (§9)
-            // and RefundApproved (§10). Every one of them must also be drawn in the README's C3
-            // event topology in the same change — IntegrationEventTopologyTests diffs the two.
+            // milestone, each one line here: OrderAccepted/Rejected/Cancelled (§9) and
+            // RefundApproved (§10). Every one of them must also be drawn in the README's C3 event
+            // topology in the same change — IntegrationEventTopologyTests diffs the two.
             registration.AddConsumer<IntegrationEventConsumer<UserRegisteredIntegrationEvent>>()
+                .Endpoint(c => c.InstanceId = instanceId);
+
+            // Milestone F. The authorization hangs off the event Orders already published, which is
+            // what keeps the charge off the order path: no synchronous call, no new contract from
+            // Orders, and a cash order simply has no work attached (the handler returns on it).
+            registration.AddConsumer<IntegrationEventConsumer<OrderPlacedIntegrationEvent>>()
                 .Endpoint(c => c.InstanceId = instanceId);
 
             // The explicit request client is not optional even for a service that consumes little:
@@ -79,8 +88,9 @@ public static class PaymentsModule
 
         services.AddScoped<IStripeEventLogRepository, StripeEventLogRepository>();
 
-        // The remaining repositories land here alongside their aggregates, one AddScoped each:
-        // IPaymentRepository (§8) and IRefundRepository (§10).
+        services.AddScoped<IPaymentRepository, PaymentRepository>();
+
+        // IRefundRepository (§10) lands here alongside its aggregate, one AddScoped like these.
 
         services.AddScoped<IPaymentsContext, PaymentsContext>();
 

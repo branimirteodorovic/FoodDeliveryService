@@ -1,8 +1,5 @@
-using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
-using System.Security.Cryptography;
-using System.Text;
 using AwesomeAssertions;
 using Dapper;
 using FoodDeliveryService.Common.Domain;
@@ -28,9 +25,6 @@ namespace FoodDeliveryService.Modules.Payments.IntegrationTests.Webhooks;
 /// </summary>
 public class StripeWebhookTests(IntegrationTestWebAppFactory factory) : BaseIntegrationTest(factory)
 {
-    private const string WebhookPath = "payments/webhooks/stripe";
-    private const string SignatureHeader = "Stripe-Signature";
-
     private static readonly TimeSpan ProjectionTimeout = TimeSpan.FromSeconds(30);
 
     [Fact]
@@ -208,48 +202,20 @@ public class StripeWebhookTests(IntegrationTestWebAppFactory factory) : BaseInte
     }
 
     /// <summary>
-    /// Stripe's signing scheme: <c>t={unix},v1={hex HMAC-SHA256 of "{t}.{payload}"}</c>. Written out
-    /// rather than mocked, for the reason in the class remarks.
+    /// Signing and posting live in <see cref="StripeWebhooks"/>: Milestone F delivers webhooks from a
+    /// second test class, and a second copy of a signing routine is a copy that drifts.
     /// </summary>
-    private static string Sign(string payload, string secret = IntegrationTestWebAppFactory.WebhookSigningSecret)
-    {
-        long timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+    private static string Sign(string payload, string secret = IntegrationTestWebAppFactory.WebhookSigningSecret) =>
+        StripeWebhooks.Sign(payload, secret);
 
-        byte[] digest = HMACSHA256.HashData(
-            Encoding.UTF8.GetBytes(secret),
-            Encoding.UTF8.GetBytes(string.Create(CultureInfo.InvariantCulture, $"{timestamp}.{payload}")));
+    private Task<HttpResponseMessage> PostWebhookAsync(string payload, string? signature = null) =>
+        StripeWebhooks.PostAsync(
+            Factory.CreateClient(),
+            payload,
+            signature,
+            TestContext.Current.CancellationToken);
 
-        return string.Create(
-            CultureInfo.InvariantCulture,
-            $"t={timestamp},v1={Convert.ToHexStringLower(digest)}");
-    }
-
-    /// <summary>
-    /// Posts the payload with no bearer token anywhere: the endpoint is anonymous, and the signature
-    /// is the credential. Pass <see cref="string.Empty"/> for <paramref name="signature"/> to send
-    /// no header at all.
-    /// </summary>
-    private async Task<HttpResponseMessage> PostWebhookAsync(string payload, string? signature = null)
-    {
-        HttpClient client = Factory.CreateClient();
-
-        using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(WebhookPath, UriKind.Relative))
-        {
-            Content = new StringContent(payload, Encoding.UTF8, "application/json")
-        };
-
-        signature ??= Sign(payload);
-
-        if (signature.Length > 0)
-        {
-            request.Headers.Add(SignatureHeader, signature);
-        }
-
-        return await client.SendAsync(request, TestContext.Current.CancellationToken);
-    }
-
-    /// <summary>A fresh event id per test, so the unique index is never the reason a test fails.</summary>
-    private static string NewEventId() => $"evt_{Guid.NewGuid():N}";
+    private static string NewEventId() => StripeWebhooks.NewEventId();
 
     private static string SetupIntentSucceeded(string eventId, string customerId, string paymentMethodId) =>
         $$"""

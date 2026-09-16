@@ -21,4 +21,23 @@ public static class PaymentWebhookEventTypes
     /// <b>This event is the attachment</b>, not the endpoint that created the SetupIntent.
     /// </summary>
     public const string SetupIntentSucceeded = "setup_intent.succeeded";
+
+    /// <summary>
+    /// A manual-capture intent now has funds held on it — the provider's own account of what
+    /// <c>AuthorizeAsync</c> just did, arriving independently of that call's response (Milestone F).
+    /// <para>
+    /// In the ordinary case it is redundant and the arm is a no-op, because the API response already
+    /// authorized the payment. It is not redundant in the case that matters: the response was lost,
+    /// the process died, or the transaction that would have recorded it rolled back. Neither outbox
+    /// job retries (§5.6), so this event is the <em>only</em> thing that finishes such a payment —
+    /// which is what makes §7 a correctness requirement of §8 rather than a refinement of it.
+    /// </para>
+    /// </summary>
+    public const string PaymentIntentAmountCapturableUpdated = "payment_intent.amount_capturable_updated";
+
+    /// <summary>
+    /// The charge did not go through — a decline, an expired card, an off-session 3-D Secure
+    /// challenge. The same reconciling role as the arm above, for the unhappy outcome.
+    /// </summary>
+    public const string PaymentIntentPaymentFailed = "payment_intent.payment_failed";
 }

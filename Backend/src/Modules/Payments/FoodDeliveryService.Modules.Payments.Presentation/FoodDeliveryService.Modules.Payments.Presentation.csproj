@@ -7,6 +7,7 @@
          discovered from it by AddIntegrationEventHandlers), so the contracts they handle are
          referenced here as well as in Infrastructure, which registers the consumers. -->
     <ProjectReference Include="..\..\Users\FoodDeliveryService.Modules.Users.IntegrationEvents\FoodDeliveryService.Modules.Users.IntegrationEvents.csproj" />
+    <ProjectReference Include="..\..\Orders\FoodDeliveryService.Modules.Orders.IntegrationEvents\FoodDeliveryService.Modules.Orders.IntegrationEvents.csproj" />
   </ItemGroup>
 
   <ItemGroup>

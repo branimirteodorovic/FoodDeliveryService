@@ -240,6 +240,10 @@ namespace FoodDeliveryService.Modules.Orders.Infrastructure.Database.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("payment_method");
 
+                    b.Property<int>("PaymentStatus")
+                        .HasColumnType("integer")
+                        .HasColumnName("payment_status");
+
                     b.Property<DateTime>("PlacedOnUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("placed_on_utc");

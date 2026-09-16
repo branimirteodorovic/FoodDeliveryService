@@ -1,4 +1,4 @@
-using System.Threading.Channels;
+﻿using System.Threading.Channels;
 using AwesomeAssertions;
 using FoodDeliveryService.Modules.Orders.IntegrationEvents;
 using FoodDeliveryService.Modules.RealTime.Application.RealTime;
@@ -95,7 +95,15 @@ public class DashboardFanOutTests(IntegrationTestWebAppFactory factory) : BaseIn
             latitude: 1, longitude: 2, commissionRate: 0.1m);
 
     private static OrderPlacedIntegrationEvent OrderPlaced(Guid orderId, Guid customerId, Guid restaurantId) =>
-        new(Guid.NewGuid(), DateTime.UtcNow, orderId, customerId, restaurantId, subtotal: 42m, placedOnUtc: DateTime.UtcNow);
+        new(
+            Guid.NewGuid(),
+            DateTime.UtcNow,
+            orderId,
+            customerId,
+            restaurantId,
+            subtotal: 42m,
+            paymentMethod: OrderPaymentMethods.CashOnDelivery,
+            placedOnUtc: DateTime.UtcNow);
 
     private static OrderAcceptedIntegrationEvent OrderAccepted(Guid orderId, Guid customerId, Guid restaurantId) =>
         new(Guid.NewGuid(), DateTime.UtcNow, orderId, customerId, restaurantId, acceptedOnUtc: DateTime.UtcNow);

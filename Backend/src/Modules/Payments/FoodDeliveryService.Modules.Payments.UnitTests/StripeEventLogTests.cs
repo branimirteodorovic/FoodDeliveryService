@@ -1,4 +1,4 @@
-using AwesomeAssertions;
+﻿using AwesomeAssertions;
 using FoodDeliveryService.Common.Domain;
 using FoodDeliveryService.Modules.Payments.Domain.Webhooks;
 
@@ -32,6 +32,10 @@ public class StripeEventLogTests
             objectStatus: "succeeded",
             customerReference: "cus_webhook_tests",
             paymentMethodReference: "pm_webhook_tests",
+            // Milestone F's two columns. Null on a setup_intent.succeeded, which is what this
+            // fixture is: neither an order nor a refusal is anywhere near it.
+            orderReference: null,
+            failureReason: null,
             ReceivedOn);
 
     [Fact]

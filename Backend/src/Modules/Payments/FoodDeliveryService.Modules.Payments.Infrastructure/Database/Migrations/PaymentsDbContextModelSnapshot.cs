@@ -226,6 +226,65 @@ namespace FoodDeliveryService.Modules.Payments.Infrastructure.Database.Migration
                     b.ToTable("customer_payment_profiles", (string)null);
                 });
 
+            modelBuilder.Entity("FoodDeliveryService.Modules.Payments.Domain.Payments.Payment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime?>("AuthorizedOnUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("authorized_on_utc");
+
+                    b.Property<DateTime>("CreatedOnUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_on_utc");
+
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("customer_id");
+
+                    b.Property<DateTime?>("FailedOnUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("failed_on_utc");
+
+                    b.Property<string>("FailureReason")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("failure_reason");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("order_id");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<string>("StripePaymentIntentId")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("stripe_payment_intent_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_payments");
+
+                    b.HasIndex("CustomerId")
+                        .HasDatabaseName("ix_payments_customer_id");
+
+                    b.HasIndex("OrderId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_payments_order_id");
+
+                    b.HasIndex("StripePaymentIntentId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_payments_stripe_payment_intent_id")
+                        .HasFilter("stripe_payment_intent_id IS NOT NULL");
+
+                    b.ToTable("payments", (string)null);
+                });
+
             modelBuilder.Entity("FoodDeliveryService.Modules.Payments.Domain.Webhooks.StripeEventLog", b =>
                 {
                     b.Property<Guid>("Id")
@@ -247,6 +306,11 @@ namespace FoodDeliveryService.Modules.Payments.Infrastructure.Database.Migration
                         .HasColumnType("character varying(255)")
                         .HasColumnName("event_type");
 
+                    b.Property<string>("FailureReason")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("failure_reason");
+
                     b.Property<string>("ObjectId")
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)")
@@ -256,6 +320,11 @@ namespace FoodDeliveryService.Modules.Payments.Infrastructure.Database.Migration
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)")
                         .HasColumnName("object_status");
+
+                    b.Property<string>("OrderReference")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("order_reference");
 
                     b.Property<string>("PaymentMethodReference")
                         .HasMaxLength(255)
@@ -288,6 +357,38 @@ namespace FoodDeliveryService.Modules.Payments.Infrastructure.Database.Migration
                         .HasFilter("processed_on_utc IS NULL");
 
                     b.ToTable("stripe_event_logs", (string)null);
+                });
+
+            modelBuilder.Entity("FoodDeliveryService.Modules.Payments.Domain.Payments.Payment", b =>
+                {
+                    b.OwnsOne("FoodDeliveryService.Modules.Payments.Domain.Money", "Amount", b1 =>
+                        {
+                            b1.Property<Guid>("PaymentId")
+                                .HasColumnType("uuid")
+                                .HasColumnName("id");
+
+                            b1.Property<decimal>("Amount")
+                                .HasPrecision(10, 2)
+                                .HasColumnType("numeric(10,2)")
+                                .HasColumnName("amount");
+
+                            b1.Property<string>("Currency")
+                                .IsRequired()
+                                .HasMaxLength(3)
+                                .HasColumnType("character varying(3)")
+                                .HasColumnName("currency");
+
+                            b1.HasKey("PaymentId");
+
+                            b1.ToTable("payments");
+
+                            b1.WithOwner()
+                                .HasForeignKey("PaymentId")
+                                .HasConstraintName("fk_payments_payments_id");
+                        });
+
+                    b.Navigation("Amount")
+                        .IsRequired();
                 });
 #pragma warning restore 612, 618
         }

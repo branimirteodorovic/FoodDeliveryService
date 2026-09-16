@@ -68,6 +68,8 @@ internal sealed class RecordWebhookEventCommandHandler(
             webhookEvent.ObjectStatus,
             webhookEvent.CustomerReference,
             webhookEvent.PaymentMethodReference,
+            webhookEvent.OrderReference,
+            webhookEvent.FailureReason,
             dateTimeProvider.UtcNow);
 
         if (logResult.IsFailure)

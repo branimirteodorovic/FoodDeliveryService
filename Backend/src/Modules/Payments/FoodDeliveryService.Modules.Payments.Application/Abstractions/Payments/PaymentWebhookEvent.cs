@@ -24,10 +24,28 @@ namespace FoodDeliveryService.Modules.Payments.Application.Abstractions.Payments
 /// </param>
 /// <param name="CustomerReference">The <c>cus_…</c> the event names, if any.</param>
 /// <param name="PaymentMethodReference">The <c>pm_…</c> the event names, if any.</param>
+/// <param name="OrderReference">
+/// This platform's own order id, read back off the intent's metadata — Milestone F.
+/// <para>
+/// It is the one field here that did not originate with the provider: <c>AuthorizeAsync</c> writes
+/// <c>order_id</c> into the PaymentIntent's metadata, and Stripe echoes it on every event about that
+/// intent. That round trip is what makes the reconciling arms work at all. Without it a
+/// <c>payment_intent.*</c> can only be resolved by looking the <c>pi_…</c> up locally — and the case
+/// worth reconciling is precisely the one where the <c>pi_…</c> was never recorded, because the call
+/// that would have recorded it did not come back.
+/// </para>
+/// </param>
+/// <param name="FailureReason">
+/// A bounded <c>PaymentFailureReason</c> for a failure event, mapped from the payload's
+/// <c>last_payment_error</c> in the parser — where every other translation of Stripe's vocabulary
+/// already happens. Null on every event that is not a failure.
+/// </param>
 public sealed record PaymentWebhookEvent(
     string EventId,
     string EventType,
     string? ObjectId,
     string? ObjectStatus,
     string? CustomerReference,
-    string? PaymentMethodReference);
+    string? PaymentMethodReference,
+    string? OrderReference,
+    string? FailureReason);

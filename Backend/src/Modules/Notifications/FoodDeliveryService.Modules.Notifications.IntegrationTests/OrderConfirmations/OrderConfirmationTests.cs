@@ -28,6 +28,7 @@ public class OrderConfirmationTests(IntegrationTestWebAppFactory factory) : Base
                 customerId: recipient.UserId,
                 restaurantId: Guid.NewGuid(),
                 subtotal: 42.50m,
+                paymentMethod: OrderPaymentMethods.CashOnDelivery,
                 placedOnUtc: DateTime.UtcNow),
             TestContext.Current.CancellationToken);
 
@@ -61,6 +62,7 @@ public class OrderConfirmationTests(IntegrationTestWebAppFactory factory) : Base
                 customerId: unknownCustomerId,
                 restaurantId: Guid.NewGuid(),
                 subtotal: 12.00m,
+                paymentMethod: OrderPaymentMethods.CashOnDelivery,
                 placedOnUtc: DateTime.UtcNow),
             TestContext.Current.CancellationToken);
 
@@ -100,6 +102,7 @@ public class OrderConfirmationTests(IntegrationTestWebAppFactory factory) : Base
             customerId: recipient.UserId,
             restaurantId: Guid.NewGuid(),
             subtotal: 19.99m,
+            paymentMethod: OrderPaymentMethods.CashOnDelivery,
             placedOnUtc: DateTime.UtcNow);
 
         // Act — publish the identical event twice.

@@ -9,6 +9,9 @@ public sealed record OrderResponse(
     Guid RestaurantId,
     OrderStatus Status,
     PaymentMethod PaymentMethod,
+    // Feature 3.8 Milestone F. A second, independent dimension beside Status (§1.2) — NotRequired
+    // for the whole life of a cash order.
+    PaymentStatus PaymentStatus,
     decimal Subtotal,
     decimal CommissionRate,
     string Street,

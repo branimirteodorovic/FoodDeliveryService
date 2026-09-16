@@ -57,9 +57,31 @@ internal static class StripeErrorMapping
     }
 
     /// <summary>
+    /// The bounded reason behind a failure this platform did not make the call for — the
+    /// <c>last_payment_error</c> on a <c>payment_intent.payment_failed</c> webhook payload
+    /// (Milestone F).
+    /// <para>
+    /// Shared with <see cref="ToError"/> on purpose. The API response and the webhook are two
+    /// accounts of one refusal, and two mappings of Stripe's decline codes would eventually disagree
+    /// about the same card — which would show up as a customer being told two different stories
+    /// about one order.
+    /// </para>
+    /// </summary>
+    public static string FailureReason(StripeError? error) => error?.Type switch
+    {
+        "card_error" => DeclineReason(error),
+
+        // Not the card's fault: a malformed request, a rejected key, something this seam does not
+        // model. A payload with no error object at all still failed on the card, and saying
+        // "gateway_error" about it would send an operator to investigate a provider that behaved.
+        null => PaymentFailureReason.CardDeclined,
+        _ => PaymentFailureReason.GatewayError
+    };
+
+    /// <summary>
     /// Stripe reports a decline twice: <c>code</c> is the API-level classification and
     /// <c>decline_code</c> is what the issuer said. The issuer's answer is the specific one, so it
-    /// is read first and only falls back to the code — but both are mapped onto the five values in
+    /// is read first and only falls back to the code — but both are mapped onto the values in
     /// <see cref="PaymentFailureReason"/> and never forwarded raw, because Stripe publishes dozens
     /// of decline codes and every one of them would become a metric label (§8.4).
     /// </summary>

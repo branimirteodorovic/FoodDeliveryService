@@ -53,6 +53,27 @@ public sealed class StripeEventLog : Entity
     /// <summary>The Stripe payment method (<c>pm_…</c>) the event names, when it names one.</summary>
     public string? PaymentMethodReference { get; private set; }
 
+    /// <summary>
+    /// This platform's own order id, echoed back by the provider from the intent's metadata —
+    /// Milestone F. The only field on this row that did not originate with Stripe, and the one that
+    /// lets a <c>payment_intent.*</c> be resolved to a payment whose <c>pi_…</c> was never recorded
+    /// because the call that would have recorded it did not come back.
+    /// </summary>
+    public string? OrderReference { get; private set; }
+
+    /// <summary>
+    /// For a failure event, a bounded <c>PaymentFailureReason</c> — already mapped, never Stripe's
+    /// own message. Stored for the same reason the four references above are: §7.6 defers the work
+    /// past the response, so every fact the work needs has to be on the row rather than in a copy of
+    /// the provider's payload (§0.5).
+    /// <para>
+    /// Not to be confused with <see cref="Error"/>, two properties below: this is why the
+    /// <em>payment</em> failed, and that is why <em>this platform</em> failed to act on the event.
+    /// A row can carry either, both or neither.
+    /// </para>
+    /// </summary>
+    public string? FailureReason { get; private set; }
+
     public DateTime ReceivedOnUtc { get; private set; }
 
     /// <summary>
@@ -84,6 +105,8 @@ public sealed class StripeEventLog : Entity
         string? objectStatus,
         string? customerReference,
         string? paymentMethodReference,
+        string? orderReference,
+        string? failureReason,
         DateTime utcNow)
     {
         if (string.IsNullOrWhiteSpace(providerEventId))
@@ -105,6 +128,8 @@ public sealed class StripeEventLog : Entity
             ObjectStatus = objectStatus,
             CustomerReference = customerReference,
             PaymentMethodReference = paymentMethodReference,
+            OrderReference = orderReference,
+            FailureReason = failureReason,
             ReceivedOnUtc = utcNow
         };
 

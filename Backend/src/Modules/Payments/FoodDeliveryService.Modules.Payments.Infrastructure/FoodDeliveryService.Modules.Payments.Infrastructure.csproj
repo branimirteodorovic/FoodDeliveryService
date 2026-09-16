@@ -17,6 +17,12 @@
          (§8, §9) and Support for the approved refund (§10) — because a reference to a contract this
          module does not handle is a subscription nobody decided to make. -->
     <ProjectReference Include="..\..\Users\FoodDeliveryService.Modules.Users.IntegrationEvents\FoodDeliveryService.Modules.Users.IntegrationEvents.csproj" />
+    <!-- Feature 3.8 Milestone F. OrderPlacedIntegrationEvent is what drives the authorization, so
+         its contract is referenced here (ConfigureConsumers registers the consumer) as well as in
+         Presentation, which holds the handler. The reverse reference already exists — Orders
+         consumes this module's payment-method events — and neither creates a cycle, because an
+         IntegrationEvents project references nothing but Common.Application. -->
+    <ProjectReference Include="..\..\Orders\FoodDeliveryService.Modules.Orders.IntegrationEvents\FoodDeliveryService.Modules.Orders.IntegrationEvents.csproj" />
   </ItemGroup>
 
   <ItemGroup>

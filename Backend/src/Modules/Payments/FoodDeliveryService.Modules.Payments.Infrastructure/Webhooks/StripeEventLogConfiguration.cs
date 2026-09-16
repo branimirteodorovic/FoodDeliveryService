@@ -23,6 +23,13 @@ internal sealed class StripeEventLogConfiguration : IEntityTypeConfiguration<Str
         builder.Property(e => e.CustomerReference).HasMaxLength(255);
         builder.Property(e => e.PaymentMethodReference).HasMaxLength(255);
 
+        // Milestone F's two. The order reference is a Guid this platform wrote into the intent's
+        // metadata and Stripe echoed back, so it is bounded by what a Guid renders to rather than by
+        // the provider's format; the failure reason is one of the bounded PaymentFailureReason
+        // constants, the same 50 the payments table gives its own copy.
+        builder.Property(e => e.OrderReference).HasMaxLength(64);
+        builder.Property(e => e.FailureReason).HasMaxLength(50);
+
         // THE dedupe (§7.4). Stripe redelivers on any non-2xx and on its own schedule, and the read
         // in the handler cannot see a delivery that is in flight at the same instant — this index is
         // what makes that second one lose instead of being acted on twice.

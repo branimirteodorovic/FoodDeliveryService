@@ -44,6 +44,27 @@ public static class OrderErrors
         "Orders.DuplicateIdempotencyKey",
         "An order with the same idempotency key already exists");
 
+    // Feature 3.8 Milestone F, §8.2. A card order cannot be accepted until the hold is actually on
+    // the card. Retryable and short-lived by design — the authorization window is typically under a
+    // second — which is why it is its own error rather than an invalid transition: the restaurant
+    // should try again, not conclude that the order is in the wrong state.
+    public static readonly Error PaymentNotAuthorized = Error.Problem(
+        "Orders.PaymentNotAuthorized",
+        "The order cannot be accepted until its payment has been authorized");
+
+    // A payment transition arrived for an order that is not paid by card. Reachable only from a
+    // misrouted event, and a failure rather than a silent no-op because that is a bug somewhere.
+    public static readonly Error PaymentNotRequired = Error.Problem(
+        "Orders.PaymentNotRequired",
+        "The order is not paid by card, so it has no payment to transition");
+
+    // The customer asked to pay by card and has no saved card. Checked against the local replica
+    // Payments feeds (§6.3), which avoids a synchronous call and is allowed to be a second stale —
+    // Payments still does the authoritative check when it authorizes.
+    public static readonly Error CardPaymentUnavailable = Error.Problem(
+        "Orders.CardPaymentUnavailable",
+        "The customer has no saved card, so this order cannot be paid by card");
+
     // The delivery address must carry coordinates so the Delivery service can route to the dropoff.
     public static readonly Error MissingCoordinates = Error.Problem(
         "Orders.MissingCoordinates",

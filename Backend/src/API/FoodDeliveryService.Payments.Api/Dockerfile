@@ -25,6 +25,7 @@ COPY ["src/Modules/Payments/FoodDeliveryService.Modules.Payments.IntegrationEven
 COPY ["src/Modules/Payments/FoodDeliveryService.Modules.Payments.Presentation/FoodDeliveryService.Modules.Payments.Presentation.csproj", "src/Modules/Payments/FoodDeliveryService.Modules.Payments.Presentation/"]
 COPY ["src/Common/FoodDeliveryService.Common.Presentation/FoodDeliveryService.Common.Presentation.csproj", "src/Common/FoodDeliveryService.Common.Presentation/"]
 COPY ["src/Modules/Users/FoodDeliveryService.Modules.Users.IntegrationEvents/FoodDeliveryService.Modules.Users.IntegrationEvents.csproj", "src/Modules/Users/FoodDeliveryService.Modules.Users.IntegrationEvents/"]
+COPY ["src/Modules/Orders/FoodDeliveryService.Modules.Orders.IntegrationEvents/FoodDeliveryService.Modules.Orders.IntegrationEvents.csproj", "src/Modules/Orders/FoodDeliveryService.Modules.Orders.IntegrationEvents/"]
 RUN dotnet restore "./src/API/FoodDeliveryService.Payments.Api/FoodDeliveryService.Payments.Api.csproj"
 COPY . .
 WORKDIR "/src/src/API/FoodDeliveryService.Payments.Api"

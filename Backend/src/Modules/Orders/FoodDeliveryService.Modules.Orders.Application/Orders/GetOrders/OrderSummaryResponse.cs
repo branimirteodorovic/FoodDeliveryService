@@ -9,4 +9,5 @@ public sealed record OrderSummaryResponse(
     OrderStatus Status,
     decimal Subtotal,
     PaymentMethod PaymentMethod,
+    PaymentStatus PaymentStatus,
     DateTime PlacedOnUtc);
