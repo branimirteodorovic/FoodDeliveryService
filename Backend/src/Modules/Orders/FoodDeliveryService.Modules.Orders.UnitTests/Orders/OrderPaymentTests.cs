@@ -7,7 +7,7 @@ using FoodDeliveryService.Modules.Orders.UnitTests.Abstractions;
 namespace FoodDeliveryService.Modules.Orders.UnitTests.Orders;
 
 /// <summary>
-/// The order's payment dimension — Feature 3.8 Milestone F, §8.2 and §8.3.
+/// The order's payment dimension — Feature 3.8 Milestone F (§8.2, §8.3) and Milestone G (§9).
 /// <para>
 /// Every case here has a cash counterpart, and the counterparts are the point: the whole argument
 /// for a second column instead of a ninth <c>OrderStatus</c> member (§1.2) is that the two
@@ -226,6 +226,105 @@ public class OrderPaymentTests : BaseTest
         result.IsFailure.Should().BeTrue();
         result.Error.Should().Be(OrderErrors.PaymentNotRequired);
         order.Status.Should().Be(OrderStatus.Pending);
+    }
+
+    [Fact]
+    public void MarkPaymentCaptured_Should_RecordTheCharge_WithoutTouchingTheLifecycle()
+    {
+        // Arrange — Feature 3.8 Milestone G. The restaurant accepted first; the capture is the
+        // money catching up with a decision the order already made.
+        Order order = Accepted();
+
+        // Act
+        Result result = order.MarkPaymentCaptured();
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        order.PaymentStatus.Should().Be(PaymentStatus.Captured);
+        order.Status.Should().Be(OrderStatus.Accepted, "the money dimension never moves the lifecycle");
+        order.DomainEvents.Should().BeEmpty("this is a projection of Payments' state, not news of this module's");
+    }
+
+    [Fact]
+    public void MarkPaymentCaptured_Should_BeANoOp_WhenTheHoldWasAlreadyReleased()
+    {
+        // Arrange — the inbox is unordered and at-least-once, so a capture can arrive after a
+        // release was projected. Overwriting it would tell a customer they were charged for an
+        // order that ended without a charge.
+        Order order = Accepted();
+        order.MarkPaymentReleased();
+
+        // Act
+        Result result = order.MarkPaymentCaptured();
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        order.PaymentStatus.Should().Be(PaymentStatus.Released);
+    }
+
+    [Fact]
+    public void MarkPaymentReleased_Should_RecordThatNothingWasCharged()
+    {
+        // Arrange — the restaurant rejected the order after the hold was placed.
+        Order order = PlaceOrder(PaymentMethod.Card);
+        order.MarkPaymentAuthorized();
+        order.Reject("The kitchen is closed", DateTime.UtcNow);
+        order.ClearDomainEvents();
+
+        // Act
+        Result result = order.MarkPaymentReleased();
+
+        // Assert — Released, not Failed: a released hold is an order that ended, a failed payment is
+        // a card that was refused, and "was I charged?" has a different answer in each.
+        result.IsSuccess.Should().BeTrue();
+        order.PaymentStatus.Should().Be(PaymentStatus.Released);
+        order.Status.Should().Be(OrderStatus.Rejected);
+        order.DomainEvents.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void MarkPaymentReleased_Should_BeANoOp_WhenTheMoneyWasAlreadyTaken()
+    {
+        // Arrange — a cancellation racing an acceptance. Payments made the same call on its own
+        // aggregate; this is the projection agreeing with it.
+        Order order = Accepted();
+        order.MarkPaymentCaptured();
+
+        // Act
+        Result result = order.MarkPaymentReleased();
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        order.PaymentStatus.Should().Be(PaymentStatus.Captured);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void PaymentProjections_Should_BeRefused_ForACashOrder(bool capture)
+    {
+        // Arrange — the cash counterpart, the one that keeps the two dimensions independent (§1.2).
+        // A misrouted capture must never claim a cash order was charged to a card.
+        Order order = PlaceOrder(PaymentMethod.CashOnDelivery);
+
+        // Act
+        Result result = capture ? order.MarkPaymentCaptured() : order.MarkPaymentReleased();
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be(OrderErrors.PaymentNotRequired);
+        order.PaymentStatus.Should().Be(PaymentStatus.NotRequired);
+    }
+
+    private static Order Accepted()
+    {
+        Order order = PlaceOrder(PaymentMethod.Card);
+
+        order.MarkPaymentAuthorized();
+        order.Accept(DateTime.UtcNow);
+        order.ClearDomainEvents();
+
+        return order;
     }
 
     private static Order PlaceOrder(PaymentMethod paymentMethod)

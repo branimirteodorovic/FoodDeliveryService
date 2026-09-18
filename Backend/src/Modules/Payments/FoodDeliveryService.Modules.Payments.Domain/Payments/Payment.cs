@@ -65,6 +65,10 @@ public sealed class Payment : Entity
 
     public DateTime? FailedOnUtc { get; private set; }
 
+    public DateTime? CapturedOnUtc { get; private set; }
+
+    public DateTime? ReleasedOnUtc { get; private set; }
+
     /// <summary>
     /// Nothing more will happen to this money without a new decision by a person — §8.6. Every
     /// mutation below returns success without acting once this is true, which is what makes a
@@ -145,6 +149,75 @@ public sealed class Payment : Entity
         FailureReason = null;
 
         Raise(new PaymentAuthorizedDomainEvent(
+            Id,
+            OrderId,
+            CustomerId,
+            Amount.Amount,
+            Amount.Currency,
+            utcNow));
+
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// The held funds were taken — Feature 3.8 Milestone G, §9. Driven by the restaurant accepting
+    /// the order, and reconciled by the <c>payment_intent.succeeded</c> webhook arm when that call's
+    /// response never came back.
+    /// <para>
+    /// <b>Only from <see cref="PaymentStatus.Authorized"/>, and silently.</b> The same shape as
+    /// <see cref="Fail"/> from <see cref="PaymentStatus.Authorizing"/>: anything else is a second
+    /// delivery of a message this platform has already acted on, and a second capture is a second
+    /// charge. A payment still <see cref="PaymentStatus.Authorizing"/> cannot be captured either —
+    /// there is no hold to take yet, and the acceptance that drove this could only have happened
+    /// because Orders projected an authorization that this row has not caught up with.
+    /// </para>
+    /// </summary>
+    public Result Capture(DateTime utcNow)
+    {
+        if (Status != PaymentStatus.Authorized)
+        {
+            return Result.Success();
+        }
+
+        Status = PaymentStatus.Captured;
+        CapturedOnUtc = utcNow;
+
+        Raise(new PaymentCapturedDomainEvent(
+            Id,
+            OrderId,
+            CustomerId,
+            Amount.Amount,
+            Amount.Currency,
+            utcNow));
+
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// The hold was given up without ever being charged — Feature 3.8 Milestone G, §9. Driven by the
+    /// restaurant rejecting the order or the customer cancelling it.
+    /// <para>
+    /// The mirror of <see cref="Capture"/>, and a no-op from anything but
+    /// <see cref="PaymentStatus.Authorized"/> for the same reasons — with one asymmetry worth
+    /// knowing: a cancellation that arrives while the payment is still
+    /// <see cref="PaymentStatus.Authorizing"/> is absorbed here, and the hold that the in-flight
+    /// authorization is about to place is then released by nothing. It expires at the issuer instead,
+    /// within a week. That window and the two ways to close it are written up in §9.1 of the plan;
+    /// it is left open here deliberately, because the alternatives both contradict a decision
+    /// Milestone F took on purpose.
+    /// </para>
+    /// </summary>
+    public Result Release(DateTime utcNow)
+    {
+        if (Status != PaymentStatus.Authorized)
+        {
+            return Result.Success();
+        }
+
+        Status = PaymentStatus.Released;
+        ReleasedOnUtc = utcNow;
+
+        Raise(new PaymentReleasedDomainEvent(
             Id,
             OrderId,
             CustomerId,

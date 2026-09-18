@@ -89,6 +89,14 @@ public static class OrdersModule
         registrationConfigurator.AddConsumer<IntegrationEventConsumer<PaymentAuthorizationFailedIntegrationEvent>>()
             .Endpoint(c => c.InstanceId = instanceId);
 
+        // Milestone G closes the money's own lifecycle: the hold becomes a charge when the
+        // restaurant accepts, or is given up when the order ends. Neither drives anything in the
+        // order lifecycle — they are what makes "was this charged?" answerable from Orders.
+        registrationConfigurator.AddConsumer<IntegrationEventConsumer<PaymentCapturedIntegrationEvent>>()
+            .Endpoint(c => c.InstanceId = instanceId);
+        registrationConfigurator.AddConsumer<IntegrationEventConsumer<PaymentReleasedIntegrationEvent>>()
+            .Endpoint(c => c.InstanceId = instanceId);
+
         //registrationConfigurator
         //    .AddSagaStateMachine<CancelEventSaga, CancelEventState>()
         //    .RedisRepository(redisConnectionString);

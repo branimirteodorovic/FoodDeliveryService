@@ -237,6 +237,10 @@ namespace FoodDeliveryService.Modules.Payments.Infrastructure.Database.Migration
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("authorized_on_utc");
 
+                    b.Property<DateTime?>("CapturedOnUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("captured_on_utc");
+
                     b.Property<DateTime>("CreatedOnUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_on_utc");
@@ -257,6 +261,10 @@ namespace FoodDeliveryService.Modules.Payments.Infrastructure.Database.Migration
                     b.Property<Guid>("OrderId")
                         .HasColumnType("uuid")
                         .HasColumnName("order_id");
+
+                    b.Property<DateTime?>("ReleasedOnUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("released_on_utc");
 
                     b.Property<int>("Status")
                         .HasColumnType("integer")

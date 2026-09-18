@@ -24,6 +24,14 @@ public static class PaymentIntentStatuses
     public const string RequiresCapture = "requires_capture";
 
     /// <summary>
+    /// The money has moved — what a captured manual-capture intent reports (Milestone G, §9). Not
+    /// to be confused with an <em>authorized</em> intent, which is <see cref="RequiresCapture"/>:
+    /// on an automatic-capture intent this same word would mean the charge went through in one step,
+    /// which is not a shape this platform creates.
+    /// </summary>
+    public const string Succeeded = "succeeded";
+
+    /// <summary>
     /// What a failed off-session charge leaves behind: Stripe detaches the method that failed and
     /// the intent falls back to wanting one. The usual status on a
     /// <c>payment_intent.payment_failed</c> — named here for the reader, not branched on: the

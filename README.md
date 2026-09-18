@@ -157,7 +157,7 @@ graph TB
 
 ### C3 — Event Topology
 
-The C2 diagram draws one dashed line per service to a RabbitMQ box, which is honest about the transport and says nothing about the system. This is what actually travels those lines: **29 integration events**, who publishes each and who reacts to it.
+The C2 diagram draws one dashed line per service to a RabbitMQ box, which is honest about the transport and says nothing about the system. This is what actually travels those lines: **31 integration events**, who publishes each and who reacts to it.
 
 **The hop every one of them takes.** Nothing publishes to the broker from a command handler. A state change and the record of that state change are committed together, and everything after that is out of band:
 
@@ -212,7 +212,7 @@ graph LR
     orders -->|"OrderReadyForPickup · OrderCancelled"| deliv
     orders -->|"OrderPlaced"| notif
     orders -->|"OrderPlaced"| sup
-    orders -->|"OrderPlaced"| pay
+    orders -->|"OrderPlaced · OrderAccepted<br/>OrderRejected · OrderCancelled"| pay
     orders -->|"OrderPlaced · OrderAccepted · OrderRejected<br/>OrderReadyForPickup · OrderCancelled"| rt
 
     deliv -->|"OrderPickedUp · OrderDelivered"| orders
@@ -220,7 +220,7 @@ graph LR
 
     sup -->|"TicketMessagePosted<br/>RefundApproved · RefundRejected"| notif
 
-    pay -->|"PaymentMethodAttached · PaymentMethodDetached<br/>PaymentAuthorized · PaymentAuthorizationFailed"| orders
+    pay -->|"PaymentMethodAttached · PaymentMethodDetached<br/>PaymentAuthorized · PaymentAuthorizationFailed<br/>PaymentCaptured · PaymentReleased"| orders
 
     classDef svc fill:#438dd5,stroke:#2e6295,color:#fff
     class users,rest,orders,deliv,notif,rt,sup,pay svc
@@ -228,7 +228,7 @@ graph LR
 
 Three things the picture makes obvious that the prose does not:
 
-- **The lifecycle is a loop, not a chain.** Orders tells Delivery an order is ready; Delivery tells Orders it was picked up and delivered, and *those* events are what move the order to `OutForDelivery` and `Delivered`. Neither service calls the other. Payments closes the same shape around the money: `OrderPlaced` goes out, the card is authorized off it, and `PaymentAuthorized`/`PaymentAuthorizationFailed` come back to lift the guard on accepting the order or to cancel it.
+- **The lifecycle is a loop, not a chain.** Orders tells Delivery an order is ready; Delivery tells Orders it was picked up and delivered, and *those* events are what move the order to `OutForDelivery` and `Delivered`. Neither service calls the other. Payments closes the same shape around the money, twice: `OrderPlaced` goes out, the card is authorized off it, and `PaymentAuthorized`/`PaymentAuthorizationFailed` come back to lift the guard on accepting the order or to cancel it — then the acceptance, rejection or cancellation goes out in turn, the hold is captured or released off *that*, and `PaymentCaptured`/`PaymentReleased` come back onto the same column. Payments never asks Orders anything, and Orders never asks Payments.
 - **Notifications and RealTime only ever consume.** They publish nothing. Both are pure projections of other services' state — one into email, one into SignalR frames — which is why either can be down without blocking a single write.
 - **Six events are published that nothing consumes yet.** Delivery's `DeliveryOffered`, `DeliveryOfferRejected` and `DeliveryUnassigned`, and Support's `SupportTicketOpened`, `SupportTicketResolved` and `RefundRequested`. They are the audit and extension surface — an offer's lifecycle and a refund's approval chain are worth publishing whether or not anything listens today — and they are named here rather than omitted, because a topology diagram that quietly drops the unconsumed half is a diagram of what someone wished the system did.
 

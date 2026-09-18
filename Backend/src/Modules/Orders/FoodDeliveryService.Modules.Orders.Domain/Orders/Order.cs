@@ -245,6 +245,64 @@ public sealed class Order : Entity
     }
 
     /// <summary>
+    /// Records that the money was taken — projected from <c>PaymentCapturedIntegrationEvent</c>,
+    /// Feature 3.8 Milestone G, §1.3 step 5.
+    /// <para>
+    /// Raises nothing and decides nothing locally, like its sibling above: by the time it arrives
+    /// the restaurant has already accepted and the order is on its way. What it buys is the order
+    /// being able to answer "has this been charged?" without asking Payments.
+    /// </para>
+    /// <para>
+    /// A no-op from any status but <see cref="PaymentStatus.Authorized"/>. The inbox is entitled to
+    /// deliver twice, and a capture arriving after a release — messages carry no order with respect
+    /// to each other — must not overwrite the ending that actually happened.
+    /// </para>
+    /// </summary>
+    public Result MarkPaymentCaptured()
+    {
+        if (PaymentMethod != PaymentMethod.Card)
+        {
+            return Result.Failure(OrderErrors.PaymentNotRequired);
+        }
+
+        if (PaymentStatus != PaymentStatus.Authorized)
+        {
+            return Result.Success();
+        }
+
+        PaymentStatus = PaymentStatus.Captured;
+
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Records that the hold was given up and nothing was ever charged — projected from
+    /// <c>PaymentReleasedIntegrationEvent</c>, §1.3 step 6.
+    /// <para>
+    /// The order itself is already <c>Rejected</c> or <c>Cancelled</c>; this is only the money's
+    /// half of that, and it is deliberately <b>not</b> <see cref="PaymentStatus.Failed"/> — a
+    /// released hold is an order that ended, a failed payment is a card that was refused, and a
+    /// customer asking "was I charged?" deserves the difference.
+    /// </para>
+    /// </summary>
+    public Result MarkPaymentReleased()
+    {
+        if (PaymentMethod != PaymentMethod.Card)
+        {
+            return Result.Failure(OrderErrors.PaymentNotRequired);
+        }
+
+        if (PaymentStatus != PaymentStatus.Authorized)
+        {
+            return Result.Success();
+        }
+
+        PaymentStatus = PaymentStatus.Released;
+
+        return Result.Success();
+    }
+
+    /// <summary>
     /// The card was refused, so the order ends — Feature 3.8 Milestone F, §8.3. Cancels the order
     /// and raises <see cref="OrderPaymentFailedDomainEvent"/> rather than reusing
     /// <see cref="Cancel"/>: see that event for why the distinction is load-bearing rather than

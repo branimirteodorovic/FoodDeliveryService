@@ -73,6 +73,21 @@ public static class PaymentErrors
         "Payments.AmountNotPositive",
         "A payment amount must be greater than zero");
 
+    /// <summary>
+    /// The capture call came back without the provider agreeing the money moved — Feature 3.8
+    /// Milestone G. A manual-capture intent that has been captured is <c>succeeded</c>; anything
+    /// else means the platform must not record a charge, because Orders, Support and §10's refund
+    /// ceiling would all then be reasoning about money that may still be sitting on a hold.
+    /// </summary>
+    public static Error CaptureNotConfirmed(Guid orderId) => Error.Failure(
+        "Payments.CaptureNotConfirmed",
+        $"The payment provider did not confirm the capture for order {orderId}");
+
+    /// <summary>The release call's mirror of <see cref="CaptureNotConfirmed"/>: a cancelled intent is <c>canceled</c>.</summary>
+    public static Error ReleaseNotConfirmed(Guid orderId) => Error.Failure(
+        "Payments.ReleaseNotConfirmed",
+        $"The payment provider did not confirm the release for order {orderId}");
+
     public static readonly Error PaymentIntentRequired = Error.Problem(
         "Payments.PaymentIntentRequired",
         "A provider payment intent identifier is required");

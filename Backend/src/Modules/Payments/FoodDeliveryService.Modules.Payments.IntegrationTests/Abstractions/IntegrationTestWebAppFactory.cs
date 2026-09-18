@@ -89,6 +89,14 @@ public class IntegrationTestWebAppFactory : WebApplicationFactory<Program>, IAsy
 
     public Guid OtherCustomerUserId { get; private set; }
 
+    /// <summary>
+    /// The seeded manager's module-side user id — Milestone G. A restaurant replica seeded under it
+    /// is one this manager may accept and reject orders for, which is what lets the capture and
+    /// release tests drive those transitions through the real endpoints rather than round the
+    /// ownership guard.
+    /// </summary>
+    public Guid ManagerUserId { get; private set; }
+
     /// <summary>Shared password for every user this suite seeds.</summary>
     public string TestUserPassword { get; } = "Payments-Tests-P@ssw0rd";
 
@@ -181,7 +189,8 @@ public class IntegrationTestWebAppFactory : WebApplicationFactory<Program>, IAsy
         (OtherCustomerUserEmail, Guid otherCustomerUserId) = await SeedTestUserAsync(Role.Customer);
         OtherCustomerUserId = otherCustomerUserId;
 
-        (ManagerUserEmail, _) = await SeedTestUserAsync(Role.RestaurantManager);
+        (ManagerUserEmail, Guid managerUserId) = await SeedTestUserAsync(Role.RestaurantManager);
+        ManagerUserId = managerUserId;
     }
 
     public override async ValueTask DisposeAsync()

@@ -95,6 +95,31 @@ internal static class StripeWebhooks
           """;
 
     /// <summary>
+    /// A <c>payment_intent.succeeded</c> — Milestone G. On a manual-capture intent this is the
+    /// provider saying the held money has actually been taken, which is why the arm behind it
+    /// records a capture and makes no call of its own.
+    /// </summary>
+    public static string PaymentIntentSucceeded(string eventId, string paymentIntentId, Guid orderId) =>
+        $$"""
+          {
+            "id": "{{eventId}}",
+            "object": "event",
+            "type": "payment_intent.succeeded",
+            "data": {
+              "object": {
+                "id": "{{paymentIntentId}}",
+                "object": "payment_intent",
+                "status": "succeeded",
+                "amount": 2500,
+                "amount_received": 2500,
+                "currency": "eur",
+                "metadata": { "order_id": "{{orderId}}" }
+              }
+            }
+          }
+          """;
+
+    /// <summary>
     /// A <c>payment_intent.payment_failed</c>, carrying the <c>last_payment_error</c> the parser maps
     /// onto the bounded reason set.
     /// </summary>

@@ -36,6 +36,18 @@ public static class PaymentWebhookEventTypes
     public const string PaymentIntentAmountCapturableUpdated = "payment_intent.amount_capturable_updated";
 
     /// <summary>
+    /// The held funds were taken — Stripe's own account of a capture (Milestone G, §9).
+    /// <para>
+    /// The reconciling counterpart of <see cref="PaymentIntentAmountCapturableUpdated"/>, one step
+    /// further along: ordinarily the capture call's response already recorded it and this arm is a
+    /// no-op, and it earns its place on the occasion the response was lost. There is deliberately no
+    /// arm for <c>payment_intent.canceled</c> — see §9.1 for why the release path is reconciled
+    /// differently from the capture path.
+    /// </para>
+    /// </summary>
+    public const string PaymentIntentSucceeded = "payment_intent.succeeded";
+
+    /// <summary>
     /// The charge did not go through — a decline, an expired card, an off-session 3-D Secure
     /// challenge. The same reconciling role as the arm above, for the unhappy outcome.
     /// </summary>

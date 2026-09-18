@@ -936,6 +936,98 @@ command, and it resolves its payment through `WebhookPaymentLookup.ResolveOrderI
 `Authorizing`. On the Orders side `PaymentStatus.Captured` and `.Released` already exist and are
 already read by both Dapper handlers — this milestone gives them a writer, and adds no migration.
 
+### 9.1 What Milestone G shipped, and where it departed from §9
+
+Small, as predicted, and it reused every seam §8.7 named: the same lock key and TTL, the same
+`WebhookPaymentLookup`, the same `PaymentIdempotencyKeys`, the same shape of no-op. Two commands and
+their domain-event handlers in Payments (`CapturePayment`, `ReleasePayment`), three inbox handlers
+(`OrderAccepted`, `OrderRejected`, `OrderCancelled`), one new webhook arm
+(`ConfirmPaymentCapture`), two integration events, two projections in Orders, and five consumer
+registrations across the two modules. Green: `dotnet build` on the solution,
+`Payments.UnitTests` **116/116** (109 + 7), `Orders.UnitTests` **49/49** (43 + 6),
+`Common.UnitTests` **465/465** — including `IntegrationEventTopologyTests`, which the README edit
+below is what satisfies — every other module's unit suite unchanged and green, and `policy-check.py`.
+No configuration key, no manifest, no compose or Gateway change.
+
+**One migration, against §9's "adds no migration".** That sentence is true of Orders and this
+milestone does not touch its schema. Payments' own table gained `captured_on_utc` and
+`released_on_utc` (`20260916064730_Add_Payments_Capture_Release`), for the same reason the row
+already carries `authorized_on_utc` and `failed_on_utc`: the time money moved is the first thing
+anybody asks for, and deriving it from an outbox row is not an answer. Both are nullable, so there
+is no generated default to hand-edit this time — §8.7's `AddColumn<int>` trap does not apply — but
+the file-scoped-namespace edit from §4.5 still does, on both the migration and its designer.
+
+**The integration suites could not be executed on this machine**, for a different reason than §8.7's:
+Docker is not running at all here, so neither the Testcontainers nor the
+`fooddeliveryservice.identity` dependency on `:18080` can be satisfied. The six new tests below are
+written and compile; they have not been run, and neither have Milestone F's.
+
+**Five departures and constraints.**
+
+- **The three lifecycle events carry no payment method, and a cash order is recognised by absence.**
+  §8.1 could not skip cash orders until `OrderPlacedIntegrationEvent` grew a `PaymentMethod` (§8.7),
+  and the obvious move here was to put one on the other three contracts too. It was not done. Absence
+  already answers the question — a cash order has no `Payment` row — and it answers it more strongly
+  than a field would: the handlers return success without a provider call for *any* order Payments
+  has no row for, which also covers an order whose placement never arrived. The cost is that the
+  events cannot be filtered before the handler, so every acceptance in the platform costs Payments
+  one indexed read. `AnAcceptedCashOrder_Should_LeaveTheGatewayAlone` is the assertion that keeps
+  this honest, and it asserts on the **inbox** first — "nothing happened" has to mean nothing after
+  the message was processed.
+
+- **A failed capture or release returns a failure, where a failed authorization returns success.**
+  Not an inconsistency. A decline is the card's answer to a question the platform asked, and
+  recording it *is* handling it — there is a `Payment` in `Failed`, an integration event, and a
+  cancelled order. A capture that will not go through leaves no record anywhere except the message
+  row, so the failure is the only way anyone finds out. The same reasoning makes both handlers refuse
+  to record a transition the provider did not confirm (`CaptureNotConfirmed` / `ReleaseNotConfirmed`,
+  new in `PaymentErrors`): a capture recorded off any status but `succeeded` would tell Orders, and
+  eventually §10's refund ceiling, that money moved when it may not have.
+
+- **The `payment_intent.succeeded` arm can carry a payment two steps, and makes no provider call.**
+  §9 describes it as the capture's reconciler; the case worth handling is the one where *both*
+  responses were lost, leaving the row in `Authorizing` while Stripe holds a captured intent. The arm
+  authorizes and then captures, so both events are raised and Orders converges through the ordinary
+  projections instead of jumping a state it never saw. And it calls nothing: the event is the
+  provider's account of a capture that already happened, so `CaptureAsync` here would ask Stripe to
+  capture what it has just finished capturing.
+
+- **There is deliberately no `payment_intent.canceled` arm.** The capture path has a reconciler
+  because a lost capture response leaves money taken that this platform does not know about — the
+  expensive direction. A lost *release* response leaves a hold that Stripe has already cancelled and
+  a row that still says `Authorized`: wrong, but wrong in the direction where nothing is owed to
+  anybody, and §10's refund path reads the captured amount rather than this status. Adding the arm is
+  a one-line change if the accounting ever needs it; it is not needed to make the money correct.
+
+- **A cancellation that lands while the authorization is in flight strands the hold, and that window
+  is left open.** `Payment.Release` is a no-op from `Authorizing` (§9 says so), so a cancellation
+  published in the sub-second before the hold exists finds nothing to release, and the authorization
+  that lands a moment later is released by nothing — no later event repeats the cancellation. The
+  hold expires at the issuer instead, typically within seven days, which bounds the damage to a
+  customer seeing a held balance they should not. **Two fixes were tried and both rejected.** Guarding
+  `Order.Cancel` on `PaymentStatus.Authorizing`, the way `Accept` is guarded, closes it exactly — and
+  contradicts a decision §8.3 took on purpose: `Order.FailPayment` has an explicit tolerance for "the
+  customer already cancelled while the authorization was in flight", with a unit test pinning it, and
+  the guard makes that path unreachable. Re-raising `OrderCancelled` when an authorization lands on a
+  cancelled order works for cancellation and not for rejection, because the rejection reason is not
+  stored on the aggregate and the event cannot be rebuilt. The real fix is Payments-side — a
+  release-requested flag on `Payment`, honoured by the authorizing handler once the hold exists —
+  and it is a milestone's worth of state, not a patch. Whoever picks it up: the lock already
+  serialises the two writers, so the flag only has to survive one transaction.
+
+**The test harness gained one thing.** `IntegrationTestWebAppFactory` now exposes `ManagerUserId`,
+and `CapturePaymentTests` seeds its restaurant replica under it — `OrderOwnership` answers a
+non-owner with a **404**, so a suite that drives accept and reject through the real endpoints has to
+own the restaurant rather than work around the guard. Every transition in that class goes through a
+real endpoint on the real Orders host for one reason: the thing most likely to be wrong in this
+milestone is a missing consumer registration, and a hand-published event hides exactly that.
+
+**The README's C3 topology moved from 29 events to 31**, with `orders -> pay` gaining three edges and
+`pay -> orders` two. `IntegrationEventTopologyTests` fails the build on a consumer registered without
+an arrow, which is what caught the edit being needed in the first place.
+
+---
+
 ---
 
 ## 10. Milestone H — real refunds through Support

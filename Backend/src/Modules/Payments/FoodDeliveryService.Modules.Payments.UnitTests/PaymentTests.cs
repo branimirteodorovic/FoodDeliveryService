@@ -21,6 +21,8 @@ public class PaymentTests
     private static readonly DateTime CreatedOn = new(2026, 9, 15, 9, 0, 0, DateTimeKind.Utc);
     private static readonly DateTime AuthorizedOn = new(2026, 9, 15, 9, 0, 1, DateTimeKind.Utc);
 
+    private static readonly DateTime CapturedOn = new(2026, 9, 15, 9, 4, 0, DateTimeKind.Utc);
+
     private const string PaymentIntentId = "pi_test_authorize";
 
     [Fact]
@@ -224,6 +226,154 @@ public class PaymentTests
         result.IsSuccess.Should().BeTrue();
         payment.Status.Should().Be(PaymentStatus.Failed);
         payment.DomainEvents.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Capture_Should_TakeTheMoney_AndRaiseTheEvent()
+    {
+        // Arrange
+        Payment payment = Authorized();
+
+        // Act
+        Result result = payment.Capture(CapturedOn);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        payment.Status.Should().Be(PaymentStatus.Captured);
+        payment.CapturedOnUtc.Should().Be(CapturedOn);
+        payment.IsTerminal.Should().BeTrue("a captured payment only moves again by a refund, which is a new decision");
+
+        PaymentCapturedDomainEvent raised =
+            payment.DomainEvents.OfType<PaymentCapturedDomainEvent>().Single();
+
+        raised.OrderId.Should().Be(payment.OrderId);
+        raised.Amount.Should().Be(payment.Amount.Amount);
+        raised.Currency.Should().Be("EUR");
+    }
+
+    [Fact]
+    public void Capture_Should_BeANoOp_WhenTheCaptureArrivesTwice()
+    {
+        // Arrange — the ordinary case of the reconciling arm: the capture call already recorded it,
+        // and payment_intent.succeeded says the same thing a moment later. A second event here is a
+        // second charge as far as every consumer downstream can tell.
+        Payment payment = Authorized();
+        payment.Capture(CapturedOn);
+        payment.ClearDomainEvents();
+
+        // Act
+        Result result = payment.Capture(CapturedOn.AddSeconds(5));
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        payment.CapturedOnUtc.Should().Be(CapturedOn);
+        payment.DomainEvents.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Capture_Should_BeANoOp_WhileThePaymentIsStillAuthorizing()
+    {
+        // Arrange — there is no hold to take yet. Unreachable in practice, because Order.Accept()
+        // refuses until the authorization has been projected back, and absorbed rather than refused
+        // because the alternative is an error on an inbox row nothing can act on.
+        Payment payment = NewPayment();
+
+        // Act
+        Result result = payment.Capture(CapturedOn);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        payment.Status.Should().Be(PaymentStatus.Authorizing);
+        payment.CapturedOnUtc.Should().BeNull();
+        payment.DomainEvents.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Release_Should_GiveUpTheHold_AndRaiseTheEvent()
+    {
+        // Arrange
+        Payment payment = Authorized();
+
+        // Act
+        Result result = payment.Release(CapturedOn);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        payment.Status.Should().Be(PaymentStatus.Released);
+        payment.ReleasedOnUtc.Should().Be(CapturedOn);
+        payment.IsTerminal.Should().BeTrue();
+
+        PaymentReleasedDomainEvent raised =
+            payment.DomainEvents.OfType<PaymentReleasedDomainEvent>().Single();
+
+        raised.OrderId.Should().Be(payment.OrderId);
+        raised.Amount.Should().Be(payment.Amount.Amount, "the amount let go is the amount that was held");
+    }
+
+    [Fact]
+    public void Release_Should_BeANoOp_WhenTheMoneyHasAlreadyBeenTaken()
+    {
+        // Arrange — a cancellation racing an acceptance. This is the case that decides whether a
+        // customer who cancelled a second too late gets their money back through a refund (§10) or
+        // has the platform quietly claim the charge never happened.
+        Payment payment = Authorized();
+        payment.Capture(CapturedOn);
+        payment.ClearDomainEvents();
+
+        // Act
+        Result result = payment.Release(CapturedOn.AddSeconds(5));
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        payment.Status.Should().Be(PaymentStatus.Captured);
+        payment.ReleasedOnUtc.Should().BeNull();
+        payment.DomainEvents.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Capture_Should_BeANoOp_WhenTheHoldHasAlreadyBeenReleased()
+    {
+        // Arrange — the mirror: an acceptance arriving after a cancellation was acted on. Capturing
+        // here would charge a card for an order that is not going to be made.
+        Payment payment = Authorized();
+        payment.Release(CapturedOn);
+        payment.ClearDomainEvents();
+
+        // Act
+        Result result = payment.Capture(CapturedOn.AddSeconds(5));
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        payment.Status.Should().Be(PaymentStatus.Released);
+        payment.DomainEvents.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Release_Should_BeANoOp_WhenTheAuthorizationFailed()
+    {
+        // Arrange — nothing was ever held, so there is nothing to give up. Reachable when a customer
+        // cancels an order whose card was refused at the same moment.
+        Payment payment = NewPayment();
+        payment.Fail(PaymentFailureReason.CardDeclined, null, AuthorizedOn);
+        payment.ClearDomainEvents();
+
+        // Act
+        Result result = payment.Release(CapturedOn);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        payment.Status.Should().Be(PaymentStatus.Failed);
+        payment.DomainEvents.Should().BeEmpty();
+    }
+
+    private static Payment Authorized()
+    {
+        Payment payment = NewPayment();
+
+        payment.Authorize(PaymentIntentId, AuthorizedOn);
+        payment.ClearDomainEvents();
+
+        return payment;
     }
 
     private static Payment NewPayment() => Payment.Start(

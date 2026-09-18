@@ -16,7 +16,8 @@ using OrdersUnitOfWork = FoodDeliveryService.Modules.Orders.Application.Abstract
 namespace FoodDeliveryService.Modules.Payments.IntegrationTests.Payments;
 
 /// <summary>
-/// The webhook arms that finish a payment the API call could not — Feature 3.8 Milestone F, §8.1.
+/// The webhook arms that finish a payment the API call could not — Feature 3.8 Milestone F (§8.1)
+/// and Milestone G (§9).
 /// <para>
 /// <b>This is the milestone's load-bearing claim, tested against the case it exists for.</b> Neither
 /// <c>ProcessOutboxJob</c> nor <c>ProcessInboxJob</c> retries (§5.6): a transient provider fault
@@ -42,6 +43,9 @@ public class PaymentReconciliationTests(IntegrationTestWebAppFactory factory) : 
     /// <summary>Orders' <c>PaymentStatus.Authorized</c> and <c>.Failed</c>, as the column stores them.</summary>
     private const int OrdersPaymentAuthorized = 3;
     private const int OrdersPaymentFailed = 6;
+
+    /// <summary>Orders' <c>PaymentStatus.Captured</c> — Milestone G.</summary>
+    private const int OrdersPaymentCaptured = 4;
 
     [Fact]
     public async Task ACapturableWebhook_Should_FinishAPaymentWhoseCallNeverCameBack()
@@ -140,6 +144,59 @@ public class PaymentReconciliationTests(IntegrationTestWebAppFactory factory) : 
             () => OrderPaymentStatusAsync(orderId, OrdersPaymentFailed));
 
         cancelled.IsSuccess.Should().BeTrue("the customer must not be left with an order nobody will ever charge for");
+    }
+
+    [Fact]
+    public async Task ASucceededWebhook_Should_RecordACaptureThePlatformNeverSaw()
+    {
+        // Arrange — Milestone G's reconciling arm, and the two-step case it is built for: BOTH
+        // provider responses were lost, so the row is still Authorizing while Stripe has a captured
+        // intent. The arm records the hold and then the charge, so Orders converges through the
+        // ordinary projections rather than jumping a state it never saw.
+        using var faulting = new ScriptedGatewayOutcome(
+            Factory.PaymentGateway,
+            FakeGatewayOperation.Authorize,
+            FakeGatewayOutcome.ThrowTransient);
+
+        Guid orderId = await PlaceCardOrderAsync();
+
+        Result<string> stranded = await Poller.WaitAsync(
+            ProjectionTimeout,
+            () => PaymentStatusAsync(orderId, PaymentStatus.Authorizing));
+
+        stranded.IsSuccess.Should().BeTrue();
+
+        // Act
+        string paymentIntentId = $"pi_test_captured_{Guid.NewGuid():N}"[..40];
+
+        HttpResponseMessage response = await StripeWebhooks.PostAsync(
+            Factory.CreateClient(),
+            StripeWebhooks.PaymentIntentSucceeded(StripeWebhooks.NewEventId(), paymentIntentId, orderId),
+            signature: null,
+            TestContext.Current.CancellationToken);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        // Assert — captured, against the intent the webhook named, with no provider call of our own.
+        Result<string> captured = await Poller.WaitAsync(
+            ProjectionTimeout,
+            () => PaymentStatusAsync(orderId, PaymentStatus.Captured));
+
+        captured.IsSuccess.Should().BeTrue("the webhook is the only account of this capture the platform has");
+        captured.Value.Should().Be(paymentIntentId);
+
+        Factory.PaymentGateway
+            .CallsFor(FakeGatewayOperation.Capture)
+            .Should().NotContain(
+                c => c.Subject == paymentIntentId,
+                "the money has already moved; asking Stripe to capture it again is not reconciliation");
+
+        // Orders catches up through both projections — Authorized first, then Captured.
+        Result<int> projected = await Poller.WaitAsync(
+            ProjectionTimeout,
+            () => OrderPaymentStatusAsync(orderId, OrdersPaymentCaptured));
+
+        projected.IsSuccess.Should().BeTrue("the order must end up agreeing that it was charged");
     }
 
     private async Task GiveTheCustomerACardAsync()

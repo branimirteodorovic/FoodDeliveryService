@@ -51,8 +51,8 @@ public static class PaymentsModule
         {
             // Every registered user gets a Stripe customer, so the card form has something to attach
             // to when they first reach it (§6.2). The remaining subscriptions arrive one per
-            // milestone, each one line here: OrderAccepted/Rejected/Cancelled (§9) and
-            // RefundApproved (§10). Every one of them must also be drawn in the README's C3 event
+            // milestone, each one line here: RefundApproved (§10) is the last one outstanding.
+            // Every one of them must also be drawn in the README's C3 event
             // topology in the same change — IntegrationEventTopologyTests diffs the two.
             registration.AddConsumer<IntegrationEventConsumer<UserRegisteredIntegrationEvent>>()
                 .Endpoint(c => c.InstanceId = instanceId);
@@ -61,6 +61,20 @@ public static class PaymentsModule
             // what keeps the charge off the order path: no synchronous call, no new contract from
             // Orders, and a cash order simply has no work attached (the handler returns on it).
             registration.AddConsumer<IntegrationEventConsumer<OrderPlacedIntegrationEvent>>()
+                .Endpoint(c => c.InstanceId = instanceId);
+
+            // Milestone G. The rest of the order's lifecycle, as it bears on the money: the
+            // restaurant accepting is what turns the hold into a charge, and either ending —
+            // rejected or cancelled — gives the hold up uncharged. None of the three carries a
+            // payment method, so a cash order is recognised by having no Payment row rather than by
+            // a field on the contract (§9.1).
+            registration.AddConsumer<IntegrationEventConsumer<OrderAcceptedIntegrationEvent>>()
+                .Endpoint(c => c.InstanceId = instanceId);
+
+            registration.AddConsumer<IntegrationEventConsumer<OrderRejectedIntegrationEvent>>()
+                .Endpoint(c => c.InstanceId = instanceId);
+
+            registration.AddConsumer<IntegrationEventConsumer<OrderCancelledIntegrationEvent>>()
                 .Endpoint(c => c.InstanceId = instanceId);
 
             // The explicit request client is not optional even for a service that consumes little:
