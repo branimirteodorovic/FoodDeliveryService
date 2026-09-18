@@ -1,6 +1,8 @@
 using FoodDeliveryService.Common.Application.EventBus;
+using MassTransit;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Testcontainers.PostgreSql;
 using Testcontainers.RabbitMq;
@@ -55,6 +57,25 @@ public class IntegrationTestWebAppFactory : WebApplicationFactory<Program>, IAsy
         // Reduce the outbox/inbox poll interval to 1 second so consumed events materialize quickly.
         Environment.SetEnvironmentVariable("MessageProcessor:Outbox:IntervalInSeconds", "1");
         Environment.SetEnvironmentVariable("MessageProcessor:Inbox:IntervalInSeconds", "1");
+
+        // MassTransit's hosted service does NOT block startup on the bus by default: it kicks off
+        // bus startup and returns, so the host is "started" while the receive endpoints are still
+        // being declared. That is harmless for a service that only publishes from its outbox (a
+        // background job that keeps retrying), but fatal here: these tests publish the moment the
+        // host is up, and a RabbitMQ message published to a fanout exchange that has no queue bound
+        // to it yet is discarded by the broker with no error on either side. The event is simply
+        // gone -- the symptom is exactly one failing test whose inbox is *empty*, always the first
+        // one to run, with every later test passing once the endpoints have caught up.
+        //
+        // WaitUntilStarted makes StartAsync await the bus, so by the time `_ = Services` returns
+        // every consumer's queue is bound and no publish can be dropped. StartTimeout keeps a broker
+        // that never comes up from hanging the whole run: the host fails loudly instead.
+        builder.ConfigureTestServices(services =>
+            services.Configure<MassTransitHostOptions>(options =>
+            {
+                options.WaitUntilStarted = true;
+                options.StartTimeout = TimeSpan.FromSeconds(60);
+            }));
     }
 
     public async ValueTask InitializeAsync()
@@ -64,8 +85,8 @@ public class IntegrationTestWebAppFactory : WebApplicationFactory<Program>, IAsy
         await _rabbitMqContainer.StartAsync();
 
         // WebApplicationFactory builds its host lazily — touch Services now so the host starts
-        // (migrations applied, MassTransit receive endpoints bound) before any test publishes an
-        // integration event it is expected to consume.
+        // (migrations applied, MassTransit receive endpoints bound — see WaitUntilStarted above)
+        // before any test publishes an integration event it is expected to consume.
         _ = Services;
     }
 
