@@ -252,6 +252,7 @@ Three things the picture makes obvious that the prose does not:
 | **Data — reads** | Dapper (CQRS read side) |
 | **Caching / coordination** | Redis — cache-aside query cache, distributed lock (`SET NX PX` + Lua release), driver GEO index, SignalR backplane |
 | **Real-time** | SignalR (WebSockets) with JWT-secured hubs and Redis backplane |
+| **Payments** | Stripe (`Stripe.net`) — manual-capture PaymentIntents, SetupIntents for saved cards, signed webhook ingress; test mode only |
 | **Observability** | OpenTelemetry (traces + metrics) → OTel Collector → Jaeger / Prometheus / Grafana; Serilog → Seq; health probes on every host |
 | **Validation** | FluentValidation via a MediatR pipeline behaviour |
 | **Testing** | xUnit v3, AwesomeAssertions, Bogus, **Testcontainers** (ephemeral Postgres/Redis/RabbitMQ per test run) |
@@ -280,7 +281,7 @@ The architectural decisions behind the system, and the reasoning for each.
 
 **Cache invalidation as a first-class concern.** Menus are cached via an `ICachedQuery` marker and a pipeline behaviour, so handlers stay pure Dapper. Invalidation is inline in the command handler right after `SaveChangesAsync` — deliberately *not* an outbox-driven event handler, whose lag both delays freshness and republishes stale snapshots.
 
-**Observability designed in, not bolted on.** One shared telemetry baseline for all nine hosts, RED metrics recorded automatically for every command and query, business metrics emitted next to the state changes that own them, correlation ids that survive both the broker and the two database handoffs, and a build-time test that fails if a Grafana dashboard or Prometheus alert references a metric nothing emits.
+**Observability designed in, not bolted on.** One shared telemetry baseline for all ten hosts, RED metrics recorded automatically for every command and query, business metrics emitted next to the state changes that own them, correlation ids that survive both the broker and the two database handoffs, and a build-time test that fails if a Grafana dashboard or Prometheus alert references a metric nothing emits.
 
 ---
 
@@ -292,7 +293,7 @@ Legend: **✅ Implemented** · **🚧 In Progress** · **📋 Pending**
 
 | Feature | Status | Notes |
 |---|---|---|
-| Solution structure, monorepo, Docker Compose | ✅ Implemented | 9 hosts — Gateway, Identity, Users, Restaurants, Orders, Delivery, Notifications, RealTime, Support — plus Postgres, Redis, RabbitMQ, Seq, Jaeger, OTel Collector, Prometheus, Grafana, blackbox |
+| Solution structure, monorepo, Docker Compose | ✅ Implemented | 10 hosts — Gateway, Identity, Users, Restaurants, Orders, Delivery, Notifications, RealTime, Support, Payments — plus Postgres, Redis, RabbitMQ, Seq, Jaeger, OTel Collector, Prometheus, Grafana, blackbox |
 | Identity service — registration, login, JWT, roles | ✅ Implemented | Duende IdentityServer; 5 roles; admin seeded from configuration |
 | Staff/partner provisioning via emailed invitation | ✅ Implemented | One-time activation token; no temporary password is ever emailed |
 | API Gateway with JWT validation and path routing | ✅ Implemented | YARP; all external traffic goes through it |
@@ -323,7 +324,7 @@ Legend: **✅ Implemented** · **🚧 In Progress** · **📋 Pending**
 | Metrics backend, dashboards and alerts as code | ✅ Implemented | OTel Collector → Prometheus → provisioned Grafana dashboards; blackbox probes every health endpoint |
 | Health probes (`/health/live`, `/health/ready`) | ✅ Implemented | Documented contract, used by Kubernetes probes |
 | Azure Monitor / Application Insights export | 📋 Pending | OpenTelemetry makes this a config change, not a code change |
-| Kubernetes deployment | 🚧 In Progress | All 9 services as `kubectl` manifests, shared ConfigMap/Secret, verified on a local KinD cluster with a scripted smoke test; Helm, HPA, Ingress and AKS not built |
+| Kubernetes deployment | 🚧 In Progress | All 10 services as `kubectl` manifests, shared ConfigMap/Secret, verified on a local KinD cluster with a scripted smoke test; Helm, HPA, Ingress and AKS not built |
 | Reviews & ratings | 📋 Pending | |
 
 ### Phase 3 — AI, Load Testing & Production Polish
@@ -336,6 +337,7 @@ Legend: **✅ Implemented** · **🚧 In Progress** · **📋 Pending**
 | AI-powered dynamic ETA | 📋 Pending | |
 | Fraud & anomaly detection | 📋 Pending | Designed as a dedicated service with behavioural projections and a rule-based risk score; built once and **reverted** — no code for it is in the repository |
 | Support service & ticketing | ✅ Implemented | Tickets and their lifecycle, agent assignment under a distributed lock, an append-only audit log written in the same transaction as the change it records, the agent↔customer message thread, and refund requests where one agent asks and a *different* administrator decides — see the [support ticketing reference](Backend/docs/support-ticketing.md) |
+| Card payments (Stripe) | ✅ Implemented | Authorize on placement, capture when the restaurant accepts, release on a reject or cancel, and a real refund behind Support's approvals. Stripe **test mode only** — the backend never sees a card number. See the [payments reference](Backend/docs/payments.md) |
 | Production hardening (security audit, docs) | ✅ Implemented | Authorization coverage and IDOR asserted as tests, least-privilege database roles, edge security headers/CORS/forwarded headers, Identity hardening, validator coverage, and OpenAPI docs on every service — see [Security](#security) and [API Documentation](#api-documentation). **Dependency scanning was descoped**: build-time NuGet audit only |
 
 ### Frontend
@@ -354,7 +356,7 @@ Requires Docker Desktop and the .NET 10 SDK.
 cd Backend && docker compose up -d
 ```
 
-That brings up all nine services plus PostgreSQL, Redis, RabbitMQ, Seq, Jaeger, the OpenTelemetry Collector, Prometheus, Grafana and the blackbox exporter. Database migrations are applied automatically at startup.
+That brings up all ten services plus PostgreSQL, Redis, RabbitMQ, Seq, Jaeger, the OpenTelemetry Collector, Prometheus, Grafana and the blackbox exporter. Database migrations are applied automatically at startup.
 
 | Surface | URL |
 |---|---|
@@ -389,6 +391,7 @@ Every service publishes an OpenAPI document generated from its real endpoint met
 | Support | http://localhost:3000/docs/support |
 | RealTime | http://localhost:3000/docs/realtime |
 | Notifications | http://localhost:3000/docs/notifications |
+| Payments | http://localhost:3000/docs/payments |
 
 Each slug serves three surfaces: `/docs/{slug}/scalar`, `/docs/{slug}/swagger`, and the raw document at `/docs/{slug}/openapi/v1.json`. They are mapped in every environment and require a bearer token outside Development.
 
@@ -417,9 +420,11 @@ The security posture is written down and, where it can be, asserted as tests rat
 
 **Least privilege at the database.** Each service has two credentials that are not interchangeable: an owner role used only by the startup migration, and an app role with `SELECT/INSERT/UPDATE/DELETE` on its own database and nothing else. `REVOKE CONNECT` makes "no service reads another service's database" a server guarantee rather than a convention.
 
+**Cardholder data, because "this project processes payments" invites the question.** It does not hold any. The backend never receives a card number, CVC or expiry date — card details go from the browser to Stripe and a token comes back — so it stores Stripe identifiers plus a brand and last four digits for display, and stays in PCI **SAQ-A**. Everything runs against Stripe **test keys**; a startup validator refuses a live-mode key in every environment, and `SecretHygieneTests` fails the build on a committed `sk_`/`whsec_` value. [`docs/security.md` §10](Backend/docs/security.md) and [`docs/payments.md` §7](Backend/docs/payments.md).
+
 **At the edge.** Security response headers on every host (`nosniff`, `DENY` framing, `no-referrer`, a `default-src 'none'` CSP); CORS and forwarded headers on the Gateway only, with forwarded headers trusting nothing until a proxy network is configured — without which the rate limiter's anonymous partition collapses into a single bucket behind a proxy.
 
-**Known limitations, stated rather than discovered.** TLS terminates outside anything this repository deploys, so there is no in-repo certificate or Ingress; there is no WAF and no penetration test, because there is no deployed environment to point one at; a revoked permission has up to five minutes of lag from the cache; the JWT carries no role claim, so gateway-level RBAC is an [architectural decision documented in `docs/security.md` §6.5](Backend/docs/security.md), not an implemented feature. And **dependency scanning is build-time only** — the NuGet audit runs as warnings-as-errors, so a vulnerable package fails the build, but nothing is scheduled: an advisory published against an already-pinned package produces no signal until somebody builds, and the nine container base images are never scanned at all. Dependabot, CodeQL and image scanning were considered and descoped.
+**Known limitations, stated rather than discovered.** TLS terminates outside anything this repository deploys, so there is no in-repo certificate or Ingress; there is no WAF and no penetration test, because there is no deployed environment to point one at; a revoked permission has up to five minutes of lag from the cache; the JWT carries no role claim, so gateway-level RBAC is an [architectural decision documented in `docs/security.md` §6.5](Backend/docs/security.md), not an implemented feature. And **dependency scanning is build-time only** — the NuGet audit runs as warnings-as-errors, so a vulnerable package fails the build, but nothing is scheduled: an advisory published against an already-pinned package produces no signal until somebody builds, and the ten container base images are never scanned at all. Dependabot, CodeQL and image scanning were considered and descoped.
 
 ---
 

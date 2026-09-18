@@ -7,8 +7,9 @@
 > the identity surface — signing keys, configuration fail-fast, lockout and token lifetimes;
 > **Milestone F** input validation and the error surface; **Milestone G** the API documentation
 > surface; and **Milestone I** the consolidation — the OWASP Top 10 pass (§8), the TLS boundary (§9)
-> and the collected known limitations (§10). Milestone H (supply-chain scanning) was cut; §10.4 says
-> what that costs.
+> and the collected known limitations (§11). Milestone H (supply-chain scanning) was cut; §11.4 says
+> what that costs. **Feature 3.8** (`PAYMENTS_PHASE3_PLAN.md`) adds §10, the PCI scope that arrived
+> with real card payments.
 
 The rule this feature works to: **do not write a security checklist, write a test that fails when
 the property is violated.** A checklist is accurate on the day it is written. Everything below that
@@ -812,18 +813,18 @@ scores itself ten out of ten is a pass nobody ran.
 | # | Category | What the platform does | Where it lives |
 |---|---|---|---|
 | A01 | Broken access control | Every endpoint names a permission code, not a role; a policy naming a permission Users does not seed fails the build, as does an endpoint with no authorization at all. Ownership is a **predicate inside the query**, never a branch after it, and an ownership failure answers 404 rather than confirming the id exists (§2) | `Common.UnitTests/Security/EndpointAuthorizationTests.cs`, `GatewayRouteTests.cs`, §1–§2 |
-| A02 | Cryptographic failures | Passwords are ASP.NET Identity PBKDF2. Token signing keys live in Duende's operational store in Postgres, with the data-protection key ring beside them, so a restarted or replicated Identity does not invalidate every token it issued (§6.1). TLS terminates outside this repository (§9) | §6.1, §9 |
+| A02 | Cryptographic failures | Passwords are ASP.NET Identity PBKDF2. Token signing keys live in Duende's operational store in Postgres, with the data-protection key ring beside them, so a restarted or replicated Identity does not invalidate every token it issued (§6.1). TLS terminates outside this repository (§9). The most sensitive data the platform could hold — cardholder data — it does not hold at all: Stripe tokens only, never a PAN, CVC or expiry (§10) | §6.1, §9, §10 |
 | A03 | Injection | Reads are Dapper with parameters; **every SQL literal is `const`**, which is the property that proves no runtime value can reach a statement by interpolation — a stronger and more checkable claim than "we reviewed the queries". Writes go through EF Core | `Common.UnitTests/Security/SqlParameterisationTests.cs`, §7.4 |
 | A04 | Insecure design | The dangerous operations are modelled as invariants in the aggregate, not as permission checks at the edge: a refund is requested by one agent and decided by a *different* administrator, enforced in the aggregate and capped by the replicated order subtotal; delivery assignment is a check-then-act guarded by a distributed lock *and* the aggregate's own guard | `Support.Domain/Refunds/`, `Delivery.Infrastructure/Assignment/`, `docs/support-ticketing.md` |
 | A05 | Security misconfiguration | Security response headers on all nine hosts, CORS and forwarded headers on the Gateway only, and a test that fails a host missing either half or a module host that acquired the Gateway-only middleware. Identity fails fast at boot on missing or default configuration rather than starting with a weak default | `Common.UnitTests/Security/SecurityHeaderCoverageTests.cs`, §5, §6.2 |
-| A06 | Vulnerable and outdated components | The NuGet audit runs as warnings-as-errors, so a vulnerable direct or transitive package fails the build. **Nothing is scheduled and no container image is scanned** — §10.4 is the honest version of this row | `Directory.Build.props`, §10.4 |
+| A06 | Vulnerable and outdated components | The NuGet audit runs as warnings-as-errors, so a vulnerable direct or transitive package fails the build. **Nothing is scheduled and no container image is scanned** — §11.4 is the honest version of this row | `Directory.Build.props`, §11.4 |
 | A07 | Identification and authentication failures | 12-character passwords, lockout on repeated failure, 15-minute access tokens, and a JWT validated at the Gateway *and* again at every service | §6.3, §1 |
 | A08 | Software and data integrity failures | Cross-service state travels as full-snapshot integration events through a transactional outbox, so a consumer cannot act on a state change that did not commit; handlers are idempotent because delivery is at-least-once. Central package management pins every version in one file | `Common.Infrastructure/Outbox/`, `Directory.Packages.props` |
 | A09 | Security logging and monitoring failures | Every request carries a correlation id that survives the broker and both database handoffs; RED metrics per request; blackbox probes on every health endpoint; and in Support, an append-only audit entry written **in the same transaction** as the change it records, so the log cannot disagree with the state | `Common.Presentation/Correlation/`, `Support.Domain/Tickets/`, `docs/observability-backend.md` |
 | A10 | Server-side request forgery | Not applicable in any meaningful sense: no endpoint accepts a URL and fetches it. The only outbound HTTP call in the platform is Users → Identity for provisioning, against a configured base address | §1, `Users.Infrastructure/Identity/` |
 
 Two rows deserve their qualification stated rather than buried. **A06 is the weakest row on the
-page**, and §10.4 is where it is argued honestly rather than scored. **A10 is not a defence** — it is
+page**, and §11.4 is where it is argued honestly rather than scored. **A10 is not a defence** — it is
 the absence of the feature that creates the risk. If an endpoint ever takes a caller-supplied URL and
 fetches it, this row stops being true and nothing in the build will notice.
 
@@ -856,20 +857,52 @@ request as originating from the proxy; `Cors:AllowedOrigins` set to the SPA's re
 and the Identity issuer configured to the public HTTPS URL, since the discovery document and the
 token issuer are what every service validates against (§6.2).
 
-## 10. Known limitations
+## 10. Cardholder data: PCI scope
+
+**SAQ-A, and it is the whole design of the Payments service rather than a control bolted onto it.**
+Feature 3.8 gave the platform real card payments through Stripe, and the security question that
+arrives with them is not "how well is the card number protected" but "is there a card number here at
+all". There is not.
+
+| Never reaches this platform | Stored, in `fooddeliveryservice_payments` |
+|---|---|
+| the card number (PAN) | Stripe identifiers — `cus_…`, `pm_…`, `pi_…`, `re_…` |
+| the CVC | the card brand, for display |
+| the expiry date | the last four digits, for display |
+
+Card data goes from the customer's browser to Stripe directly and what comes back to the backend is a
+token. That is the reason the SetupIntent exchange exists at all: so a service that has never seen a
+card can charge one. **An endpoint that accepted raw card data would take the platform out of SAQ-A
+into a compliance regime this project has no business being in — it is a defect, not a feature.**
+
+Three things hold the line in the build rather than in prose:
+
+- `SecretHygieneTests` fails on a committed `sk_test_`, `sk_live_`, `rk_live_` or `whsec_` value. A
+  live key in a public portfolio repository is the worst outcome available in this feature, and
+  Stripe's own scanner usually finds and revokes it before the author notices.
+- `StripeOptionsValidator` refuses a **live-mode** key at startup in every environment, so the
+  platform cannot be pointed at real money by configuration alone.
+- The webhook ingress is the platform's third anonymous endpoint, and it is authenticated by an HMAC
+  over the raw request bytes rather than by a token — with the payload bounded at 8 KB and the
+  signature header at 512 characters *before* any HMAC is computed (§7.3).
+
+Full treatment, including the state machine and the two idempotency/locking rules that stop a double
+charge: [`payments.md`](payments.md).
+
+## 11. Known limitations
 
 Each section above ends with the limitations of its own milestone; these are the ones that belong to
 the platform rather than to a milestone. They are listed because a hardening document that names no
 residual risk has not finished looking.
 
-### 10.1 No TLS, no WAF, no penetration test
+### 11.1 No TLS, no WAF, no penetration test
 
 §9 covers TLS. There is no web application firewall and no DAST or penetration test, for the same
 reason: there is no deployed environment to put one in front of, or point one at. The edge rate
 limiter is admission control, not a WAF — it counts requests per client and route tier and inspects
 nothing about their content.
 
-### 10.2 A revoked permission has up to five minutes of lag
+### 11.2 A revoked permission has up to five minutes of lag
 
 `IPermissionService` caches a caller's permission set in Redis for five minutes (§1). Revoking a
 permission — or a role that grants it — therefore takes effect on the next cache miss, not on the
@@ -879,7 +912,7 @@ the five minutes is a ceiling that always applies rather than a worst case. An o
 immediate revocation must disable the account at Identity, which stops token issuance, and then wait
 out the lifetime of any access token already issued (15 minutes, §6.3).
 
-### 10.3 The JWT carries no role claim
+### 11.3 The JWT carries no role claim
 
 Recorded in full at §6.5. Identity issues tokens with no role or permission claim; authorization data
 lives in the Users service and reaches the others over RPC. The consequence to be honest about is
@@ -889,7 +922,7 @@ state. That is defensible (one source of truth, and no claim that can go stale i
 lifetime), and it is *not* what the original project plan described, which asked for a gateway-level
 role check. The design was chosen over the plan, and §6.5 argues why.
 
-### 10.4 Dependency and image scanning is build-time only
+### 11.4 Dependency and image scanning is build-time only
 
 Milestone H — Dependabot, `dependency-review`, CodeQL, Trivy image scanning, SBOM generation — was
 cut on 2026-09-06 before any of it was started, and `HARDENING_PHASE3_PLAN.md` §9.0 records the
@@ -910,7 +943,7 @@ One consequence is worth naming precisely because nothing will announce it: the 
 (GHSA-v5pm-xwqc-g5wc) away from this solution. If that pin is ever removed, no scheduled scan exists
 to notice.
 
-### 10.5 One ownership failure still answers 400 — accepted, not fixed
+### 11.5 One ownership failure still answers 400 — accepted, not fixed
 
 `GetDriverQueryHandler` returns `DriverErrors.NotSelf` (`Error.Problem` → 400) when one driver reads
 another's profile, so the status still confirms the driver id is real. Every other ownership failure

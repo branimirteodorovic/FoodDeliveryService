@@ -1,6 +1,8 @@
+using FoodDeliveryService.Common.Application.Clock;
 using FoodDeliveryService.Common.Application.Messaging;
 using FoodDeliveryService.Common.Domain;
 using FoodDeliveryService.Modules.Payments.Application.Abstractions.Payments;
+using FoodDeliveryService.Modules.Payments.Application.Diagnostics;
 using FoodDeliveryService.Modules.Payments.Application.Webhooks.AttachWebhookPaymentMethod;
 using FoodDeliveryService.Modules.Payments.Application.Webhooks.ConfirmPaymentAuthorization;
 using FoodDeliveryService.Modules.Payments.Application.Webhooks.ConfirmPaymentCapture;
@@ -34,6 +36,7 @@ namespace FoodDeliveryService.Modules.Payments.Application.Webhooks.RecordWebhoo
 /// </summary>
 internal sealed class StripeEventReceivedDomainEventHandler(
     ISender sender,
+    IDateTimeProvider dateTimeProvider,
     ILogger<StripeEventReceivedDomainEventHandler> logger)
     : DomainEventHandler<StripeEventReceivedDomainEvent>
 {
@@ -42,6 +45,15 @@ internal sealed class StripeEventReceivedDomainEventHandler(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(domainEvent);
+
+        // Feature 3.8 Milestone I. Recorded FIRST, unlike every other instrument in this module, and
+        // that is not an oversight: the measurement is the wait that is already over by the time this
+        // line runs, so taking it at the end would fold the work into the queueing it exists to
+        // isolate. It is also the one number that still needs recording when the dispatch below
+        // fails — an event that could not be acted on waited exactly as long as one that could.
+        PaymentsDiagnostics.RecordWebhookLag(
+            TagFor(domainEvent.EventType),
+            Math.Max(0, (dateTimeProvider.UtcNow - domainEvent.ReceivedOnUtc).TotalSeconds));
 
         Result result = domainEvent.EventType switch
         {
@@ -102,4 +114,20 @@ internal sealed class StripeEventReceivedDomainEventHandler(
                 marked.Error);
         }
     }
+
+    /// <summary>
+    /// The event type, bounded to the four this module dispatches on. Everything else is
+    /// <c>other</c>, because the tag is Stripe's own string and the set of types a dashboard can be
+    /// subscribed to is a hundred-odd values this platform does not control — exactly the kind of
+    /// open set that turns one time series into a hundred. Nothing is lost: an event type nobody
+    /// acts on has no lag worth attributing, and the log row still names it.
+    /// </summary>
+    private static string TagFor(string eventType) => eventType switch
+    {
+        PaymentWebhookEventTypes.SetupIntentSucceeded
+            or PaymentWebhookEventTypes.PaymentIntentAmountCapturableUpdated
+            or PaymentWebhookEventTypes.PaymentIntentSucceeded
+            or PaymentWebhookEventTypes.PaymentIntentPaymentFailed => eventType,
+        _ => "other"
+    };
 }

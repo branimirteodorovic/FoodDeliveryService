@@ -8,12 +8,12 @@ Everything a customer-support organisation does to an order after it has gone wr
 case itself, who is working it, the conversation, the refund somebody asked for and somebody else
 agreed to, and an append-only record of every one of those decisions.
 
-Two things this service deliberately does **not** do, stated up front because both are usually
-assumed:
+Two boundaries, stated up front because both are usually assumed the other way round:
 
-- **It moves no money.** A `RefundRequest` records that an agent asked and an administrator agreed.
-  The platform has no payment processing anywhere, and nothing in Orders consumes a refund event.
-  See §6.
+- **It moves no money itself — but an approval now does.** A `RefundRequest` records that an agent
+  asked and an administrator agreed; since **Feature 3.8** the Payments service consumes that
+  approval and refunds the captured card payment behind it, answering `Settled` or `Failed`. Support
+  owns the authority, Payments owns the transfer. See §6 and `docs/payments.md`.
 - **It never reads another service's data.** The order history an agent sees on a ticket is a local
   projection built from integration events Orders and Delivery already publish (hard rules #5, #9).
 
@@ -213,7 +213,7 @@ event arrives.*
 
 ---
 
-## 6. Refunds: why no money moves
+## 6. Refunds: who may ask, who may agree, and who pays
 
 `RefundRequest` is its own aggregate, not a child of `Ticket`: it has a lifecycle the ticket does not
 share (a ticket can be resolved while a refund is still awaiting a decision), and it is contended
@@ -223,6 +223,9 @@ for by a second actor whose authority is defined by *not* being the requester.
 agent  ──POST support/tickets/{id}/refund-requests──▶  Requested
                                                           │
               administrator (a different person) ─────────┼──▶ Approved  ──▶ email to customer
+                                                          │                 └──▶ Payments refunds the card
+                                                          │                        ├──▶ Settled
+                                                          │                        └──▶ Failed
                                                           └──▶ Rejected  ──▶ email to customer
 ```
 
@@ -238,11 +241,21 @@ agent  ──POST support/tickets/{id}/refund-requests──▶  Requested
   index is what holds when two agents on two tickets for the same order pass that check at the same
   instant. A *rejected* request must not block a better-argued second attempt, which is why the
   filter is partial.
-- **Nothing consumes the decision but Notifications.** `RefundApproved` / `RefundRejected` reach
+- **An approval moves real money, as of Feature 3.8.** `RefundApproved` / `RefundRejected` reach
   Notifications, which emails the customer either way — a refund declined in silence is
-  indistinguishable to the customer from one nobody looked at. Orders consumes neither. What the
-  record buys is the part a payment integration cannot supply later: who asked, who agreed, for how
-  much, and why. A real payment integration would sit *behind* an approved request, not replace it.
+  indistinguishable to the customer from one nobody looked at. `RefundApproved` *also* reaches
+  **Payments**, which refunds the captured card payment and answers with `RefundSettled` or
+  `RefundFailed`; a consumer here transitions the request to `Settled`/`Failed` and appends the first
+  `SupportAuditEntry` no human wrote. `RefundRejected` is consumed by nothing there, because a
+  rejection means no money moves, which is already the correct outcome.
+- **Approval and settlement are different facts that can disagree**, which is why they are two
+  statuses and two emails rather than one. Payments can refuse — a cash order, a hold that was never
+  captured, an amount above what was actually taken — and it publishes every refusal rather than
+  swallowing it, precisely because an agent has already told a customer their money is coming back.
+  `docs/payments.md` §6 has the four reasons and which of them a human has to work by hand.
+- **What the record buys, and always did**, is the part the payment integration does not supply: who
+  asked, who agreed, for how much, and why. Payments sits *behind* an approved request; it did not
+  replace it.
 
 ### The missing-route trap
 
@@ -267,7 +280,7 @@ One Dapper handler, six aggregate statements sent as a single `QueryMultiple` co
 | `TicketsPerDay` | a date series, **gap-filled with zeroes** via `generate_series`. A `GROUP BY` over the tickets alone omits quiet days, and a chart drawn from that joins the two days either side with a straight line — which reads as steady traffic across a day that had none. |
 | `ByCategory` / `ByStatus` | opened and resolved per category; current status of the tickets opened in the window (a backlog snapshot, not a flow). |
 | `ByAgent` | assigned and resolved per agent, with the name **`LEFT JOIN`ed from the local replica**. An agent whose registration event has not been projected yet keeps their row with a null name; dropping it would understate work that was actually done. |
-| `Refunds` | count and summed amount by status. A reporting total — no money moved. |
+| `Refunds` | count and summed amount by status. A reporting total of what was decided, not of what settled — the two can differ (§6). |
 
 `ResolvedOnUtc` is cleared by `Reopen`, so a resolution that was undone stops counting in the
 numerator.

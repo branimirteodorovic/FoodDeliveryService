@@ -1,5 +1,6 @@
 using FoodDeliveryService.Common.Application.EventBus;
 using FoodDeliveryService.Common.Application.Messaging;
+using FoodDeliveryService.Modules.Payments.Application.Diagnostics;
 using FoodDeliveryService.Modules.Payments.Domain.Payments;
 using FoodDeliveryService.Modules.Payments.IntegrationEvents;
 
@@ -29,5 +30,7 @@ internal sealed class PaymentCapturedDomainEventHandler(IEventBus eventBus)
                 domainEvent.Currency,
                 domainEvent.CapturedOnUtc),
             cancellationToken);
+
+        PaymentsDiagnostics.RecordCaptured();
     }
 }

@@ -2,6 +2,7 @@ using System.Reflection;
 using FoodDeliveryService.Common.Application;
 using FoodDeliveryService.Common.Infrastructure;
 using FoodDeliveryService.Common.Infrastructure.Configuration;
+using FoodDeliveryService.Common.Infrastructure.Diagnostics;
 using FoodDeliveryService.Common.Infrastructure.EventBus;
 using FoodDeliveryService.Common.Presentation.Correlation;
 using FoodDeliveryService.Common.Presentation.Documentation;
@@ -91,10 +92,12 @@ builder.Services.AddInfrastructure(
     // the health check below report it unhealthy. See docs/caching.md.
     allowInMemoryCacheFallback: builder.Environment.IsDevelopment());
 
-// No AddModuleDiagnostics(PaymentsDiagnostics.Name) yet: this service declares no instrument of its
-// own until the observability milestone, and an ActivitySource/Meter name registered here before
-// anything records into it would only be noise. The call goes in alongside PaymentsDiagnostics —
-// an unregistered source or meter never errors, it silently records into nothing.
+// Registers the module's own activity source AND its meter under one name, alongside the
+// instrumentation AddInfrastructure already wired up — Feature 3.8 Milestone I. One call for both
+// pillars, so a Payments instrument cannot ship unregistered and silently record into nothing, which
+// on this service would look exactly like no money moving.
+builder.Services.AddModuleDiagnostics(
+    FoodDeliveryService.Modules.Payments.Application.Diagnostics.PaymentsDiagnostics.Name);
 
 Uri duendeHealthUrl = builder.Configuration.GetDuendeHealthUrl();
 

@@ -523,7 +523,7 @@ Customer support agents use a web dashboard to:
 - View all active and past support tickets
 - See the full order history and chat transcript for each ticket
 - Update ticket status (Open, In Progress, Resolved, Escalated)
-- Issue refunds (recorded as a refund request — no actual payment processing)
+- Issue refunds — an agent requests one and a **different** administrator decides it; since Feature 3.8 an approval refunds the card for real
 - Communicate with customers via the platform's messaging system
 - View the AI chatbot conversation that preceded the human escalation
 
@@ -531,7 +531,7 @@ Customer support agents use a web dashboard to:
 - Build ticket CRUD endpoints
 - Implement ticket assignment to support agents
 - Build internal messaging between support agent and customer
-- Implement refund request workflow (creates a record; no actual payment processing)
+- Implement refund request workflow (creates a record; the money is moved by the Payments service in Feature 3.8, which consumes the approval)
 - Build a support analytics summary: average resolution time, tickets per day, most common issue types
 
 **Technologies:**
@@ -557,6 +557,39 @@ A final pass over the entire system to bring it to production-ready quality. Thi
 - **Swagger / Scalar** — API documentation tools that automatically generate interactive documentation from your ASP.NET Core controllers. A recruiter or technical reviewer can open the Swagger UI and explore every endpoint, its parameters, and its response schemas — without reading a single line of code.
 - **NuGet audit (`TreatWarningsAsErrors`)** — .NET's built-in vulnerability check against the GitHub Advisory Database, promoted from a warning to a build error solution-wide. It is what the descoped Dependabot task was replaced by: a vulnerable package cannot merge because it cannot compile. It has already forced two real bumps (SSH.NET via Testcontainers, and a `Microsoft.OpenApi` floor pin). Its limitation, and the reason Dependabot is not simply redundant, is that it fires at build time rather than on a schedule — an advisory published against an already-pinned package waits for the next build.
 - **OWASP Top 10** — A well-known list of the ten most critical web application security risks (SQL injection, broken authentication, exposed sensitive data, etc.). A final security review against this checklist demonstrates security awareness beyond just "I used HTTPS".
+
+---
+
+### Feature 3.8 — Card Payments (Stripe)
+
+**What it does:**
+Until this feature the platform took orders without ever taking money: an order was placed, cooked and delivered, and nothing was ever charged. This feature makes the money real — as real as it can be without a registered business — and it also makes Feature 3.6's refund requests mean something, because an administrator approving a refund now actually sends money back.
+
+The model is the one every food-delivery platform uses, and it is not a single charge:
+
+- **When the order is placed**, the customer's saved card is *authorized* — the funds are held, nothing is taken. If the issuer declines, the order is cancelled immediately and the customer is emailed, before a restaurant has cooked anything.
+- **When the restaurant accepts**, the hold is *captured* and the money moves.
+- **If the restaurant rejects it, or the customer cancels**, the hold is *released* and no transaction ever appears on the customer's statement. This is the whole reason for authorizing rather than charging: a refund and a release look very different to a customer's bank.
+- **When an administrator approves a refund** on a support ticket, the captured payment is refunded and the ticket is closed with the settlement recorded.
+
+**It runs in Stripe test mode and cannot move real money.** Test keys need no registered business, no verification and no bank account, and a startup validator refuses a live-mode key in every environment. The backend never receives a card number, CVC or expiry date — card details travel from the browser to Stripe and a token comes back — which keeps the platform in PCI **SAQ-A**, the lightest compliance tier there is.
+
+**Tasks:**
+- Stand up a Payments service that owns the `Payment`, `Refund`, saved-card and provider-event-log records
+- Implement saved cards through Stripe SetupIntents, with the card token replicated to Orders as a single "can pay by card" flag
+- Implement authorize-on-placement, capture-on-accept and release-on-reject/cancel, driven entirely by the order lifecycle events Orders already publishes
+- Ingest Stripe webhooks: verify the signature against the raw request body, de-duplicate by the provider's event id, and use them to reconcile any payment whose API response was lost
+- Consume Support's approved refunds, refund the captured payment, and publish the settlement back so the ticket can be closed
+- Email the customer when a card is declined and when a refund has been sent
+- Instrument the lot: authorization, capture, release and refund counters, provider call latency, webhook processing lag, Grafana panels and Prometheus alerts
+
+**Technologies:**
+- **Stripe** — The payment provider. Chosen over PayPal, Adyen and Mollie for one decisive reason in a portfolio context: test keys are available immediately with no business registration, so the feature is genuinely runnable by anybody who clones the repository. It also has a first-party .NET SDK and a CLI that forwards real test webhooks to `localhost`.
+- **`Stripe.net`** — Stripe's official .NET client. It is confined behind an `IPaymentGateway` abstraction so that the SDK, the API keys and Stripe's own vocabulary stop at one class, and every test runs against a fake implementation rather than the network.
+- **Idempotency keys** — A unique string sent with every payment request, which tells the provider "if you have seen this exact request before, return the original answer rather than doing it again". Because the platform's message delivery is at-least-once, a retried capture *would* be a second charge without one. Every key is derived from a durable identifier (the order, the refund request) so that a retry produces the same key.
+- **Manual capture (authorization / capture split)** — The card-network mechanism behind the flow above: the issuer reserves the funds now, and the merchant decides later whether to take them or let them go. It is what allows the platform to guarantee payment before a restaurant starts cooking without charging for an order that may be refused.
+- **Webhook signature verification (HMAC)** — Stripe signs every event it sends with a shared secret. The signature is computed over the exact bytes of the request, which is why the endpoint reads the raw stream rather than a parsed model — the same event re-serialised has a different signature.
+- **PCI DSS SAQ-A** — The self-assessment tier for a merchant who never handles card data at all, because the card is entered directly into the provider's own hosted form. Staying inside it is an architectural constraint, not a checklist item: one endpoint that accepted a card number would move the whole platform into a far heavier tier.
 
 ---
 
@@ -590,6 +623,7 @@ A quick summary of every major technology used in this project, why it was chose
 | Entity Framework Core | ORM | Type-safe database access; schema migrations |
 | FluentValidation | Input validation | Clean, testable validation rules for API inputs |
 | Swagger / Scalar | API documentation | Interactive, always-current API documentation |
+| Stripe + `Stripe.net` | Payments | Test keys with no business registration; manual capture, saved cards and signed webhooks, all behind one gateway abstraction |
 
 ---
 

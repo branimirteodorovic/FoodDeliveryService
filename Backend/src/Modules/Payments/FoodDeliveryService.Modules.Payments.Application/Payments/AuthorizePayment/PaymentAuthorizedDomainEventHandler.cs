@@ -1,5 +1,6 @@
 using FoodDeliveryService.Common.Application.EventBus;
 using FoodDeliveryService.Common.Application.Messaging;
+using FoodDeliveryService.Modules.Payments.Application.Diagnostics;
 using FoodDeliveryService.Modules.Payments.Domain.Payments;
 using FoodDeliveryService.Modules.Payments.IntegrationEvents;
 
@@ -29,5 +30,10 @@ internal sealed class PaymentAuthorizedDomainEventHandler(IEventBus eventBus)
                 domainEvent.Currency,
                 domainEvent.AuthorizedOnUtc),
             cancellationToken);
+
+        // Last, and after the publish: this handler is dispatched at least once and is not retried
+        // piecemeal, so a throw above means the whole thing runs again — counting first would inflate
+        // the series by exactly the failures an operator is trying to see.
+        PaymentsDiagnostics.RecordAuthorized();
     }
 }

@@ -175,3 +175,88 @@ groups:
             (`secondsPerIteration` in scenarios/mixed.js) or run the generator off-host — until then
             the offered load is below the profile and the results understate both throughput and
             saturation.
+
+  # ---------------------------------------------------------------------------------------------
+  # Money (Feature 3.8, Milestone I). The only group here whose failure mode is a customer's card
+  # rather than a request: everything above degrades service, these degrade revenue and trust.
+  #
+  # The split between the first two rules is the whole point of the `reason` tag. A card declined
+  # for want of funds is the customer's business and no amount of paging fixes it; a run of
+  # `gateway_error` is ours — a rejected API key, a malformed request, an unmapped Stripe error —
+  # and it means the platform is refusing orders it could have taken.
+  # ---------------------------------------------------------------------------------------------
+  - name: fooddeliveryservice-payments
+    interval: 15s
+    rules:
+      - alert: HighPaymentFailureRate
+        # Guarded at 0.01/s — roughly 36 attempts an hour. Payments are a far thinner stream than
+        # HTTP requests, so the 0.05 floor the groups above use would silence this for most of a
+        # normal day.
+        expr: |
+          100 * sum(rate(payments_failed_total[15m]))
+          / (sum(rate(payments_failed_total[15m])) + sum(rate(payments_authorized_total[15m]))) > 25
+          and sum(rate(payments_authorized_total[15m]) + rate(payments_failed_total[15m])) > 0.01
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ printf "%.1f" $value }}% of card authorizations are failing'
+          description: >-
+            A quarter of placements are not getting a hold on the card, over fifteen minutes. Break
+            it down by `reason` on the business dashboard before doing anything: a lopsided
+            insufficient_funds or card_declined share is the customer base, not an incident, and only
+            gateway_error and no_payment_method point back at this platform.
+
+      - alert: PaymentGatewayErrors
+        # No ratio and no floor: a single unmapped Stripe error is a bug, and the bucket is narrow
+        # enough that a sustained rate of them is never normal.
+        expr: sum(rate(payments_failed_total{reason="gateway_error"}[10m])) > 0.005
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Card authorizations are failing for reasons that are ours, not the issuer''s'
+          description: >-
+            gateway_error is the bucket for a malformed request, a rejected API key or a Stripe error
+            nothing maps — never a decline. Seq has the StripeError behind each one, filtered by
+            ServiceName=FoodDeliveryService.Payments; check the Stripe key first.
+
+      - alert: SlowPaymentGateway
+        # Per operation, like SlowApplicationRequests: a refund and an authorize have nothing to do
+        # with each other and the aggregate hides whichever is rarer.
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, operation) (rate(payments_gateway_duration_seconds_bucket[10m]))
+          ) > 5
+          and sum by (operation) (rate(payments_gateway_duration_seconds_count[10m])) > 0.01
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Stripe {{ $labels.operation }} p95 is {{ printf "%.2f" $value }}s'
+          description: >-
+            The provider is slow, and an authorize sits on the order-placement path. Read it with the
+            `outcome` series on the same panel: p95 rising only on `faulted` is the SDK retrying
+            through an incident at Stripe, while all three rising together is the network in between.
+
+      - alert: WebhookProcessingLag
+        # The instrument this fires on exists because of this alert — §11.1 asked for the rule and
+        # named no metric that could carry it.
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(payments_webhook_lag_seconds_bucket[10m]))
+          ) > 120
+          and sum(rate(payments_webhook_lag_seconds_count[10m])) > 0.005
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Stripe webhooks are waiting {{ printf "%.0f" $value }}s to be acted on'
+          description: >-
+            Verified provider events are queueing between the endpoint that recorded them and the
+            outbox job that acts on them. This matters more here than an outbox backlog elsewhere:
+            the webhook is the reconciling path that stands in for the retry neither the outbox nor
+            the inbox job performs, so while it lags, a lost API response is an authorization nobody
+            is going to finish.

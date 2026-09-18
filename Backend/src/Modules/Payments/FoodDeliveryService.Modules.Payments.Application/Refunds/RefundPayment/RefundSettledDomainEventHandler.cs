@@ -1,5 +1,6 @@
 using FoodDeliveryService.Common.Application.EventBus;
 using FoodDeliveryService.Common.Application.Messaging;
+using FoodDeliveryService.Modules.Payments.Application.Diagnostics;
 using FoodDeliveryService.Modules.Payments.Domain.Refunds;
 using FoodDeliveryService.Modules.Payments.IntegrationEvents;
 
@@ -32,5 +33,7 @@ internal sealed class RefundSettledDomainEventHandler(IEventBus eventBus)
                 domainEvent.Currency,
                 domainEvent.SettledOnUtc),
             cancellationToken);
+
+        PaymentsDiagnostics.RecordRefundSettled();
     }
 }

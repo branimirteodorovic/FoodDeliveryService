@@ -27,7 +27,7 @@ internal sealed class OrderCancelledIntegrationEventHandler(ISender sender)
         ArgumentNullException.ThrowIfNull(integrationEvent);
 
         Result result = await sender.Send(
-            new ReleasePaymentCommand(integrationEvent.OrderId),
+            new ReleasePaymentCommand(integrationEvent.OrderId, PaymentReleaseTrigger.Cancelled),
             cancellationToken);
 
         if (result.IsFailure)

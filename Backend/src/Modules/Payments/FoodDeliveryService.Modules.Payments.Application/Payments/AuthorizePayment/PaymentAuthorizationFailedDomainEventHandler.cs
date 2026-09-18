@@ -1,5 +1,6 @@
 using FoodDeliveryService.Common.Application.EventBus;
 using FoodDeliveryService.Common.Application.Messaging;
+using FoodDeliveryService.Modules.Payments.Application.Diagnostics;
 using FoodDeliveryService.Modules.Payments.Domain.Payments;
 using FoodDeliveryService.Modules.Payments.IntegrationEvents;
 
@@ -29,5 +30,10 @@ internal sealed class PaymentAuthorizationFailedDomainEventHandler(IEventBus eve
                 domainEvent.Reason,
                 domainEvent.FailedOnUtc),
             cancellationToken);
+
+        // The reason is already one of PaymentFailureReason's six constants — the aggregate will not
+        // hold anything else — so it reaches the tag without a translation step that could let a
+        // Stripe message through. Recorded last, for the reason the sibling handler states.
+        PaymentsDiagnostics.RecordFailed(domainEvent.Reason);
     }
 }

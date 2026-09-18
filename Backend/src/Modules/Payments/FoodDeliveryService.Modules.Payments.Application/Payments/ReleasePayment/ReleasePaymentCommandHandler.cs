@@ -4,6 +4,7 @@ using FoodDeliveryService.Common.Application.Messaging;
 using FoodDeliveryService.Common.Domain;
 using FoodDeliveryService.Modules.Payments.Application.Abstractions.Data;
 using FoodDeliveryService.Modules.Payments.Application.Abstractions.Payments;
+using FoodDeliveryService.Modules.Payments.Application.Diagnostics;
 using FoodDeliveryService.Modules.Payments.Domain.Payments;
 using Microsoft.Extensions.Logging;
 
@@ -99,6 +100,12 @@ internal sealed class ReleasePaymentCommandHandler(
         }
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
+
+        // The one business measurement in this module taken from a command handler rather than from
+        // a domain-event handler — see PaymentsDiagnostics.RecordReleased for why the event cannot
+        // carry the trigger. Last, and below the save, so only a hold that really was given up is
+        // counted; every earlier return above is a path where nothing was released.
+        PaymentsDiagnostics.RecordReleased(request.Trigger);
 
         return Result.Success();
     }

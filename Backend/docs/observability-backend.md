@@ -82,7 +82,7 @@ uids are fixed in the files, so links to them are stable.
 | Dashboard | uid | Answers |
 |---|---|---|
 | **RED** | `fds-red` | Rate, errors and duration per service, at both layers — the transport histogram (what the caller saw) and the application histogram (what the handler pipeline did). Plus the two probe counts, so "is anything down" is on the same screen. |
-| **Business** | `fds-business` | Orders per minute, the full lifecycle transition graph tagged `from`→`to`, cancellation share, and the driver-offer outcome mix with its p95 duration. |
+| **Business** | `fds-business` | Orders per minute, the full lifecycle transition graph tagged `from`→`to`, cancellation share, and the driver-offer outcome mix with its p95 duration. Then the support queue (tickets by category, transitions, time-to-resolution, refund decisions) and the money (authorizations against declines by reason, captures against releases and refunds, Stripe call p95 and webhook processing lag). |
 | **Cache** | `fds-cache` | Hit rate overall, per key prefix and for `user_permissions` specifically, plus lookups and misses per service. |
 | **Load test** | `fds-load` | A k6 run (Feature 3.5) and the platform's response to it, on one screen: arrival rate, VUs, client p95 per endpoint and error rate on the top half; application p95 per service, 5xx, orders/s, assignment outcomes and cache hit rate on the bottom. **Empty unless a load test is streaming** — see below. |
 
@@ -235,13 +235,16 @@ things that fail silently:
   guard against a renamed instrument turning into an empty panel and a permanently silent alert;
 - the alert file parses, and every rule carries a `for`, a `severity` and a summary/description;
 - the dashboard provider's path is the path `docker-compose.yml` mounts;
-- all nine hosts export OTLP to the collector.
+- all ten hosts export OTLP to the collector.
 
 The instrument names `Common` owns (`app.*`, `cache.*`) are additionally read off the **real** meters
-through a `MeterListener`, so the allow-list cannot drift from the code. The Orders and Delivery
-names are listed rather than reflected — `Common.UnitTests` references no module, by the same
-convention that keeps `{Module}.UnitTests` on its own Domain — and the integration suites in those
-modules assert those instruments still export.
+through a `MeterListener`, so the allow-list cannot drift from the code. The module names — Orders, Delivery,
+Support and Payments — are listed rather than reflected, because `Common.UnitTests` references no
+module, by the same convention that keeps `{Module}.UnitTests` on its own Domain. The module's own
+suites are the other half of that check: `AssignmentMetricsTests` asserts Delivery's instruments
+still export through the host's real `MeterProvider`, and `PaymentsDiagnosticsTests` asserts that
+Payments' seven instrument names, their `s` units and their bounded tag values are what the PromQL
+expects.
 
 Beyond the suite, the assets were validated against the real tooling while building this milestone:
 `otelcol validate` on the collector config, `promtool check config` on the Prometheus config and rule

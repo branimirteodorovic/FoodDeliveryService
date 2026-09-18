@@ -35,8 +35,9 @@ public class ObservabilityAssetTests
     /// <see cref="KnownMetricNames_Should_MatchTheInstrumentsCommonCreates"/>. The Orders and
     /// Delivery ones cannot be: <c>Common.UnitTests</c> references no module, by the same convention
     /// that keeps <c>{Module}.UnitTests</c> on its own Domain. They are listed from
-    /// <c>OrdersDiagnostics</c>, <c>DeliveryAssignmentDiagnostics</c> and <c>SupportDiagnostics</c>,
-    /// and the integration suites in those modules are what assert the instruments still exist.
+    /// <c>OrdersDiagnostics</c>, <c>DeliveryAssignmentDiagnostics</c>, <c>SupportDiagnostics</c> and
+    /// <c>PaymentsDiagnostics</c>, and the suites in those modules are what assert the instruments
+    /// still exist.
     /// </para>
     /// </summary>
     private static readonly HashSet<string> KnownMetrics =
@@ -72,6 +73,24 @@ public class ObservabilityAssetTests
         "support_tickets_resolution_duration_seconds_bucket",
         "support_tickets_resolution_duration_seconds_count",
         "support_tickets_resolution_duration_seconds_sum",
+
+        // PaymentsDiagnostics (Feature 3.8 Milestone I). Both histograms carry unit `s`, so both gain
+        // `_seconds` before the per-series suffix — including `payments.webhook.lag`, whose name does
+        // not end in "duration" and so is not covered by the ToPrometheusFamily helper below. That
+        // helper exists for the Common instruments this suite can actually touch; a module's names
+        // are listed by hand, and the module's own suites are what assert the instruments still
+        // exist.
+        "payments_authorized_total",
+        "payments_captured_total",
+        "payments_failed_total",
+        "payments_released_total",
+        "refunds_settled_total",
+        "payments_gateway_duration_seconds_bucket",
+        "payments_gateway_duration_seconds_count",
+        "payments_gateway_duration_seconds_sum",
+        "payments_webhook_lag_seconds_bucket",
+        "payments_webhook_lag_seconds_count",
+        "payments_webhook_lag_seconds_sum",
 
         // CacheDiagnostics (Caching 2.3 Milestone E), collected from Telemetry Milestone A.
         "cache_hits_total",

@@ -1022,6 +1022,13 @@ own the restaurant rather than work around the guard. Every transition in that c
 real endpoint on the real Orders host for one reason: the thing most likely to be wrong in this
 milestone is a missing consumer registration, and a hand-published event hides exactly that.
 
+**Milestone I later added a `Trigger` to `ReleasePaymentCommand`, and did not touch the event.**
+§11.1 wants `payments.released` tagged with what ended the order, which is the one fact
+`PaymentReleasedDomainEvent` refuses to carry. The command grew a bounded two-value string that
+nothing branches on, and the counter is recorded in the command handler rather than the domain-event
+handler — see §11.4. The decision above stands: the *published* contract still says nothing about
+why.
+
 **The README's C3 topology moved from 29 events to 31**, with `orders -> pay` gaining three edges and
 `pay -> orders` two. `IntegrationEventTopologyTests` fails the build on a consumer registered without
 an arrow, which is what caught the edit being needed in the first place.
@@ -1202,6 +1209,107 @@ Flow diagram, the `Payment` state machine, **the two rules from §1.4**, key for
 ### 11.3 Diagram and project plan
 
 README `### C3 — Event Topology`: every new `*IntegrationEvent` must be named and the edges must match `ConfigureConsumers()` exactly — `IntegrationEventTopologyTests` diffs them and needs a `DiagramNodes` entry for the new module. Add **Feature 3.8** to `FoodDelivery_ProjectPlan.md` (it is not there today) and update the Technology Reference table with Stripe / `Stripe.net`. Add the Payments row to `CLAUDE.md` § Service Responsibilities.
+
+---
+
+### 11.4 What Milestone I shipped, and where it departed from §11
+
+Medium, and about two-thirds of it prose. `PaymentsDiagnostics` (Application, as §11.1 says) carries
+**seven** instruments, not six; `AddModuleDiagnostics(PaymentsDiagnostics.Name)` replaced the
+placeholder comment Milestone B left in `Program.cs`; four Grafana panels joined the business
+dashboard under a new `Payments` row and four alert rules joined `alerts.yml` as a new
+`fooddeliveryservice-payments` group; `docs/payments.md` is the reference §11.2 asked for. Green:
+`dotnet build` clean with **0 warnings**, `Payments.UnitTests` **141/141** (137 + 4),
+`Common.UnitTests` **465/465**, the `Support`/`Orders`/`Restaurants` unit suites unchanged at
+90/49/45, and the two integration suites this touched actually run — `Payments.IntegrationTests`
+**42/42**, `Support.IntegrationTests` **49/49**. No migration, no configuration key, no manifest, no
+compose or Gateway change.
+
+**A seventh instrument, because §11 asked for an alert no metric could carry.** §11.1 lists six
+instruments; the paragraph under that table asks for an alert on *webhook processing lag*, and
+nothing in the platform measures that gap — `app.request.duration` covers the endpoint's own
+2xx-fast response, which is the opposite end of it. `payments.webhook.lag` (histogram, `s`, tagged
+`event_type`) is the wait between `StripeEventLog.ReceivedOnUtc` and
+`StripeEventReceivedDomainEventHandler` running. It is the health of the reconciling path, and on
+this service the reconciling path is not a refinement — it is the *only* thing that finishes a
+payment whose API response was lost (§5.6, §7).
+
+It is also the one instrument recorded **first** rather than last. §11.1's "emit last" rule exists so
+an outbox retry of a failed handler does not double-count; here the measurement is a wait that is
+already over when the handler starts, so recording it at the end would fold the dispatch work into
+the queueing the metric exists to isolate — and an event that could *not* be acted on waited exactly
+as long as one that could, so it is the number still worth having on the failing path.
+
+**`payments.released` needed a fact §9 deliberately refused to publish.** §11.1 wants it tagged
+`trigger` (`rejected` | `cancelled`). `PaymentReleasedDomainEvent` carries no reason at all, on
+purpose (§9 — the money does not care why the order ended, and a reason invented here would be a
+second, less accurate account of news that already travelled on `OrderRejected`/`OrderCancelled`).
+Three options: put the reason on the domain event and leak it onto the published contract, drop the
+tag, or carry it on the command.
+
+**The command carries it.** `ReleasePaymentCommand` gained a `Trigger` string bounded by a new
+two-constant `PaymentReleaseTrigger`, and the counter is recorded in `ReleasePaymentCommandHandler`
+after `SaveChangesAsync` — the one business measurement in this module not taken from a domain-event
+handler. Nothing branches on the value, so the aggregate and the event are untouched and §9's
+decision stands as written. Double-counting is not a risk on this path, for a better reason than
+"recorded last": every early return above that line is a path where nothing was released, and a
+redelivered `OrderRejected` finds the payment already `Released` and returns long before reaching it.
+
+**`payments.gateway.duration` went around `InvokeAsync`, and grew a third outcome.** One
+`try`/`catch`/`finally` in `StripePaymentGateway.InvokeAsync` — the same single-seam argument that
+put the idempotency key and the error mapping there, so the measurement cannot be forgotten on a
+method added later. The outcomes are `succeeded`, `refused` and `faulted`, and the third needed a
+bare `catch (Exception)` that rethrows, above the `finally`: without it a cancellation or an
+unwrapped HTTP failure would have been counted as `succeeded`, which is precisely the call the p95
+exists to show. `FakePaymentGateway` is deliberately **not** instrumented — the integration suites
+would otherwise be measuring a fake.
+
+**The `event_type` tag is bounded to four values plus `other`.** Stripe's own string is the tag, per
+§7's rule that provider vocabulary is not translated, but the set of types a dashboard can be
+subscribed to is a hundred-odd values this platform does not control — an open set on a tag is the
+cardinality explosion `PaymentFailureReason` exists to prevent, arriving by a different door. The
+handler maps anything outside its four dispatch arms to `other` and loses nothing: an event nobody
+acts on has no lag worth attributing, and the log row still names it.
+
+**Four alert rules, not three, and the extra one is the `reason` tag earning its keep.**
+`HighPaymentFailureRate` (over 25% for ten minutes, warning) and `PaymentGatewayErrors` (any
+sustained `reason="gateway_error"`, critical) are deliberately separate: a run of declines is the
+customer base and no amount of paging fixes it, while `gateway_error` means this platform is refusing
+orders it could have taken. The rate guards are 0.01/s and 0.005/s rather than the 0.05/s the
+existing groups use — payments are a far thinner stream than HTTP requests, and the standard floor
+would have silenced both for most of a normal day.
+
+**`PaymentsDiagnosticsTests` is the other half of `ObservabilityAssetTests`.** That suite
+cross-checks every dashboard and alert against a hand-written list of Prometheus names and *cannot*
+reach a module's instruments — `Common.UnitTests` references no module. Four unit tests in
+`Payments.UnitTests` close the loop: the seven instrument names, the `s` unit on both histograms
+(which is what makes `payments_gateway_duration_seconds_bucket` the name the alert fires on — ship a
+histogram without it and the rule is permanently silent and looks like health), that all six failure
+reasons reach the tag untranslated, and that the release trigger is one of two. Support has no
+equivalent and the doc comment in `ObservabilityAssetTests` had been claiming one; that wording is
+now accurate.
+
+**Three documentation defects this milestone found rather than created.**
+
+- **`docs/support-ticketing.md` was still asserting that no money moves**, in four places including a
+  section heading. §10.3 listed eleven places to retract that claim and this file was not one of them
+  — it was written for Feature 3.6 and nothing pointed back at it. Fixed here, with the refund flow
+  diagram extended to show Payments answering `Settled`/`Failed`.
+- **`docs/security.md` had no PCI section**, which §0.5 explicitly asked for in *both* documents. It
+  is now §10, which pushed "Known limitations" to §11 and its five subsections with it; the three
+  internal references to `§10.4` moved with them.
+- **The README and `CLAUDE.md` were still counting nine hosts.** Payments is the tenth, and the count
+  appeared in four README sentences, the Kubernetes status row, the correlation bullet and the
+  database count. The README's API documentation table was also missing `docs/payments`, which the
+  Gateway has proxied since Milestone B.
+
+**What §11.3 asked for that needed no work.** The README's C3 topology and
+`IntegrationEventTopologyTests` were already correct — Milestone H moved them to 33 events with the
+three Payments edges, and this milestone adds no integration event. The `CLAUDE.md` Payments row
+likewise already existed. What was genuinely missing there was **Feature 3.8 in
+`FoodDelivery_ProjectPlan.md`**, now written at the same depth as its neighbours, plus the Stripe row
+in the Technology Reference and a correction to Feature 3.6's two "no actual payment processing"
+bullets.
 
 ---
 

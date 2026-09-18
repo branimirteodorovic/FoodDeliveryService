@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using FoodDeliveryService.Common.Domain;
 using FoodDeliveryService.Modules.Payments.Application.Abstractions.Payments;
+using FoodDeliveryService.Modules.Payments.Application.Diagnostics;
 using FoodDeliveryService.Modules.Payments.Domain;
 using Microsoft.Extensions.Logging;
 using global::Stripe;
@@ -261,6 +263,13 @@ internal sealed class StripePaymentGateway(
 
         var requestOptions = new RequestOptions { IdempotencyKey = idempotencyKey };
 
+        // Feature 3.8 Milestone I. Measured here rather than around each public method because this
+        // is already the one place a provider call is made — the same argument that put the
+        // idempotency key and the error mapping here. A Stopwatch rather than the clock abstraction:
+        // this is an elapsed-time measurement, not a business timestamp, and nothing asserts on it.
+        long startedAt = Stopwatch.GetTimestamp();
+        string outcome = GatewayOutcome.Succeeded;
+
         try
         {
             TStripeEntity entity = await call(requestOptions, cancellationToken);
@@ -271,6 +280,8 @@ internal sealed class StripePaymentGateway(
         {
             if (StripeErrorMapping.IsTransient(exception))
             {
+                outcome = GatewayOutcome.Faulted;
+
                 logger.LogError(
                     exception,
                     "Stripe {Operation} failed transiently (idempotency key {IdempotencyKey}, HTTP {HttpStatusCode})",
@@ -286,6 +297,8 @@ internal sealed class StripePaymentGateway(
                 throw new ApplicationException(operation, innerException: exception);
             }
 
+            outcome = GatewayOutcome.Refused;
+
             var error = StripeErrorMapping.ToError(exception);
 
             logger.LogWarning(
@@ -300,5 +313,35 @@ internal sealed class StripePaymentGateway(
 
             return Result.Failure<TResult>(error);
         }
+        catch (Exception)
+        {
+            // Anything that is not a StripeException — a cancellation, an HTTP failure the SDK did
+            // not wrap — still took time and still has to be counted, or the p95 silently describes
+            // only the calls that came back.
+            outcome = GatewayOutcome.Faulted;
+            throw;
+        }
+        finally
+        {
+            PaymentsDiagnostics.RecordGatewayCall(
+                operation,
+                outcome,
+                Stopwatch.GetElapsedTime(startedAt).TotalSeconds);
+        }
+    }
+
+    /// <summary>
+    /// The three ways a provider call ends, as the bounded <c>outcome</c> tag. Snake-case-free
+    /// single words, matching the tag-value convention <c>DeliveryAssignmentDiagnostics</c> set.
+    /// </summary>
+    private static class GatewayOutcome
+    {
+        public const string Succeeded = "succeeded";
+
+        /// <summary>Stripe answered and said no — a decline, a rejected request. A normal round trip.</summary>
+        public const string Refused = "refused";
+
+        /// <summary>Stripe did not answer usefully — a transient error, a timeout, a cancellation.</summary>
+        public const string Faulted = "faulted";
     }
 }
