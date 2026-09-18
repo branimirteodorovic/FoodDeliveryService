@@ -121,8 +121,11 @@ public class CapturePaymentTests(IntegrationTestWebAppFactory factory) : BaseInt
         Guid orderId = await PlaceAuthorizedCardOrderAsync();
         string intentId = await IntentIdAsync(orderId);
 
-        // Act
-        HttpClient customer = await CreateCustomerClientAsync();
+        // Act — the customer's client against the ORDERS host. The base class's customer client
+        // talks to the Payments host, where `orders/{id}/cancel` is not a route and the call comes
+        // back 404 rather than cancelling anything, which is what this test did until the suite was
+        // first executed against a real Docker (§10.5).
+        HttpClient customer = await CreateOrdersCustomerClientAsync();
 
         HttpResponseMessage cancelled = await customer.PostAsync(
             new Uri($"orders/{orderId}/cancel", UriKind.Relative),
@@ -257,6 +260,20 @@ public class CapturePaymentTests(IntegrationTestWebAppFactory factory) : BaseInt
     private async Task<HttpClient> CreateOrdersManagerClientAsync()
     {
         string accessToken = await GetAccessTokenAsync(Factory.ManagerUserEmail, Factory.TestUserPassword);
+
+        HttpClient client = Factory.OrdersApi.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+        return client;
+    }
+
+    /// <summary>
+    /// The customer's client against the <b>Orders</b> host, for the same reason: every base-class
+    /// client is bound to the Payments host, and an order endpoint called there answers 404.
+    /// </summary>
+    private async Task<HttpClient> CreateOrdersCustomerClientAsync()
+    {
+        string accessToken = await GetAccessTokenAsync(Factory.CustomerUserEmail, Factory.TestUserPassword);
 
         HttpClient client = Factory.OrdersApi.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);

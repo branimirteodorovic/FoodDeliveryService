@@ -7,6 +7,7 @@ using FoodDeliveryService.Modules.Payments.Application.Abstractions.Authenticati
 using FoodDeliveryService.Modules.Payments.Application.Abstractions.Data;
 using FoodDeliveryService.Modules.Payments.Domain.PaymentMethods;
 using FoodDeliveryService.Modules.Payments.Domain.Payments;
+using FoodDeliveryService.Modules.Payments.Domain.Refunds;
 using FoodDeliveryService.Modules.Payments.Domain.Webhooks;
 using FoodDeliveryService.Modules.Payments.Infrastructure.Authentication;
 using FoodDeliveryService.Modules.Payments.Infrastructure.Authorization;
@@ -14,10 +15,12 @@ using FoodDeliveryService.Modules.Payments.Infrastructure.Database;
 using FoodDeliveryService.Modules.Payments.Infrastructure.Inbox;
 using FoodDeliveryService.Modules.Payments.Infrastructure.Outbox;
 using FoodDeliveryService.Modules.Payments.Infrastructure.PaymentMethods;
+using FoodDeliveryService.Modules.Payments.Infrastructure.Refunds;
 using FoodDeliveryService.Modules.Payments.Infrastructure.Payments;
 using FoodDeliveryService.Modules.Payments.Infrastructure.Stripe;
 using FoodDeliveryService.Modules.Payments.Infrastructure.Webhooks;
 using FoodDeliveryService.Modules.Orders.IntegrationEvents;
+using FoodDeliveryService.Modules.Support.IntegrationEvents;
 using FoodDeliveryService.Modules.Users.IntegrationEvents;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
@@ -51,9 +54,8 @@ public static class PaymentsModule
         {
             // Every registered user gets a Stripe customer, so the card form has something to attach
             // to when they first reach it (§6.2). The remaining subscriptions arrive one per
-            // milestone, each one line here: RefundApproved (§10) is the last one outstanding.
-            // Every one of them must also be drawn in the README's C3 event
-            // topology in the same change — IntegrationEventTopologyTests diffs the two.
+            // milestone, each one line here. Every one of them must also be drawn in the README's
+            // C3 event topology in the same change — IntegrationEventTopologyTests diffs the two.
             registration.AddConsumer<IntegrationEventConsumer<UserRegisteredIntegrationEvent>>()
                 .Endpoint(c => c.InstanceId = instanceId);
 
@@ -75,6 +77,13 @@ public static class PaymentsModule
                 .Endpoint(c => c.InstanceId = instanceId);
 
             registration.AddConsumer<IntegrationEventConsumer<OrderCancelledIntegrationEvent>>()
+                .Endpoint(c => c.InstanceId = instanceId);
+
+            // Milestone H — the last subscription this feature adds, and the first time anything on
+            // the platform reacts to a Support event. An administrator agreeing to a refund is what
+            // moves the money; the matching rejection is deliberately NOT consumed, because "no
+            // money moves" is already the outcome of a refusal (§10.1).
+            registration.AddConsumer<IntegrationEventConsumer<RefundApprovedIntegrationEvent>>()
                 .Endpoint(c => c.InstanceId = instanceId);
 
             // The explicit request client is not optional even for a service that consumes little:
@@ -104,7 +113,7 @@ public static class PaymentsModule
 
         services.AddScoped<IPaymentRepository, PaymentRepository>();
 
-        // IRefundRepository (§10) lands here alongside its aggregate, one AddScoped like these.
+        services.AddScoped<IRefundRepository, RefundRepository>();
 
         services.AddScoped<IPaymentsContext, PaymentsContext>();
 

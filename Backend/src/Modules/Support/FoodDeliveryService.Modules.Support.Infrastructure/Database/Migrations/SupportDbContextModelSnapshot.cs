@@ -310,6 +310,15 @@ namespace FoodDeliveryService.Modules.Support.Infrastructure.Database.Migrations
                         .HasColumnType("character varying(1000)")
                         .HasColumnName("decision_note");
 
+                    b.Property<DateTime?>("FailedOnUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("failed_on_utc");
+
+                    b.Property<string>("FailureReason")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("failure_reason");
+
                     b.Property<Guid>("OrderId")
                         .HasColumnType("uuid")
                         .HasColumnName("order_id");
@@ -327,6 +336,10 @@ namespace FoodDeliveryService.Modules.Support.Infrastructure.Database.Migrations
                     b.Property<DateTime>("RequestedOnUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("requested_on_utc");
+
+                    b.Property<DateTime?>("SettledOnUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("settled_on_utc");
 
                     b.Property<int>("Status")
                         .HasColumnType("integer")
@@ -348,7 +361,7 @@ namespace FoodDeliveryService.Modules.Support.Infrastructure.Database.Migrations
                     b.HasIndex("OrderId")
                         .IsUnique()
                         .HasDatabaseName("ix_refund_requests_order_id")
-                        .HasFilter("status IN (0, 1)");
+                        .HasFilter("status IN (0, 1, 3)");
 
                     b.HasIndex("Status")
                         .HasDatabaseName("ix_refund_requests_status");

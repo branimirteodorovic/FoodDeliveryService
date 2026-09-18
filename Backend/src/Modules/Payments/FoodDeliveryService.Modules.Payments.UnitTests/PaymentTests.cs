@@ -23,6 +23,8 @@ public class PaymentTests
 
     private static readonly DateTime CapturedOn = new(2026, 9, 15, 9, 4, 0, DateTimeKind.Utc);
 
+    private static readonly DateTime RefundedOn = new(2026, 9, 16, 11, 0, 0, DateTimeKind.Utc);
+
     private const string PaymentIntentId = "pi_test_authorize";
 
     [Fact]
@@ -364,6 +366,142 @@ public class PaymentTests
         result.IsSuccess.Should().BeTrue();
         payment.Status.Should().Be(PaymentStatus.Failed);
         payment.DomainEvents.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Refund_Should_RefuseAPaymentThatWasNeverCaptured()
+    {
+        // Arrange — the hold is there, the money is not. Support's own ceiling passes this: it caps
+        // the request at the replicated order subtotal, which says nothing about whether the charge
+        // was ever taken. This is the check that can see the difference.
+        Payment payment = Authorized();
+
+        // Act
+        Result result = payment.Refund(Money.Create(5m, "EUR").Value, alreadyRefunded: 0m, RefundedOn);
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be(PaymentErrors.NotCaptured(payment.OrderId));
+        payment.Status.Should().Be(PaymentStatus.Authorized);
+    }
+
+    [Fact]
+    public void Refund_Should_RefuseMoreThanWasCaptured()
+    {
+        // Arrange
+        Payment payment = Captured();
+
+        // Act — one cent over the 24.99 that was taken.
+        Result result = payment.Refund(Money.Create(25m, "EUR").Value, alreadyRefunded: 0m, RefundedOn);
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be(PaymentErrors.RefundExceedsCaptured(payment.OrderId));
+    }
+
+    [Fact]
+    public void Refund_Should_CountWhatHasAlreadyGoneBack()
+    {
+        // Arrange — 20 of the 24.99 is already refunded, so only 4.99 is left. This is the case a
+        // ceiling against the order subtotal alone cannot catch at all: each request on its own is
+        // well under it, and together they are not.
+        Payment payment = Captured();
+
+        // Act
+        Result result = payment.Refund(Money.Create(5m, "EUR").Value, alreadyRefunded: 20m, RefundedOn);
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be(PaymentErrors.RefundExceedsCaptured(payment.OrderId));
+    }
+
+    [Fact]
+    public void Refund_Should_LeaveAPartlyRefundedPaymentCaptured()
+    {
+        // Arrange
+        Payment payment = Captured();
+
+        // Act
+        Result result = payment.Refund(Money.Create(4m, "EUR").Value, alreadyRefunded: 0m, RefundedOn);
+
+        // Assert — Captured, not Refunded: the status is about where the money is, and most of it is
+        // still with the business. Marking it Refunded would also close the door on the next one.
+        result.IsSuccess.Should().BeTrue();
+        payment.Status.Should().Be(PaymentStatus.Captured);
+        payment.RefundedOnUtc.Should().BeNull();
+    }
+
+    [Fact]
+    public void Refund_Should_MarkThePaymentRefunded_WhenTheLastOfItGoesBack()
+    {
+        // Arrange — 20 already back, 4.99 left.
+        Payment payment = Captured();
+
+        // Act
+        Result result = payment.Refund(Money.Create(4.99m, "EUR").Value, alreadyRefunded: 20m, RefundedOn);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        payment.Status.Should().Be(PaymentStatus.Refunded);
+        payment.RefundedOnUtc.Should().Be(RefundedOn);
+        payment.IsTerminal.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Refund_Should_RaiseNothing()
+    {
+        // Arrange
+        Payment payment = Captured();
+
+        // Act
+        payment.Refund(Money.Create(24.99m, "EUR").Value, alreadyRefunded: 0m, RefundedOn);
+
+        // Assert — the refund is its own aggregate and the event belongs to it. A second event about
+        // the same money from here would give Support and Notifications two things to react to.
+        payment.DomainEvents.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Refund_Should_RefuseAFullyRefundedPayment()
+    {
+        // Arrange — the whole amount is back, so the payment is terminal in the one state that is
+        // still reachable by a refund. A further request has nothing left to draw on.
+        Payment payment = Captured();
+        payment.Refund(Money.Create(24.99m, "EUR").Value, alreadyRefunded: 0m, RefundedOn);
+
+        // Act
+        Result result = payment.Refund(Money.Create(0.01m, "EUR").Value, alreadyRefunded: 24.99m, RefundedOn);
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be(PaymentErrors.RefundExceedsCaptured(payment.OrderId));
+    }
+
+    [Fact]
+    public void Capture_Should_BeANoOp_OnARefundedPayment()
+    {
+        // Arrange — a late redelivery of the acceptance, long after the order was refunded.
+        Payment payment = Captured();
+        payment.Refund(Money.Create(24.99m, "EUR").Value, alreadyRefunded: 0m, RefundedOn);
+        payment.ClearDomainEvents();
+
+        // Act
+        Result result = payment.Capture(RefundedOn);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        payment.Status.Should().Be(PaymentStatus.Refunded);
+        payment.DomainEvents.Should().BeEmpty();
+    }
+
+    private static Payment Captured()
+    {
+        Payment payment = Authorized();
+
+        payment.Capture(CapturedOn);
+        payment.ClearDomainEvents();
+
+        return payment;
     }
 
     private static Payment Authorized()

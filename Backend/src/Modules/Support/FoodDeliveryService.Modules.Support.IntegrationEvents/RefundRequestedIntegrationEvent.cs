@@ -5,11 +5,12 @@ namespace FoodDeliveryService.Modules.Support.IntegrationEvents;
 /// <summary>
 /// An agent has asked for a customer to be refunded, and an administrator has not yet decided.
 /// <para>
-/// <strong>Nothing in Orders consumes this, and no money moves.</strong> The natural assumption on
-/// reading a refund event is that a payment is being reversed somewhere; this platform has no
-/// payment processing by design, so the event exists to make the request visible outside Support —
-/// an approval queue, a dashboard, an alert on refunds piling up. A real payment integration would
-/// consume the <em>approved</em> event, not this one.
+/// <strong>Nothing consumes this one, and nothing should.</strong> The natural assumption on reading
+/// a refund event is that a payment is being reversed somewhere — and since Feature 3.8 one is, but
+/// off the <em>approved</em> event rather than this one. That is the point of there being two: a
+/// request is a thing an agent asked for, and money must not move until a second person has agreed.
+/// This event exists to make the queue visible outside Support — a dashboard, an alert on refunds
+/// piling up — and a consumer that moved money on it would defeat the approval step entirely.
 /// </para>
 /// </summary>
 public sealed class RefundRequestedIntegrationEvent : IntegrationEvent

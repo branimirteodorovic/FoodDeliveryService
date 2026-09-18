@@ -25,4 +25,26 @@ public interface ISupportAuditWriter
         string? fromValue = null,
         string? toValue = null,
         string? reason = null);
+
+    /// <summary>
+    /// The same entry, attributed to the platform rather than to a person — Feature 3.8 Milestone H.
+    /// <para>
+    /// It exists because <see cref="Record"/> reads the actor off the authenticated caller, and the
+    /// callers that need this one are integration-event handlers running in <c>ProcessInboxJob</c>
+    /// where there is no HTTP context at all — <c>ISupportContext.UserId</c> throws there. A refund
+    /// settling is still a fact about the money on a ticket and still belongs in the case history;
+    /// what it does not have is an agent to blame for it.
+    /// </para>
+    /// <para>
+    /// Deliberately a second method rather than a nullable actor parameter on the first. An audit
+    /// writer that accepts an actor is one an agent's request body could eventually reach, which is
+    /// precisely what <see cref="Record"/>'s missing parameter is there to prevent.
+    /// </para>
+    /// </summary>
+    void RecordSystemAction(
+        Guid ticketId,
+        SupportAuditAction action,
+        string? fromValue = null,
+        string? toValue = null,
+        string? reason = null);
 }

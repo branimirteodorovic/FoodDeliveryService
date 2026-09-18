@@ -25,6 +25,19 @@ public sealed class SupportAuditEntry : Entity
 
     public const int ReasonMaxLength = 2000;
 
+    /// <summary>
+    /// The actor on an entry nobody wrote by hand — Feature 3.8 Milestone H. A refund settling or
+    /// failing is recorded by the platform reacting to a Payments event, and there is no
+    /// authenticated caller to attribute it to.
+    /// <para>
+    /// <see cref="Guid.Empty"/> rather than a seeded "system user" row, because the distinction this
+    /// log exists to make is between a person and not-a-person: an id that looks like a user's is
+    /// one a reader has to go and check. It is a value no real <c>UserId</c> ever has, so an entry
+    /// carrying it cannot be confused with an agent's.
+    /// </para>
+    /// </summary>
+    public static readonly Guid SystemActorId = Guid.Empty;
+
     private SupportAuditEntry()
     {
     }

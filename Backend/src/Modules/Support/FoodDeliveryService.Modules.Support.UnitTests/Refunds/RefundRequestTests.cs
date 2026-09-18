@@ -58,6 +58,16 @@ public class RefundRequestTests : BaseTest
         return request;
     }
 
+    /// <summary>An approved request, waiting on Payments to say what became of the money.</summary>
+    private static RefundRequest Approved()
+    {
+        RefundRequest request = RequestedBy(Guid.NewGuid());
+        request.Approve(Guid.NewGuid(), "Agreed", UtcNow);
+        request.ClearDomainEvents();
+
+        return request;
+    }
+
     [Fact]
     public void Create_ShouldSucceed_AndRaiseRequestedEvent()
     {
@@ -318,5 +328,135 @@ public class RefundRequestTests : BaseTest
         // Assert — AlreadyDecided wins, because the decision is the fact that has already happened.
         result.Error.Should().Be(RefundErrors.AlreadyDecided);
         request.Status.Should().Be(RefundStatus.Approved);
+    }
+
+    [Fact]
+    public void Settle_ShouldMoveAnApprovedRequestToSettled()
+    {
+        // Arrange
+        RefundRequest request = Approved();
+
+        // Act
+        Result result = request.Settle(UtcNow.AddMinutes(1));
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        request.Status.Should().Be(RefundStatus.Settled);
+        request.SettledOnUtc.Should().Be(UtcNow.AddMinutes(1));
+        request.FailureReason.Should().BeNull();
+    }
+
+    [Fact]
+    public void Settle_ShouldRaiseNoDomainEvent()
+    {
+        // Arrange
+        RefundRequest request = Approved();
+
+        // Act
+        request.Settle(UtcNow.AddMinutes(1));
+
+        // Assert — a departure from this codebase's usual rule, argued on the method: nothing
+        // consumes it, and the audit entry the handler writes in the same transaction is the record.
+        // An event here would be a second, divergent copy of a history this module already keeps.
+        request.DomainEvents.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Settle_ShouldBeANoOp_OnARequestThatWasNeverApproved()
+    {
+        // Arrange — Payments only ever refunds against an approval, so this is unreachable in
+        // practice. What it pins is that a stray message cannot settle a request nobody agreed to.
+        RefundRequest request = RequestedBy(Guid.NewGuid());
+
+        // Act
+        Result result = request.Settle(UtcNow.AddMinutes(1));
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        request.Status.Should().Be(RefundStatus.Requested);
+        request.SettledOnUtc.Should().BeNull();
+    }
+
+    [Fact]
+    public void Settle_ShouldBeANoOp_WhenAlreadySettled()
+    {
+        // Arrange — the inbox dispatches at least once.
+        RefundRequest request = Approved();
+        request.Settle(UtcNow.AddMinutes(1));
+
+        // Act
+        Result result = request.Settle(UtcNow.AddMinutes(5));
+
+        // Assert — the first settlement's timestamp stands, so the audit trail and the row agree.
+        result.IsSuccess.Should().BeTrue();
+        request.SettledOnUtc.Should().Be(UtcNow.AddMinutes(1));
+    }
+
+    [Fact]
+    public void MarkFailed_ShouldRecordTheReasonOnTheRequest()
+    {
+        // Arrange
+        RefundRequest request = Approved();
+
+        // Act
+        Result result = request.MarkFailed("not_card_payment", UtcNow.AddMinutes(1));
+
+        // Assert — the reason is on the row as well as in the audit log, because the refund queue is
+        // where an agent looks and "failed" on its own is not something anyone can act on.
+        result.IsSuccess.Should().BeTrue();
+        request.Status.Should().Be(RefundStatus.Failed);
+        request.FailureReason.Should().Be("not_card_payment");
+        request.FailedOnUtc.Should().Be(UtcNow.AddMinutes(1));
+    }
+
+    [Fact]
+    public void MarkFailed_ShouldRefuseABlankReason()
+    {
+        // Arrange
+        RefundRequest request = Approved();
+
+        // Act
+        Result result = request.MarkFailed("   ", UtcNow.AddMinutes(1));
+
+        // Assert
+        result.IsFailure.Should().BeTrue();
+        result.Error.Should().Be(RefundErrors.SettlementReasonRequired);
+        request.Status.Should().Be(RefundStatus.Approved);
+    }
+
+    [Fact]
+    public void MarkFailed_ShouldNotWithdrawTheApproval()
+    {
+        // Arrange
+        var adminId = Guid.NewGuid();
+        RefundRequest request = RequestedBy(Guid.NewGuid());
+        request.Approve(adminId, "Agreed", UtcNow);
+        request.ClearDomainEvents();
+
+        // Act
+        request.MarkFailed("payment_not_captured", UtcNow.AddMinutes(1));
+
+        // Assert — the decision trail is untouched. What changed is that the request stops claiming
+        // to be in progress; who agreed to it, and when, is still the record.
+        request.DecidedByAdminId.Should().Be(adminId);
+        request.DecisionNote.Should().Be("Agreed");
+        request.DecidedOnUtc.Should().Be(UtcNow);
+    }
+
+    [Fact]
+    public void MarkFailed_ShouldBeTerminal()
+    {
+        // Arrange — a failed refund is retried by raising a fresh request, so that the second
+        // attempt gets its own administrator rather than riding on the first one's approval.
+        RefundRequest request = Approved();
+        request.MarkFailed("gateway_error", UtcNow.AddMinutes(1));
+
+        // Act
+        Result result = request.Settle(UtcNow.AddMinutes(5));
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        request.Status.Should().Be(RefundStatus.Failed);
+        request.SettledOnUtc.Should().BeNull();
     }
 }

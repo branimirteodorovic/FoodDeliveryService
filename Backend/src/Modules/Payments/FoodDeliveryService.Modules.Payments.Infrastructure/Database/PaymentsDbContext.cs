@@ -3,6 +3,7 @@ using FoodDeliveryService.Common.Infrastructure.Outbox;
 using FoodDeliveryService.Modules.Payments.Application.Abstractions.Data;
 using FoodDeliveryService.Modules.Payments.Domain.PaymentMethods;
 using FoodDeliveryService.Modules.Payments.Domain.Payments;
+using FoodDeliveryService.Modules.Payments.Domain.Refunds;
 using FoodDeliveryService.Modules.Payments.Domain.Webhooks;
 using Microsoft.EntityFrameworkCore;
 
@@ -33,6 +34,13 @@ public sealed class PaymentsDbContext(DbContextOptions<PaymentsDbContext> option
     /// Cash orders have no row here at all — there is nothing to authorize (§8.1).
     /// </summary>
     internal DbSet<Payment> Payments { get; set; }
+
+    /// <summary>
+    /// One row per approved support refund — Milestone H, §10. Includes the ones that moved no
+    /// money: a refund refused because the order was paid in cash is as much a part of the ledger as
+    /// one that settled, and it is the only record of why an agreed refund did not happen.
+    /// </summary>
+    internal DbSet<Refund> Refunds { get; set; }
 
     /// <summary>
     /// One row per verified Stripe webhook. It is the dedupe table for provider redeliveries and is

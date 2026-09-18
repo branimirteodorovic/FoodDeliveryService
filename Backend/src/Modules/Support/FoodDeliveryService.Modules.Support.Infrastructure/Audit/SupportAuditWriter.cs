@@ -33,4 +33,25 @@ internal sealed class SupportAuditWriter(
                 reason,
                 dateTimeProvider.UtcNow));
     }
+
+    public void RecordSystemAction(
+        Guid ticketId,
+        SupportAuditAction action,
+        string? fromValue = null,
+        string? toValue = null,
+        string? reason = null)
+    {
+        auditRepository.Insert(
+            SupportAuditEntry.Create(
+                ticketId,
+
+                // No token to read: this runs in the inbox job. See ISupportAuditWriter for why the
+                // actor is a constant rather than a parameter.
+                SupportAuditEntry.SystemActorId,
+                action,
+                fromValue,
+                toValue,
+                reason,
+                dateTimeProvider.UtcNow));
+    }
 }

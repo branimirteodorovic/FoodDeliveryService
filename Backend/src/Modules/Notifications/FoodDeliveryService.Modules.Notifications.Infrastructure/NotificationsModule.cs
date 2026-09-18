@@ -1,4 +1,4 @@
-﻿using FoodDeliveryService.Common.Application.Authorization;
+using FoodDeliveryService.Common.Application.Authorization;
 using FoodDeliveryService.Common.Application.EventBus;
 using FoodDeliveryService.Common.Application.Messaging;
 using FoodDeliveryService.Common.Infrastructure.Outbox;
@@ -17,6 +17,7 @@ using FoodDeliveryService.Modules.Notifications.Infrastructure.Outbox;
 using FoodDeliveryService.Modules.Notifications.Infrastructure.RecipientUsers;
 using FoodDeliveryService.Modules.Notifications.Domain.RecipientUsers;
 using FoodDeliveryService.Modules.Orders.IntegrationEvents;
+using FoodDeliveryService.Modules.Payments.IntegrationEvents;
 using FoodDeliveryService.Modules.Support.IntegrationEvents;
 using FoodDeliveryService.Modules.Users.IntegrationEvents;
 using MassTransit;
@@ -67,6 +68,15 @@ public static class NotificationsModule
             registration.AddConsumer<IntegrationEventConsumer<RefundApprovedIntegrationEvent>>()
                 .Endpoint(c => c.InstanceId = instanceId);
             registration.AddConsumer<IntegrationEventConsumer<RefundRejectedIntegrationEvent>>()
+                .Endpoint(c => c.InstanceId = instanceId);
+
+            // Feature 3.8 Milestone H. Two of Payments' events, not three: the customer is told
+            // their card was declined and told when a refund actually leaves, and is deliberately
+            // NOT told that an approved refund failed — those reasons need an agent, not a
+            // customer, and the ticket is where they land (§10.4).
+            registration.AddConsumer<IntegrationEventConsumer<PaymentAuthorizationFailedIntegrationEvent>>()
+                .Endpoint(c => c.InstanceId = instanceId);
+            registration.AddConsumer<IntegrationEventConsumer<RefundSettledIntegrationEvent>>()
                 .Endpoint(c => c.InstanceId = instanceId);
         };
     }

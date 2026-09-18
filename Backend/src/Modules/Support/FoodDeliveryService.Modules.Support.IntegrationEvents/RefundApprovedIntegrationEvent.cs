@@ -1,15 +1,22 @@
-using FoodDeliveryService.Common.Application.EventBus;
+﻿using FoodDeliveryService.Common.Application.EventBus;
 
 namespace FoodDeliveryService.Modules.Support.IntegrationEvents;
 
 /// <summary>
 /// An administrator approved a refund request.
 /// <para>
-/// <strong>Approved does not mean paid, and Orders consumes nothing.</strong> The name invites the
-/// opposite assumption, so it is worth stating on the contract itself: this platform processes no
-/// payments by design. The only consumer today is Notifications, which emails the customer that the
-/// decision was made. The refund record exists so that a real payment integration could later be
-/// added <em>behind</em> this event without inventing the approval trail it would need.
+/// <strong>This event moves real money.</strong> It was published for two milestones with no
+/// consumer but Notifications, and the contract said so: the platform processed no payments, and an
+/// approval was an agreement. Feature 3.8 added the Payments service exactly where this comment said
+/// one would go — <em>behind</em> this event, on top of the approval trail rather than in place of
+/// it. Payments now refunds the captured card payment against it and answers with
+/// <c>RefundSettled</c> or <c>RefundFailed</c>; Notifications is still the other consumer.
+/// </para>
+/// <para>
+/// Approved still does not mean <em>paid</em>. The refund is asynchronous and can fail — a cash
+/// order has nothing to refund, a payment that was never captured has nothing to give back — which
+/// is why Support carries <c>Settled</c> and <c>Failed</c> statuses rather than treating approval
+/// as the end of the story.
 /// </para>
 /// <para>
 /// Carries both <see cref="RequestedByAgentId"/> and <see cref="DecidedByAdminId"/> — a full

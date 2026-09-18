@@ -1,4 +1,4 @@
-﻿using FoodDeliveryService.Common.Application.Authorization;
+using FoodDeliveryService.Common.Application.Authorization;
 using FoodDeliveryService.Common.Application.EventBus;
 using FoodDeliveryService.Common.Application.Messaging;
 using FoodDeliveryService.Common.Infrastructure.Outbox;
@@ -22,6 +22,7 @@ using FoodDeliveryService.Modules.Support.Infrastructure.Outbox;
 using FoodDeliveryService.Modules.Support.Infrastructure.Refunds;
 using FoodDeliveryService.Modules.Support.Infrastructure.Tickets;
 using FoodDeliveryService.Modules.Orders.IntegrationEvents;
+using FoodDeliveryService.Modules.Payments.IntegrationEvents;
 using FoodDeliveryService.Modules.Users.IntegrationEvents;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
@@ -66,6 +67,16 @@ public static class SupportModule
             // the subtotal. The other seven lifecycle events join it in the ticket-context
             // milestone, each as one more subscription here alongside its own handler.
             registration.AddConsumer<IntegrationEventConsumer<OrderPlacedIntegrationEvent>>()
+                .Endpoint(c => c.InstanceId = instanceId);
+
+            // Feature 3.8 Milestone H — the answer to the approval this service publishes. Until
+            // this milestone Support consumed nothing from Payments, because there was no Payments:
+            // an approved refund was a record and nothing acted on it. Both outcomes are consumed,
+            // and the failed one is not optional — a request left saying "approved" for a refund
+            // that could not be paid is the failure this whole reversal exists to avoid (§10.2).
+            registration.AddConsumer<IntegrationEventConsumer<RefundSettledIntegrationEvent>>()
+                .Endpoint(c => c.InstanceId = instanceId);
+            registration.AddConsumer<IntegrationEventConsumer<RefundFailedIntegrationEvent>>()
                 .Endpoint(c => c.InstanceId = instanceId);
 
             // The explicit request client is not optional: without it MassTransit's implicit

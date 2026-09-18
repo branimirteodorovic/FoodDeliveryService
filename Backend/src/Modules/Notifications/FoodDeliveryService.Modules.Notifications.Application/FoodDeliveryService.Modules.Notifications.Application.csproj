@@ -6,4 +6,13 @@
     <ProjectReference Include="..\FoodDeliveryService.Modules.Notifications.IntegrationEvents\FoodDeliveryService.Modules.Notifications.IntegrationEvents.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!--
+      NotificationChannelRouter is internal, and NotificationRoutingTests is what stops a
+      NotificationType from being added with a template but no route — a combination that sends
+      nothing and reports success (Feature 3.8 Milestone H, §10.4).
+    -->
+    <InternalsVisibleTo Include="FoodDeliveryService.Modules.Notifications.IntegrationTests" />
+  </ItemGroup>
+
 </Project>

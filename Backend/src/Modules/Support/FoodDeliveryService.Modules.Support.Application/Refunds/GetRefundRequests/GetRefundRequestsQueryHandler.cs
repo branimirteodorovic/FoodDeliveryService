@@ -51,7 +51,10 @@ internal sealed class GetRefundRequestsQueryHandler(IDbConnectionFactory dbConne
                  END AS {nameof(RefundRequestResponse.DecidedByAdminName)},
                  r.decision_note AS {nameof(RefundRequestResponse.DecisionNote)},
                  r.requested_on_utc AS {nameof(RefundRequestResponse.RequestedOnUtc)},
-                 r.decided_on_utc AS {nameof(RefundRequestResponse.DecidedOnUtc)}
+                 r.decided_on_utc AS {nameof(RefundRequestResponse.DecidedOnUtc)},
+                 r.settled_on_utc AS {nameof(RefundRequestResponse.SettledOnUtc)},
+                 r.failed_on_utc AS {nameof(RefundRequestResponse.FailedOnUtc)},
+                 r.failure_reason AS {nameof(RefundRequestResponse.FailureReason)}
              FROM refund_requests r
              LEFT JOIN support_agents ag ON ag.id = r.requested_by_agent_id
              LEFT JOIN support_agents ad ON ad.id = r.decided_by_admin_id

@@ -43,4 +43,20 @@ public sealed record RefundRequestResponse
     public DateTime RequestedOnUtc { get; init; }
 
     public DateTime? DecidedOnUtc { get; init; }
+
+    /// <summary>
+    /// When the money actually went back, or null — Feature 3.8 Milestone H. An approval and a
+    /// settlement are two different facts now that they can disagree, and the queue is where the
+    /// difference has to be visible.
+    /// </summary>
+    public DateTime? SettledOnUtc { get; init; }
+
+    public DateTime? FailedOnUtc { get; init; }
+
+    /// <summary>
+    /// Payments' bounded reason code when the refund could not be paid. It is the field that turns a
+    /// failed row from an alarm into something an agent can act on — a cash order needs settling by
+    /// hand, an uncaptured payment needs looking at, an over-large amount needs a smaller request.
+    /// </summary>
+    public string? FailureReason { get; init; }
 }

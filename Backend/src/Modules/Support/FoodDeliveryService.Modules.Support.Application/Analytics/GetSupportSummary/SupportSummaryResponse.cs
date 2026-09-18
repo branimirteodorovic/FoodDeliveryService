@@ -88,7 +88,9 @@ public sealed record SupportStatusCount(TicketStatus Status, int Count);
 public sealed record SupportAgentWorkload(Guid AgentId, string? AgentName, int Assigned, int Resolved);
 
 /// <param name="TotalAmount">
-/// Summed for reporting only. Nothing moves money on the back of it — the platform has no payment
-/// processing, so this is what was agreed to, not what was paid.
+/// Summed for reporting only — nothing moves money on the back of <em>this</em> number. Read it with
+/// the status beside it: Approved is what was agreed and handed to Payments, Settled is what
+/// actually left, and Failed is what was agreed and could not be paid. Before Feature 3.8 the
+/// distinction did not exist, because no money ever moved at all.
 /// </param>
 public sealed record SupportRefundTotal(RefundStatus Status, int Count, decimal TotalAmount);

@@ -262,6 +262,10 @@ namespace FoodDeliveryService.Modules.Payments.Infrastructure.Database.Migration
                         .HasColumnType("uuid")
                         .HasColumnName("order_id");
 
+                    b.Property<DateTime?>("RefundedOnUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("refunded_on_utc");
+
                     b.Property<DateTime?>("ReleasedOnUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("released_on_utc");
@@ -291,6 +295,74 @@ namespace FoodDeliveryService.Modules.Payments.Infrastructure.Database.Migration
                         .HasFilter("stripe_payment_intent_id IS NOT NULL");
 
                     b.ToTable("payments", (string)null);
+                });
+
+            modelBuilder.Entity("FoodDeliveryService.Modules.Payments.Domain.Refunds.Refund", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedOnUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_on_utc");
+
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("customer_id");
+
+                    b.Property<DateTime?>("FailedOnUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("failed_on_utc");
+
+                    b.Property<string>("FailureReason")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("failure_reason");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("order_id");
+
+                    b.Property<Guid>("RefundRequestId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("refund_request_id");
+
+                    b.Property<DateTime?>("SettledOnUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("settled_on_utc");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<string>("StripeRefundId")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("stripe_refund_id");
+
+                    b.Property<Guid>("TicketId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("ticket_id");
+
+                    b.Property<string>("TicketReference")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("ticket_reference");
+
+                    b.HasKey("Id")
+                        .HasName("pk_refunds");
+
+                    b.HasIndex("OrderId")
+                        .HasDatabaseName("ix_refunds_order_id");
+
+                    b.HasIndex("RefundRequestId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_refunds_refund_request_id");
+
+                    b.ToTable("refunds", (string)null);
                 });
 
             modelBuilder.Entity("FoodDeliveryService.Modules.Payments.Domain.Webhooks.StripeEventLog", b =>
@@ -393,6 +465,38 @@ namespace FoodDeliveryService.Modules.Payments.Infrastructure.Database.Migration
                             b1.WithOwner()
                                 .HasForeignKey("PaymentId")
                                 .HasConstraintName("fk_payments_payments_id");
+                        });
+
+                    b.Navigation("Amount")
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("FoodDeliveryService.Modules.Payments.Domain.Refunds.Refund", b =>
+                {
+                    b.OwnsOne("FoodDeliveryService.Modules.Payments.Domain.Money", "Amount", b1 =>
+                        {
+                            b1.Property<Guid>("RefundId")
+                                .HasColumnType("uuid")
+                                .HasColumnName("id");
+
+                            b1.Property<decimal>("Amount")
+                                .HasPrecision(10, 2)
+                                .HasColumnType("numeric(10,2)")
+                                .HasColumnName("amount");
+
+                            b1.Property<string>("Currency")
+                                .IsRequired()
+                                .HasMaxLength(3)
+                                .HasColumnType("character varying(3)")
+                                .HasColumnName("currency");
+
+                            b1.HasKey("RefundId");
+
+                            b1.ToTable("refunds");
+
+                            b1.WithOwner()
+                                .HasForeignKey("RefundId")
+                                .HasConstraintName("fk_refunds_refunds_id");
                         });
 
                     b.Navigation("Amount")

@@ -37,7 +37,8 @@ internal sealed class RequestRefund : IEndpoint
         .WithDescription(
             "An agent asks for a refund, capped by the order subtotal this service replicated when " +
             "the order was placed. Asking is not deciding - see the approve and reject endpoints. " +
-            "**No money moves: the platform has no payment processing.**")
+            "**Nothing moves until an administrator approves**, and the Payments service caps the " +
+            "refund again at what was actually captured on the card.")
         .Produces<Guid>();
     }
 

@@ -79,7 +79,8 @@ public static class ApiDocumentation
             "Support tickets and their lifecycle: agent assignment, an append-only audit log " +
             "written in the same transaction as the change it records, the agent-to-customer " +
             "message thread, and refund requests — which one agent asks for and a different " +
-            "administrator decides. No money moves: the platform has no payment processing.");
+            "administrator decides, and which the Payments service then settles against the card " +
+            "the order was paid with.");
 
     /// <summary>
     /// The RealTime service — <c>hubs/**</c> at the Gateway, hosted by

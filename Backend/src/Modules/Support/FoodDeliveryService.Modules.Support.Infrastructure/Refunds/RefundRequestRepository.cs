@@ -21,7 +21,9 @@ internal sealed class RefundRequestRepository(SupportDbContext context) : IRefun
         // exactly the rows the database will then refuse.
         return await context.RefundRequests.AnyAsync(
             r => r.OrderId == orderId &&
-                 (r.Status == RefundStatus.Requested || r.Status == RefundStatus.Approved),
+                 (r.Status == RefundStatus.Requested ||
+                  r.Status == RefundStatus.Approved ||
+                  r.Status == RefundStatus.Settled),
             cancellationToken);
     }
 

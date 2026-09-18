@@ -15,8 +15,11 @@ namespace FoodDeliveryService.Modules.Support.Presentation.Refunds;
 /// this route entirely — and the aggregate refuses the requester as well, which is what covers the
 /// case the permission cannot see: an administrator deciding on a request they raised themselves.
 /// <para>
-/// No route on this service pays anybody. Approval records a decision; the platform has no payment
-/// processing, and nothing consumes the event but the customer's email.
+/// No route on this service moves money itself, and approving is still recording a decision rather
+/// than performing a transfer. What changed with Feature 3.8 is what happens next: the approval is
+/// published, the Payments service refunds the captured card payment against it, and the request
+/// comes back Settled or Failed. The authority to do any of that is this endpoint and the aggregate
+/// behind it — Payments performs no check of its own on who agreed.
 /// </para>
 /// </summary>
 internal sealed class ApproveRefund : IEndpoint

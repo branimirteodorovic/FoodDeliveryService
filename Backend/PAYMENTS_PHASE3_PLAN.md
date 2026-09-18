@@ -1076,6 +1076,104 @@ Two new `NotificationType` members (payment failed, refund settled). Each needs 
 
 The payment-failed email is driven by **`PaymentAuthorizationFailedIntegrationEvent`**, not by anything Orders publishes: Milestone F deliberately left `OrderPaymentFailedDomainEvent` internal to Orders, because the Payments event already carries the bounded reason the email needs and a second message about one fact would carry less (§8.7). The template may therefore say *"your card was declined"* and name which of the six reasons it was — never Stripe's own text. A type missing from that router sends nothing and reports success, leaving a clean outbox/inbox trail and no email — the trap named in `CLAUDE.md`.
 
+### 10.5 What Milestone H shipped, and where it departed from §10
+
+Medium, as predicted, and the prose really was about half of it. `Refund` is a new aggregate in
+Payments with its own table, `RefundStatus` (`Pending`/`Settled`/`Failed`) and `RefundFailureReason`
+(four bounded codes); `Payment` grew `Refund`/`EnsureRefundable` and a `refunded_on_utc`; Support
+grew two statuses, two transitions, three columns, two consumers and the first audit entry no human
+wrote; Notifications grew two types with their models, templates and — the third half — their router
+routes. Green, all of it run rather than merely compiled: `dotnet build` clean on the solution,
+`Payments.UnitTests` **137/137** (116 + 21), `Support.UnitTests` **90/90** (82 + 8),
+`Common.UnitTests` **465/465** including `IntegrationEventTopologyTests`, every other module's unit
+suite unchanged, and **the integration suites actually executed for the first time in this feature**:
+`Payments.IntegrationTests` **42/42** (36 + 6), `Support.IntegrationTests` **49/49** (45 + 4),
+`Notifications.IntegrationTests` **8/8** (5 + 3). Two migrations, no configuration key, no manifest,
+no compose or Gateway change.
+
+**The refund is keyed on the order, and carries no payment id.** §10.1 describes it as a refund
+against "the captured intent", which reads as a foreign key to `Payment`. It is not one. The order is
+the handle every writer in this module already has — it *is* the lock key — one order has at most one
+payment, and a refund approved for a **cash** order has no payment to point at while still being
+worth recording. A nullable payment id would have been a second name for a row the order id already
+finds.
+
+**Every refusal is a published event, and that is the milestone's main decision.** §10.1 lists three
+guards (cash order, not captured, over the ceiling) without saying what happens when one fires. All
+three write a `Refund` row in `Failed`, publish `RefundFailedIntegrationEvent` and return
+**success** from the handler — the opposite of Milestone G's capture, which fails loudly. The line is
+the one §9.1 drew: a failure that has been recorded and published has been handled. Here the
+alternative is worse than it was there, because there is a *person* waiting — an agent told a
+customer their money was coming back — and an approved request stuck at "approved" forever is the
+exact failure this milestone exists to remove. Throwing would put the reason on an inbox row nobody
+reads. `RefundFailedIntegrationEventHandler` on the Support side is what keeps this honest.
+
+**A cash order fails rather than succeeding quietly.** Absence of a `Payment` row means "nothing to
+do" everywhere else in this service (§9.1); here it means `not_card_payment`, a fourth reason §10.1
+does not name. Support caps a refund at the replicated subtotal, which a cash order has like any
+other, so an approved cash refund is an ordinary occurrence rather than a defect — it simply has to
+be settled in the world, and saying so is the whole point.
+
+**`Payment.Refund` is split in two, and is the one mutation that is not a no-op from a terminal
+state.** `EnsureRefundable` asks; `Refund` applies. The provider call sits between the decision and
+the state change, and a payment moved to `Refunded` before Stripe agreed would record money that may
+never have gone anywhere — so the handler asks, calls, then applies, with the conditions stated once
+in the aggregate. And the terminal rule had to bend: the state a refund works *from*, `Captured`, is
+itself terminal. A refund is not a repeat of the capture, it is the only thing that may legitimately
+follow one, so the idempotency the terminal rule carries elsewhere is carried here by the unique
+index on `refund_request_id` instead. A partial refund leaves the payment `Captured` — the status is
+about where the money is — and only the last cent moves it to `Refunded`.
+
+**A Stripe refund reported as `pending` settles.** `GatewayRefundStatus` already warned that §10 must
+not read pending as a failure; what it does not say is which way to read it. It is treated as
+accepted: the money is committed, this platform subscribes to no `charge.refund.updated` webhook that
+would ever move it on, and holding Support's request mid-air for a refund that is going to arrive is
+a worse answer than settling a few days early. A refund later *reversed* by the issuer is outside
+what this feature models.
+
+**Notifications takes two of the three events, not three.** §10.4 asked for two types and that is
+what shipped, but the pairing is worth stating: `PaymentAuthorizationFailed` → the declined-card
+email, `RefundSettled` → "your refund has been sent". `RefundFailed` is deliberately **not**
+consumed — three of its four reasons need a person inside the business (settle a cash order by hand,
+look into a capture, re-raise a smaller amount) and none of them are things a customer can act on, so
+the agent working the ticket learns about it first. The settled email is a *second* message after the
+approval one, and the approval template was reworded rather than replaced: it now says the refund is
+being processed, because approval and settlement are genuinely different facts that can disagree.
+**The payment-failed email carries no amount** — the event does not have one, nothing was charged,
+and the only figure this module could print is one it invented.
+
+**Three traps, all of which cost real time.**
+
+- **`SqlQueryRaw<int>` needs its column aliased `"Value"`.** A scalar EF raw query projects by
+  looking for a column of exactly that name; without the alias it fails *at the database* with
+  `42703: column s.Value does not exist`, which reads like a schema problem and is not one.
+- **Orders' customer replica table is `customers`, not `users`.** Copying a poller from a sibling
+  suite is how you get `42P01: relation "users" does not exist`.
+- **Writing C# string literals through a shell heredoc mangles `\n`.** Two template bodies landed
+  with real line breaks inside `$"…"` literals and had to be repaired with an editor.
+
+**One pre-existing defect, found by running the suites at all.**
+`CapturePaymentTests.ACancelledOrder_Should_ReleaseTheHold` posted `orders/{id}/cancel` to the
+**Payments** host — every client from `BaseIntegrationTest` is bound to it — and got a 404 instead of
+cancelling anything. §9.1 recorded that the Milestone F and G integration suites were written but
+never executed, because Docker was unavailable on that machine; this is what that cost. It is fixed
+here with an Orders-host customer client alongside the manager one, and the lesson is narrower than
+"run your tests": a suite whose factory hosts more than one service needs a client per host, and the
+compiler cannot tell them apart.
+
+**A structural guard for the router trap.** `NotificationRoutingTests` (in
+`Notifications.IntegrationTests`, the assembly the `internal` router and renderer are visible to)
+asserts that every `NotificationType` resolves to at least one channel, has a model, and renders a
+non-empty subject and body. The trap named in `CLAUDE.md` — a type with an enum member and a template
+but no route sends nothing and reports success — was documented in three places and enforced in none.
+It cost one `InternalsVisibleTo` on `Notifications.Application`.
+
+**The README's C3 topology moved from 31 events to 33**, with three new edges: `sup -> pay`
+(`RefundApproved`), `pay -> sup` (`RefundSettled · RefundFailed`) and `pay -> notif`
+(`PaymentAuthorizationFailed · RefundSettled`). `RefundApproved` also left the unconsumed-events
+list, where it had sat for two milestones — the bullet now says so, because an event kept
+deliberately for a consumer that arrived later is the more useful half of that story.
+
 ---
 
 ## 11. Milestone I — observability, docs, diagram

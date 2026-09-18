@@ -7,6 +7,7 @@
          assembly, and a module may reference nothing of another module but its IntegrationEvents
          project (hard rule #4). Orders is here for the order snapshot the refund ceiling reads. -->
     <ProjectReference Include="..\..\Orders\FoodDeliveryService.Modules.Orders.IntegrationEvents\FoodDeliveryService.Modules.Orders.IntegrationEvents.csproj" />
+    <ProjectReference Include="..\..\Payments\FoodDeliveryService.Modules.Payments.IntegrationEvents\FoodDeliveryService.Modules.Payments.IntegrationEvents.csproj" />
     <ProjectReference Include="..\..\Users\FoodDeliveryService.Modules.Users.IntegrationEvents\FoodDeliveryService.Modules.Users.IntegrationEvents.csproj" />
   </ItemGroup>
 

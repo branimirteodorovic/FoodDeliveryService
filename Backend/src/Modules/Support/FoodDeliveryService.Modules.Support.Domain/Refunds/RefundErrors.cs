@@ -1,4 +1,4 @@
-﻿using FoodDeliveryService.Common.Domain;
+using FoodDeliveryService.Common.Domain;
 
 namespace FoodDeliveryService.Modules.Support.Domain.Refunds;
 
@@ -55,6 +55,21 @@ public static class RefundErrors
     public static readonly Error RequesterCannotDecide = Error.Problem(
         "Refunds.RequesterCannotDecide",
         "The agent who requested a refund cannot decide it");
+
+    // Unreachable from the Payments events, whose reason codes are bounded on the publishing side.
+    // Checked because a blank reason on a failed refund is a queue item an agent cannot act on, and
+    // this is the last place that can still refuse one.
+    public static readonly Error SettlementReasonRequired = Error.Problem(
+        "Refunds.SettlementReasonRequired",
+        "A failed refund settlement needs a reason");
+
+    // Lost the race for the settlement lock — Feature 3.8 Milestone H. Unlike DecisionInProgress
+    // this one is NOT retryable by a person: nothing re-drives a settlement, because the event that
+    // carries it has already been marked processed by the inbox. It lands on the inbox row instead,
+    // where an operator finds it, and the refund in Payments is the record that the money did move.
+    public static Error SettlementInProgress(Guid refundRequestId) => Error.Conflict(
+        "Refunds.SettlementInProgress",
+        $"The refund request {refundRequestId} is already being settled");
 
     // Lost the race for the decision lock. Retryable and strands nothing — the request is still in
     // the approval queue, so the next refresh either shows it decided or offers it again.

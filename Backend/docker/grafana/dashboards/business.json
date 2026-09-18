@@ -457,7 +457,7 @@
       "id": 34,
       "type": "timeseries",
       "title": "Refund decisions in window",
-      "description": "support.refunds.decided, tagged approved or rejected. The ratio is the signal, not the total: a queue approving everything is not applying a policy, and one approving nothing is not resolving anything. No money moves on any of these — the platform has no payment processing.",
+      "description": "support.refunds.decided, tagged approved or rejected. The ratio is the signal, not the total: a queue approving everything is not applying a policy, and one approving nothing is not resolving anything. Since Feature 3.8 an approval moves real money — the Payments service refunds the captured card payment behind it — so this panel counts decisions, not settlements.",
       "datasource": { "type": "prometheus", "uid": "fooddelivery-prometheus" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 45 },
       "fieldConfig": {

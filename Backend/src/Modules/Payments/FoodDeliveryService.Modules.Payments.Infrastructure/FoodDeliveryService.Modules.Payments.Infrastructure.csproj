@@ -23,6 +23,7 @@
          consumes this module's payment-method events — and neither creates a cycle, because an
          IntegrationEvents project references nothing but Common.Application. -->
     <ProjectReference Include="..\..\Orders\FoodDeliveryService.Modules.Orders.IntegrationEvents\FoodDeliveryService.Modules.Orders.IntegrationEvents.csproj" />
+    <ProjectReference Include="..\..\Support\FoodDeliveryService.Modules.Support.IntegrationEvents\FoodDeliveryService.Modules.Support.IntegrationEvents.csproj" />
   </ItemGroup>
 
   <ItemGroup>

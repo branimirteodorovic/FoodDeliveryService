@@ -7,8 +7,14 @@ using FoodDeliveryService.Modules.Support.IntegrationEvents;
 namespace FoodDeliveryService.Modules.Support.Application.Refunds.ApproveRefund;
 
 /// <summary>
-/// Publishes the approval so Notifications can tell the customer. That is the whole downstream
-/// effect — no payment is triggered here or anywhere else, because this platform has none.
+/// Publishes the approval, which is what actually triggers the refund.
+/// <para>
+/// It used to be true that this had no downstream effect beyond the customer's email. Feature 3.8
+/// added the Payments service, which consumes this event, refunds the captured card payment and
+/// answers with <c>RefundSettled</c> or <c>RefundFailed</c> — so this publish is now the moment real
+/// money starts moving, and the segregation of duties that got the aggregate here is what
+/// authorizes it.
+/// </para>
 /// </summary>
 internal sealed class RefundApprovedDomainEventHandler(IEventBus eventBus)
     : DomainEventHandler<RefundApprovedDomainEvent>

@@ -1,4 +1,4 @@
-﻿using FoodDeliveryService.Modules.Notifications.Domain.Notifications;
+using FoodDeliveryService.Modules.Notifications.Domain.Notifications;
 
 namespace FoodDeliveryService.Modules.Notifications.Application.Abstractions.Notifications;
 
@@ -44,8 +44,11 @@ public sealed record SupportTicketReplyModel(
 /// shape from the approved one.
 /// </para>
 /// <para>
-/// Approved means an administrator agreed, not that money moved — this platform processes no
-/// payments — so the copy says the decision was made and never that funds are on their way.
+/// Approved means an administrator agreed and the refund has been sent to the payment provider, not
+/// that the money has landed. Feature 3.8 made the approval real (§10.3 retires the "no payments"
+/// wording that used to be here); what it did not do is make settlement instant, so this email still
+/// says the decision was made and <see cref="RefundSettledModel"/> is the one that says the money is
+/// on its way.
 /// </para>
 /// </summary>
 public sealed record RefundDecisionModel(
@@ -56,4 +59,44 @@ public sealed record RefundDecisionModel(
     string? DecisionNote) : INotificationModel
 {
     public NotificationType Type => NotificationType.RefundDecision;
+}
+
+/// <summary>
+/// The declined card as the email renders it — Feature 3.8 Milestone H, §10.4.
+/// <para>
+/// <paramref name="Reason"/> is one of Payments' six bounded reason codes, and the template turns it
+/// into a sentence itself: Stripe's own message is unbounded free text written by a third party, and
+/// forwarding it unread to a customer is not something this platform does. An unrecognised code
+/// renders as the neutral arm rather than throwing — the email matters more than the precision.
+/// </para>
+/// <para>
+/// <b>There is no amount.</b> <c>PaymentAuthorizationFailedIntegrationEvent</c> does not carry one,
+/// and that is correct rather than an omission to work around: nothing was charged, so the only
+/// figure this module could print is one it invented or read out of another service's data. The
+/// order reference is what the customer needs to find the order that did not happen.
+/// </para>
+/// </summary>
+public sealed record PaymentFailedModel(
+    string FirstName,
+    Guid OrderId,
+    string Reason) : INotificationModel
+{
+    public NotificationType Type => NotificationType.PaymentFailed;
+}
+
+/// <summary>
+/// The refund that actually happened — Feature 3.8 Milestone H.
+/// <para>
+/// Separate from <see cref="RefundDecisionModel"/> because it answers a different question, and the
+/// customer asks both: whether anyone agreed, and whether the money has gone. The one thing this
+/// copy must not do is promise a date — a card refund clears at the issuer's pace, not the
+/// platform's — so it says the refund has been sent and gives the usual window as a range.
+/// </para>
+/// </summary>
+public sealed record RefundSettledModel(
+    string FirstName,
+    string TicketReference,
+    decimal Amount) : INotificationModel
+{
+    public NotificationType Type => NotificationType.RefundSettled;
 }

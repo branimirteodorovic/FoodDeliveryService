@@ -30,5 +30,26 @@ public enum SupportAuditAction
     /// </summary>
     RefundApproved = 6,
 
-    RefundRejected = 7
+    RefundRejected = 7,
+
+    /// <summary>
+    /// The money actually went back — Feature 3.8 Milestone H. <b>The first member of this enum that
+    /// is not an action a human took</b>: it is written by the consumer of Payments'
+    /// <c>RefundSettled</c> event, with the platform itself as the actor
+    /// (<see cref="SupportAuditEntry.SystemActorId"/>).
+    /// <para>
+    /// It belongs in this log anyway, and arguably most of all. The log's purpose is that "an agent
+    /// refunded this order" is checkable rather than asserted, and until this milestone the trail
+    /// stopped at the agreement because that was where the platform stopped. The row that says the
+    /// money moved is the other half of the same record, and it sits next to the request and the
+    /// approval where a reviewer of the case will actually see it.
+    /// </para>
+    /// </summary>
+    RefundSettled = 8,
+
+    /// <summary>
+    /// The approved refund moved no money, and <c>ToValue</c> carries Payments' bounded reason.
+    /// Written by the platform, like <see cref="RefundSettled"/>.
+    /// </summary>
+    RefundFailed = 9
 }

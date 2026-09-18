@@ -12,11 +12,22 @@ internal sealed class RefundRequestConfiguration : IEntityTypeConfiguration<Refu
     /// failure; this index is what actually holds when two agents on two tickets for the same order
     /// pass that check at the same instant, because no aggregate here carries a concurrency token.
     /// <para>
-    /// Partial, on the two non-terminal-for-this-purpose statuses: Requested (0) and Approved (1).
-    /// A rejected request must not block a better-argued second attempt.
+    /// Partial, on the three statuses that mean money is owed, moving or gone: Requested (0),
+    /// Approved (1) and — since Feature 3.8 Milestone H, when approvals started moving real money —
+    /// Settled (3). A rejected request must not block a better-argued second attempt, and neither
+    /// must a <em>failed</em> one (4): a refund that could not be paid because the capture had not
+    /// happened yet is exactly the case where a second attempt is the right answer.
+    /// </para>
+    /// <para>
+    /// Settled is in the set rather than out of it, which is the conservative reading and a
+    /// deliberate one. Payments enforces its own ceiling — captured minus already settled — so
+    /// allowing a follow-up request would be safe; but "one order, one refund" is the rule this
+    /// index has held since the record was only a record, and money moving behind it is a reason to
+    /// keep that rule rather than to relax it. Partial refunds are therefore one-shot through
+    /// Support, and Payments' running-total check is defence in depth rather than a routine path.
     /// </para>
     /// </summary>
-    internal const string ActiveRefundPerOrderFilter = "status IN (0, 1)";
+    internal const string ActiveRefundPerOrderFilter = "status IN (0, 1, 3)";
 
     public void Configure(EntityTypeBuilder<RefundRequest> builder)
     {
@@ -35,6 +46,10 @@ internal sealed class RefundRequestConfiguration : IEntityTypeConfiguration<Refu
 
         builder.Property(r => r.Reason).HasMaxLength(RefundRequest.ReasonMaxLength);
         builder.Property(r => r.DecisionNote).HasMaxLength(RefundRequest.DecisionNoteMaxLength);
+
+        // One of Payments' bounded RefundFailureReason constants, the longest of which is 23
+        // characters. Bounded on the publishing side; the length here is a guard, not a contract.
+        builder.Property(r => r.FailureReason).HasMaxLength(50);
 
         // A foreign key without a navigation property: the refund is its own aggregate, and a
         // navigation would invite loading one through the other. Restrict rather than Cascade on

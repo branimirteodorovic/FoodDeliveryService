@@ -1,4 +1,4 @@
-﻿using FoodDeliveryService.Modules.Notifications.Domain.Notifications;
+using FoodDeliveryService.Modules.Notifications.Domain.Notifications;
 
 namespace FoodDeliveryService.Modules.Notifications.Application.Notifications.SendNotification;
 
@@ -20,7 +20,9 @@ internal static class NotificationChannelRouter
         {
             [NotificationType.OrderConfirmation] = [NotificationChannel.Email],
             [NotificationType.SupportTicketReply] = [NotificationChannel.Email],
-            [NotificationType.RefundDecision] = [NotificationChannel.Email]
+            [NotificationType.RefundDecision] = [NotificationChannel.Email],
+            [NotificationType.PaymentFailed] = [NotificationChannel.Email],
+            [NotificationType.RefundSettled] = [NotificationChannel.Email]
         };
 
     public static IReadOnlyList<NotificationChannel> Resolve(NotificationType type) =>

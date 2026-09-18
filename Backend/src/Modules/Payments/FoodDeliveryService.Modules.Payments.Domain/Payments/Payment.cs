@@ -70,6 +70,14 @@ public sealed class Payment : Entity
     public DateTime? ReleasedOnUtc { get; private set; }
 
     /// <summary>
+    /// When the last of the captured money went back — Feature 3.8 Milestone H. Null while any of it
+    /// is still held by the business, including for a payment that has been partly refunded: the
+    /// per-refund timestamps live on the <c>refunds</c> rows, and this one answers the single
+    /// question the payment itself is asked, which is whether the customer still owes anything.
+    /// </summary>
+    public DateTime? RefundedOnUtc { get; private set; }
+
+    /// <summary>
     /// Nothing more will happen to this money without a new decision by a person — §8.6. Every
     /// mutation below returns success without acting once this is true, which is what makes a
     /// redelivered webhook or a second outbox dispatch harmless rather than a second charge.
@@ -224,6 +232,93 @@ public sealed class Payment : Entity
             Amount.Amount,
             Amount.Currency,
             utcNow));
+
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Money that was taken is going back — Feature 3.8 Milestone H, §10.1. Called once the provider
+    /// has accepted a refund for an approved support request.
+    /// <para>
+    /// <b>The one mutation that is not a no-op from a terminal state</b>, because the state it works
+    /// from — <see cref="PaymentStatus.Captured"/> — is itself terminal. The terminal rule exists to
+    /// stop a redelivered message repeating an action; a refund is not a repeat of the capture, it
+    /// is the only thing that may legitimately follow one. So this one guards on the status it needs
+    /// instead, and the <c>Refund</c> aggregate carries the idempotency that the terminal
+    /// rule carries elsewhere: one row per approved request, so a second delivery finds the refund
+    /// already settled and never reaches here.
+    /// </para>
+    /// <para>
+    /// <b>This is the authoritative ceiling</b>, and the second of two. Support caps the
+    /// <em>request</em> at the replicated order subtotal when an agent raises it, which is a check
+    /// against what the customer was asked to pay; this is a check against what was actually taken
+    /// minus what has already gone back, which is the number that can be exceeded. They are not the
+    /// same number — a capture that never happened makes the first one pass and this one refuse.
+    /// </para>
+    /// <para>
+    /// Raises nothing. The refund is its own aggregate and the event belongs to it; this method
+    /// moves the payment's own status once the last of the money is back, and a payment that is
+    /// partly refunded stays <see cref="PaymentStatus.Captured"/> so a further refund is still
+    /// possible.
+    /// </para>
+    /// </summary>
+    /// <param name="refundAmount">What is going back now.</param>
+    /// <param name="alreadyRefunded">
+    /// The settled total for this payment so far, in major units, read by the handler and passed in
+    /// — the aggregate does not reach for data, which is also what makes this rule testable without
+    /// a database. Both this read and the write below happen under <c>PaymentLocks.Payment</c>, so
+    /// two refunds cannot each see the other's allowance as unspent.
+    /// </param>
+    public Result Refund(Money refundAmount, decimal alreadyRefunded, DateTime utcNow)
+    {
+        Result refundable = EnsureRefundable(refundAmount, alreadyRefunded);
+
+        if (refundable.IsFailure)
+        {
+            return refundable;
+        }
+
+        // Only when the last cent is back. A partial refund leaves the payment Captured, which is
+        // what keeps the door open for the next one — the status is about the money, not about how
+        // many refunds have touched it.
+        if (alreadyRefunded + refundAmount.Amount == Amount.Amount)
+        {
+            Status = PaymentStatus.Refunded;
+            RefundedOnUtc = utcNow;
+        }
+
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// The same rules as <see cref="Refund"/>, asked rather than applied.
+    /// <para>
+    /// It exists because of an ordering this aggregate cannot impose on its own: the provider call
+    /// sits between the decision and the state change, and a payment moved to
+    /// <see cref="PaymentStatus.Refunded"/> before Stripe agreed would be a record of money that may
+    /// never have gone anywhere. So the handler asks first, calls the provider, and applies after —
+    /// and the conditions are stated once, here, rather than copied into the question and the
+    /// answer.
+    /// </para>
+    /// </summary>
+    public Result EnsureRefundable(Money refundAmount, decimal alreadyRefunded)
+    {
+        ArgumentNullException.ThrowIfNull(refundAmount);
+
+        if (Status is not (PaymentStatus.Captured or PaymentStatus.Refunded))
+        {
+            return Result.Failure(PaymentErrors.NotCaptured(OrderId));
+        }
+
+        if (refundAmount.Amount <= 0m)
+        {
+            return Result.Failure(PaymentErrors.AmountNotPositive);
+        }
+
+        if (alreadyRefunded + refundAmount.Amount > Amount.Amount)
+        {
+            return Result.Failure(PaymentErrors.RefundExceedsCaptured(OrderId));
+        }
 
         return Result.Success();
     }

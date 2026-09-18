@@ -8,10 +8,21 @@ namespace FoodDeliveryService.Modules.Support.Domain.Refunds;
 /// not share (a ticket can be resolved while a refund is still awaiting a decision), and it is
 /// contended for by a second actor whose authority is defined by <em>not</em> being the requester.
 /// <para>
-/// <strong>No money moves.</strong> This platform has no payment processing by design, and nothing
-/// in Orders consumes the events this aggregate raises. What the record buys is the part a payment
-/// integration cannot supply later: who asked, who agreed, for how much, and why. A real payment
-/// integration would sit behind an approved request, not replace it.
+/// <strong>Money moves behind an approval, and it did not always.</strong> This aggregate was built
+/// for a platform with no payment processing, where an approval was a record of a decision and
+/// nothing happened after it. Feature 3.8 (`PAYMENTS_PHASE3_PLAN.md` §10) built the payment service
+/// and made the approval real: <c>RefundApprovedIntegrationEvent</c> is consumed by Payments, which
+/// refunds the captured card payment and answers with <c>RefundSettled</c> or <c>RefundFailed</c> —
+/// hence <see cref="Settle"/>, <see cref="MarkFailed"/> and the last two members of
+/// <see cref="RefundStatus"/>.
+/// </para>
+/// <para>
+/// What that reversal did <em>not</em> change is the part the original design was actually about:
+/// the payment integration sits <strong>behind</strong> an approved request rather than replacing
+/// it, so who asked, who agreed, for how much and why is still recorded here and is still what
+/// authorizes any money to move at all. Payments performs no authority check of its own; it trusts
+/// this aggregate's, which is why the segregation of duties below is load-bearing rather than
+/// ceremonial.
 /// </para>
 /// <para>
 /// Segregation of duties lives here, in <see cref="Approve"/> and <see cref="Reject"/>, not in the
@@ -71,6 +82,19 @@ public sealed class RefundRequest : Entity
     public DateTime RequestedOnUtc { get; private set; }
 
     public DateTime? DecidedOnUtc { get; private set; }
+
+    /// <summary>When Payments accepted the refund at the provider — Feature 3.8 Milestone H.</summary>
+    public DateTime? SettledOnUtc { get; private set; }
+
+    /// <summary>When Payments reported that no money would move.</summary>
+    public DateTime? FailedOnUtc { get; private set; }
+
+    /// <summary>
+    /// Why the refund did not happen, as one of Payments' bounded reason codes — never a provider's
+    /// own message. It is on the row as well as in the audit log because the refund queue is where
+    /// an agent looks, and "failed" without a reason is a queue item nobody can act on.
+    /// </summary>
+    public string? FailureReason { get; private set; }
 
     /// <param name="orderSubtotal">
     /// From the replicated <c>OrderSnapshot</c>, read by the handler and passed in. The aggregate
@@ -194,6 +218,68 @@ public sealed class RefundRequest : Entity
             adminId,
             note,
             utcNow));
+
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Payments returned the money — Feature 3.8 Milestone H, §10.2. Driven by
+    /// <c>RefundSettledIntegrationEvent</c> through the inbox.
+    /// <para>
+    /// <b>Only from <see cref="RefundStatus.Approved"/>, and silently otherwise.</b> The inbox
+    /// dispatches at least once, so a second delivery must find nothing to do rather than record a
+    /// second settlement and a second audit entry.
+    /// </para>
+    /// <para>
+    /// <b>It raises no domain event</b>, which departs from this codebase's usual rule that every
+    /// state change raises one. Nothing consumes it: Payments is the publisher here rather than a
+    /// consumer, Notifications takes the customer's email off the Payments event directly, and the
+    /// accountability record is the <c>SupportAuditEntry</c> the handler writes in the same
+    /// transaction. An event nobody handles would be an outbox row dispatched to zero handlers and a
+    /// second, divergent copy of a history this module already keeps — the reasoning
+    /// <c>SupportAuditEntry</c> itself is built on.
+    /// </para>
+    /// </summary>
+    public Result Settle(DateTime utcNow)
+    {
+        if (Status != RefundStatus.Approved)
+        {
+            return Result.Success();
+        }
+
+        Status = RefundStatus.Settled;
+        SettledOnUtc = utcNow;
+        FailureReason = null;
+
+        return Result.Success();
+    }
+
+    /// <summary>
+    /// Payments could not return the money — the order was paid in cash, the card payment was never
+    /// captured, the amount exceeded what was taken, or the provider refused.
+    /// <para>
+    /// The approval is not withdrawn by this and the decision trail is untouched; what changes is
+    /// that the request stops claiming to be in progress. Terminal: a refund that is to be tried
+    /// again is a fresh request, so the second attempt gets its own approval from its own
+    /// administrator rather than riding on the first one.
+    /// </para>
+    /// </summary>
+    /// <param name="reason">One of Payments' bounded reason codes, bounded there rather than here.</param>
+    public Result MarkFailed(string reason, DateTime utcNow)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            return Result.Failure(RefundErrors.SettlementReasonRequired);
+        }
+
+        if (Status != RefundStatus.Approved)
+        {
+            return Result.Success();
+        }
+
+        Status = RefundStatus.Failed;
+        FailedOnUtc = utcNow;
+        FailureReason = reason;
 
         return Result.Success();
     }
