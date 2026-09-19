@@ -79,6 +79,36 @@ public class OrderLifecycleTests(IntegrationTestWebAppFactory factory) : BaseInt
         processed.IsSuccess.Should().BeTrue("accepting an order must raise its event and the outbox must publish it");
     }
 
+    /// <summary>
+    /// The Accepted → Preparing step goes out on the broker like every other transition. It did not
+    /// always: the handler was metrics-only until RealTime needed the kitchen step for the customer's
+    /// live timeline. A processed, error-free outbox row is the whole contract — it means the
+    /// aggregate raised the event, the interceptor committed it with the state change, and the
+    /// domain-event handler published OrderPreparingIntegrationEvent without throwing.
+    /// </summary>
+    [Fact]
+    public async Task Preparing_ShouldPublishPreparingEventThroughTheOutbox()
+    {
+        // Arrange
+        HttpClient client = await GetAuthenticatedHttpClientAsync();
+        PlacedOrder order = await PlaceOrderAsync(client);
+
+        HttpResponseMessage accept = await client.PostAsync(
+            $"orders/{order.OrderId}/accept", null, TestContext.Current.CancellationToken);
+        accept.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        // Act
+        HttpResponseMessage response = await client.PostAsync(
+            $"orders/{order.OrderId}/preparing", null, TestContext.Current.CancellationToken);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        Result<bool> processed = await WaitForProcessedOutboxEventAsync(nameof(OrderPreparingDomainEvent));
+        processed.IsSuccess.Should().BeTrue(
+            "starting preparation must raise its event and the outbox must publish it");
+    }
+
     private static async Task<OrderResponse?> GetOrderAsync(HttpClient client, Guid orderId)
     {
         HttpResponseMessage response = await client.GetAsync($"orders/{orderId}", TestContext.Current.CancellationToken);

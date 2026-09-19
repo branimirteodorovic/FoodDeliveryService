@@ -22,8 +22,8 @@ public sealed record OrderStatusFrame(
 {
     // One pure mapping per Orders lifecycle event. OccurredOnUtc is the event's own transition
     // timestamp (the moment the domain event was raised), used uniformly so the client timeline is
-    // ordered consistently across every status — including OrderReadyForPickup, which carries no
-    // status-specific timestamp field of its own.
+    // ordered consistently across every status — including OrderPreparing and OrderReadyForPickup,
+    // which carry no status-specific timestamp field of their own.
     public static OrderStatusFrame From(OrderPlacedIntegrationEvent integrationEvent) =>
         new(integrationEvent.OrderId, OrderStatuses.Placed, integrationEvent.OccurredOnUtc);
 
@@ -32,6 +32,9 @@ public sealed record OrderStatusFrame(
 
     public static OrderStatusFrame From(OrderRejectedIntegrationEvent integrationEvent) =>
         new(integrationEvent.OrderId, OrderStatuses.Rejected, integrationEvent.OccurredOnUtc);
+
+    public static OrderStatusFrame From(OrderPreparingIntegrationEvent integrationEvent) =>
+        new(integrationEvent.OrderId, OrderStatuses.Preparing, integrationEvent.OccurredOnUtc);
 
     public static OrderStatusFrame From(OrderReadyForPickupIntegrationEvent integrationEvent) =>
         new(integrationEvent.OrderId, OrderStatuses.ReadyForPickup, integrationEvent.OccurredOnUtc);

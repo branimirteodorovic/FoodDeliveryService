@@ -157,7 +157,7 @@ graph TB
 
 ### C3 — Event Topology
 
-The C2 diagram draws one dashed line per service to a RabbitMQ box, which is honest about the transport and says nothing about the system. This is what actually travels those lines: **33 integration events**, who publishes each and who reacts to it.
+The C2 diagram draws one dashed line per service to a RabbitMQ box, which is honest about the transport and says nothing about the system. This is what actually travels those lines: **34 integration events**, who publishes each and who reacts to it.
 
 **The hop every one of them takes.** Nothing publishes to the broker from a command handler. A state change and the record of that state change are committed together, and everything after that is out of band:
 
@@ -213,7 +213,7 @@ graph LR
     orders -->|"OrderPlaced"| notif
     orders -->|"OrderPlaced"| sup
     orders -->|"OrderPlaced · OrderAccepted<br/>OrderRejected · OrderCancelled"| pay
-    orders -->|"OrderPlaced · OrderAccepted · OrderRejected<br/>OrderReadyForPickup · OrderCancelled"| rt
+    orders -->|"OrderPlaced · OrderAccepted · OrderRejected<br/>OrderPreparing · OrderReadyForPickup · OrderCancelled"| rt
 
     deliv -->|"OrderPickedUp · OrderDelivered"| orders
     deliv -->|"DriverAssigned · DeliveryOffered<br/>OrderPickedUp · OrderDelivered"| rt

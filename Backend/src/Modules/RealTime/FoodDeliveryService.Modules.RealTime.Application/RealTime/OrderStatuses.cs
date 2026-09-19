@@ -9,9 +9,16 @@ namespace FoodDeliveryService.Modules.RealTime.Application.RealTime;
 /// </summary>
 public static class OrderStatuses
 {
+    /// <summary>The order has been placed. NB the REST read models' <c>OrderStatus.Pending</c> is
+    /// this socket status — the two vocabularies are decoupled on purpose; keep the mapping.</summary>
     public const string Placed = "Placed";
 
     public const string Accepted = "Accepted";
+
+    /// <summary>The restaurant's kitchen has started cooking (from Orders' OrderPreparing). Added
+    /// after Milestone B — the Orders handler originally published nothing for this transition,
+    /// which left a silent gap between Accepted and ReadyForPickup on the customer's timeline.</summary>
+    public const string Preparing = "Preparing";
 
     public const string Rejected = "Rejected";
 

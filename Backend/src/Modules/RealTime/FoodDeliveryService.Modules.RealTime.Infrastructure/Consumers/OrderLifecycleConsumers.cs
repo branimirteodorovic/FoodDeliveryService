@@ -28,6 +28,13 @@ internal sealed class OrderRejectedConsumer(IRealTimeNotifier notifier, IOrderRo
         (OrderStatusFrame.From(message), message.CustomerId, message.RestaurantId);
 }
 
+internal sealed class OrderPreparingConsumer(IRealTimeNotifier notifier, IOrderRoutingMap routingMap)
+    : OrderStatusConsumer<OrderPreparingIntegrationEvent>(notifier, routingMap)
+{
+    protected override (OrderStatusFrame Frame, Guid CustomerId, Guid RestaurantId) Map(OrderPreparingIntegrationEvent message) =>
+        (OrderStatusFrame.From(message), message.CustomerId, message.RestaurantId);
+}
+
 internal sealed class OrderReadyForPickupConsumer(IRealTimeNotifier notifier, IOrderRoutingMap routingMap)
     : OrderStatusConsumer<OrderReadyForPickupIntegrationEvent>(notifier, routingMap)
 {

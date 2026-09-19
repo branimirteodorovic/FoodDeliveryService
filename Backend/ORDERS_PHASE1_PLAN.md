@@ -173,6 +173,14 @@ In `Orders.IntegrationEvents`, publish via the outbox from `Application` domain-
 
 Consumers (Notifications, later Delivery) are **not** added here — that is Feature 1.6 / Phase 2.
 
+**`OrderPreparingIntegrationEvent` (orderId, customerId, restaurantId) — added after the fact, reversing a decision.** Milestone D shipped `StartPreparing` as a *metrics-only* domain-event handler, whose XML doc argued the case explicitly: nothing acted on "the kitchen started cooking", and an integration event for it would be an unconsumed contract on the broker. That was right at the time and is no longer: Real-Time Milestone B (`REALTIME_PHASE2_PLAN.md` §3.2) pushes a live status timeline, and `Preparing` was the one Orders transition absent from it — a customer saw `Accepted`, then nothing until `ReadyForPickup` unless they re-fetched. The consumer the original decision was waiting for now exists, so the handler publishes and its doc comment states the reversal rather than the superseded reasoning.
+
+Two consequences worth carrying forward:
+- **No `PreparingOnUtc`.** Unlike `Accept`, the aggregate records no status-specific timestamp for this transition and did not grow one for this event. The consumer takes `OccurredOnUtc` as the transition time, the `OrderReadyForPickup` precedent.
+- **Real-Time is the only consumer, deliberately.** Notifications takes it nowhere near a `NotificationType` — no "we started cooking" email is wanted, and a type added without a `NotificationChannelRouter` route sends nothing while reporting success. Support's `OrderSnapshot` replica holds no status field (it exists to cap refunds at the order subtotal) and its agents see the transition on the live `SupportActivityFrame` instead. Delivery and Payments do not act on the kitchen step.
+
+`OrderOutForDelivery` and `OrderDelivered` remain metrics-only for the reason they always were: Delivery's own events drive those transitions, so the service that would care already knows. The canonical explanation of the metrics-only handlers moved to `OrderOutForDeliveryDomainEventHandler` when this one stopped being one.
+
 ---
 
 ## 6. Endpoints

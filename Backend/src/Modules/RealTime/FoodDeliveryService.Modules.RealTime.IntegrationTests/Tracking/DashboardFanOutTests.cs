@@ -72,6 +72,58 @@ public class DashboardFanOutTests(IntegrationTestWebAppFactory factory) : BaseIn
         frame.Status.Should().Be(OrderStatuses.Placed);
     }
 
+    /// <summary>
+    /// The Accepted → Preparing step reaches all three audiences off a single publish. This is the
+    /// whole reason adding the kitchen step was a small change: <c>OrderStatusConsumer&lt;T&gt;.Consume</c>
+    /// fans one frame out to the customer's group, the restaurant's group and the global support
+    /// group in one body, so <c>OrderPreparingConsumer</c> is three lines and serves all three.
+    /// Asserted here rather than in <c>OrderStatusFanOutTests</c> because only this file has the
+    /// RestaurantManager replica and dashboard-token machinery the other two audiences need.
+    /// </summary>
+    [Fact]
+    public async Task OrderPreparing_ReachesCustomerRestaurantAndSupport()
+    {
+        CancellationToken ct = TestContext.Current.CancellationToken;
+        var restaurantId = Guid.NewGuid();
+        Guid customerId = Factory.TestUserId;
+
+        await PublishAsync(RestaurantRegistered(restaurantId, Factory.RestaurantManagerUserId), ct);
+        Guid? replicatedRestaurantId = await WaitForRestaurantManagerReplicaAsync(
+            Factory.RestaurantManagerUserId, ReplicaTimeout, ct);
+        replicatedRestaurantId.Should().Be(restaurantId);
+
+        await using TrackedConnection<OrderStatusFrame> customer = await ConnectAsync<OrderStatusFrame>(
+            await GetAccessTokenAsync(), TrackingHubMethods.OrderStatusChanged, ct);
+        await using TrackedConnection<RestaurantActivityFrame> manager = await ConnectAsync<RestaurantActivityFrame>(
+            await GetRestaurantManagerAccessTokenAsync(), TrackingHubMethods.RestaurantActivity, ct);
+        await using TrackedConnection<SupportActivityFrame> support = await ConnectAsync<SupportActivityFrame>(
+            await GetSupportAgentAccessTokenAsync(), TrackingHubMethods.SupportActivity, ct);
+
+        // One probe event per connection — a group join is not observable from the client, and all
+        // three groups are joined in OnConnectedAsync after StartAsync has already returned.
+        await customer.WaitUntilJoinedAsync(
+            () => PublishAsync(OrderAccepted(Guid.NewGuid(), customerId, restaurantId), ct), ct);
+        await manager.WaitUntilJoinedAsync(
+            () => PublishAsync(OrderAccepted(Guid.NewGuid(), Guid.NewGuid(), restaurantId), ct), ct);
+        await support.WaitUntilJoinedAsync(
+            () => PublishAsync(OrderAccepted(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid()), ct), ct);
+
+        // Act — the single event the restaurant's "Start preparing" click produces.
+        var orderId = Guid.NewGuid();
+        await PublishAsync(OrderPreparing(orderId, customerId, restaurantId), ct);
+
+        // Assert — matched on this order's id so probe frames in flight can't stand in for it.
+        OrderStatusFrame customerFrame = await customer.ReadNextAsync(f => f.OrderId == orderId, ct);
+        customerFrame.Status.Should().Be(OrderStatuses.Preparing);
+
+        RestaurantActivityFrame managerFrame = await manager.ReadNextAsync(f => f.OrderId == orderId, ct);
+        managerFrame.Status.Should().Be(OrderStatuses.Preparing);
+
+        SupportActivityFrame supportFrame = await support.ReadNextAsync(f => f.OrderId == orderId, ct);
+        supportFrame.Status.Should().Be(OrderStatuses.Preparing);
+        supportFrame.RestaurantId.Should().Be(restaurantId);
+    }
+
     private async Task<TrackedConnection<TFrame>> ConnectAsync<TFrame>(
         string accessToken,
         string hubMethod,
@@ -107,6 +159,9 @@ public class DashboardFanOutTests(IntegrationTestWebAppFactory factory) : BaseIn
 
     private static OrderAcceptedIntegrationEvent OrderAccepted(Guid orderId, Guid customerId, Guid restaurantId) =>
         new(Guid.NewGuid(), DateTime.UtcNow, orderId, customerId, restaurantId, acceptedOnUtc: DateTime.UtcNow);
+
+    private static OrderPreparingIntegrationEvent OrderPreparing(Guid orderId, Guid customerId, Guid restaurantId) =>
+        new(Guid.NewGuid(), DateTime.UtcNow, orderId, customerId, restaurantId);
 
     /// <summary>A connected hub client whose frames of one server→client method stream into a channel.</summary>
     private sealed class TrackedConnection<TFrame>(HubConnection connection, ChannelReader<TFrame> frames) : IAsyncDisposable

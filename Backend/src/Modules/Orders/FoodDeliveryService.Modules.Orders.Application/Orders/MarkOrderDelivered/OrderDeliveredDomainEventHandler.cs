@@ -7,8 +7,8 @@ namespace FoodDeliveryService.Modules.Orders.Application.Orders.MarkOrderDeliver
 /// <summary>
 /// Records the OutForDelivery → Delivered step — the terminal success of the whole funnel, and the
 /// denominator for any completion-rate panel. Publishes nothing, for the same reason as the other
-/// metrics-only handlers (see
-/// <see cref="StartPreparingOrder.OrderPreparingDomainEventHandler"/>): Delivery drove this
+/// metrics-only handler (see
+/// <see cref="MarkOrderOutForDelivery.OrderOutForDeliveryDomainEventHandler"/>): Delivery drove this
 /// transition, and no other service reacts to it today.
 /// </summary>
 internal sealed class OrderDeliveredDomainEventHandler : DomainEventHandler<OrderDeliveredDomainEvent>

@@ -52,6 +52,19 @@ public class OrderStatusFrameTests
         frame.Should().Be(new OrderStatusFrame(OrderId, OrderStatuses.Rejected, OccurredOnUtc));
     }
 
+    /// <summary>The event carries no Preparing timestamp, so OccurredOnUtc is the transition time —
+    /// the same choice OrderReadyForPickup makes below, for the same reason.</summary>
+    [Fact]
+    public void From_OrderPreparing_MapsToPreparingFrame()
+    {
+        var integrationEvent = new OrderPreparingIntegrationEvent(
+            Guid.NewGuid(), OccurredOnUtc, OrderId, CustomerId, RestaurantId);
+
+        var frame = OrderStatusFrame.From(integrationEvent);
+
+        frame.Should().Be(new OrderStatusFrame(OrderId, OrderStatuses.Preparing, OccurredOnUtc));
+    }
+
     [Fact]
     public void From_OrderReadyForPickup_MapsToReadyForPickupFrame()
     {

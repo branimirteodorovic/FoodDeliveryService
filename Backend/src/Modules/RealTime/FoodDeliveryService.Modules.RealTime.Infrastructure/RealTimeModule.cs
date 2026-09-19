@@ -60,6 +60,8 @@ public static class RealTimeModule
             .Endpoint(c => c.InstanceId = instanceId);
         registrationConfigurator.AddConsumer<OrderRejectedConsumer>()
             .Endpoint(c => c.InstanceId = instanceId);
+        registrationConfigurator.AddConsumer<OrderPreparingConsumer>()
+            .Endpoint(c => c.InstanceId = instanceId);
         registrationConfigurator.AddConsumer<OrderReadyForPickupConsumer>()
             .Endpoint(c => c.InstanceId = instanceId);
         registrationConfigurator.AddConsumer<OrderCancelledConsumer>()

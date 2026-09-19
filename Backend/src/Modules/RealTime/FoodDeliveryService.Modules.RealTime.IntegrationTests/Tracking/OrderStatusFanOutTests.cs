@@ -69,14 +69,23 @@ public class OrderStatusFanOutTests(IntegrationTestWebAppFactory factory) : Base
         await PublishAsync(OrderAccepted(orderId, customerId, restaurantId), ct);
         statuses.Add((await client.ReadNextAsync(ct)).Status);
 
+        await PublishAsync(OrderPreparing(orderId, customerId, restaurantId), ct);
+        statuses.Add((await client.ReadNextAsync(ct)).Status);
+
         await PublishAsync(OrderReadyForPickup(orderId, customerId, restaurantId), ct);
         statuses.Add((await client.ReadNextAsync(ct)).Status);
 
         await PublishAsync(OrderCancelled(orderId, customerId, restaurantId), ct);
         statuses.Add((await client.ReadNextAsync(ct)).Status);
 
+        // Preparing sits between Accepted and ReadyForPickup — the gap the customer's timeline used
+        // to have, when Orders published nothing for the kitchen step.
         statuses.Should().Equal(
-            OrderStatuses.Placed, OrderStatuses.Accepted, OrderStatuses.ReadyForPickup, OrderStatuses.Cancelled);
+            OrderStatuses.Placed,
+            OrderStatuses.Accepted,
+            OrderStatuses.Preparing,
+            OrderStatuses.ReadyForPickup,
+            OrderStatuses.Cancelled);
     }
 
     /// <summary>Opens an authenticated socket as the seeded customer and streams its status frames.</summary>
@@ -108,6 +117,9 @@ public class OrderStatusFanOutTests(IntegrationTestWebAppFactory factory) : Base
 
     private static OrderAcceptedIntegrationEvent OrderAccepted(Guid orderId, Guid customerId, Guid restaurantId) =>
         new(Guid.NewGuid(), DateTime.UtcNow, orderId, customerId, restaurantId, acceptedOnUtc: DateTime.UtcNow);
+
+    private static OrderPreparingIntegrationEvent OrderPreparing(Guid orderId, Guid customerId, Guid restaurantId) =>
+        new(Guid.NewGuid(), DateTime.UtcNow, orderId, customerId, restaurantId);
 
     private static OrderReadyForPickupIntegrationEvent OrderReadyForPickup(Guid orderId, Guid customerId, Guid restaurantId) =>
         new(Guid.NewGuid(), DateTime.UtcNow, orderId, customerId, restaurantId,

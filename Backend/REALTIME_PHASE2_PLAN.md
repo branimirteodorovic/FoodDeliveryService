@@ -117,6 +117,14 @@ A pure function `OrderStatusFrame.From(event)` maps each integration event to `{
 - *Unit*: the event→frame mapping for each of the five events (correct `status`, `orderId`, timestamp); the target group is `user:{customerId}` taken from the event's `CustomerId`.
 - *Integration* (real RabbitMQ + Redis containers): connect as customer A and customer B; publish `OrderAcceptedIntegrationEvent{ CustomerId = A }` on the bus → **A** receives `OrderStatusChanged`, **B** receives nothing (group isolation); assert the `rt:order:{orderId}` map row was written. Publish the full sequence (placed→accepted→ready→cancelled) → A receives them in order.
 
+#### 3.3 The kitchen step *(added after the fact)*
+
+A **sixth** Orders consumer, `OrderPreparingConsumer`, and a sixth `OrderStatuses` constant, `Preparing`. This milestone shipped five because Orders published five: `StartPreparing` was a metrics-only handler that deliberately published nothing, so the customer's timeline went `Accepted` → (silence) → `ReadyForPickup` and the kitchen step appeared only on a re-fetch. Orders reversed that decision on the grounds that this service now consumes it — the reasoning and the three services that deliberately do **not** consume it are in `ORDERS_PHASE1_PLAN.md` §5.3.
+
+Nothing else was wired, and that is the point worth recording: `OrderStatusConsumer<T>.Consume` fans one frame out to the customer's group, the restaurant's group (§5.2) and the global support group in a single body, so **one three-line subclass serves all three audiences**. A new Orders lifecycle event costs a constant, a `From` overload, a subclass and a registration — nothing per dashboard.
+
+`OrderPreparingIntegrationEvent` carries no status timestamp, so the frame takes `OccurredOnUtc`, as `OrderReadyForPickup` already did. `OrderStatuses` is additive-only: `Preparing` was appended, nothing renamed. (While editing that file: the REST read models' `OrderStatus.Pending` is this vocabulary's `Placed` — the two are decoupled on purpose and the mapping is now noted on the constant.)
+
 ---
 
 ## 4. Milestone C — Live driver location push to the tracking customer
