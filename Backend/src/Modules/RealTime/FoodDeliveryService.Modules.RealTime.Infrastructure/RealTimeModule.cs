@@ -74,6 +74,12 @@ public static class RealTimeModule
         registrationConfigurator.AddConsumer<OrderDeliveredConsumer>()
             .Endpoint(c => c.InstanceId = instanceId);
 
+        // Driver-side discovery: the offer nudge, fanned out to the offered driver's own group
+        // rather than to the order's customer (see DeliveryOfferedConsumer). Same direct,
+        // own-queue, no-inbox registration as its Delivery siblings above.
+        registrationConfigurator.AddConsumer<DeliveryOfferedConsumer>()
+            .Endpoint(c => c.InstanceId = instanceId);
+
         // Milestone D: unlike every consumer above, the RestaurantManager replica must survive a
         // cold start reliably, so these two go through the durable inbox instead of broadcasting
         // directly — a deliberate, localized exception to this module's "all direct" rule (see the

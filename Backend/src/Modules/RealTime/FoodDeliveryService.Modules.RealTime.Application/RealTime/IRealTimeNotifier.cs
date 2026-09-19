@@ -32,4 +32,13 @@ public interface IRealTimeNotifier
     /// contract as the other overloads.
     /// </summary>
     Task NotifySupportAsync(SupportActivityFrame frame, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Broadcasts an offer nudge to a <b>driver's</b> own group (Milestone F). The group is the
+    /// same <c>user:{id}</c> one every other overload targets — a driver's aggregate id is the
+    /// Users service's user id, which is the hub's <c>sub</c> — so this needs no new group type.
+    /// Same best-effort contract as the other overloads: the driver's authoritative list is
+    /// <c>GET delivery/drivers/me/offers</c>, so a dropped frame costs a nudge, never the offer.
+    /// </summary>
+    Task NotifyDriverAsync(Guid driverId, DeliveryOfferFrame frame, CancellationToken cancellationToken = default);
 }

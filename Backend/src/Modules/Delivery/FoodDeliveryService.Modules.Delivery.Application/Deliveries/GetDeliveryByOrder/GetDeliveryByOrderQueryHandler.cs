@@ -1,5 +1,6 @@
 using System.Data.Common;
 using Dapper;
+using FoodDeliveryService.Common.Application.Clock;
 using FoodDeliveryService.Common.Application.Data;
 using FoodDeliveryService.Common.Application.Messaging;
 using FoodDeliveryService.Common.Domain;
@@ -13,7 +14,8 @@ namespace FoodDeliveryService.Modules.Delivery.Application.Deliveries.GetDeliver
 internal sealed class GetDeliveryByOrderQueryHandler(
     IDbConnectionFactory dbConnectionFactory,
     IDriverLocationStore driverLocationStore,
-    IDeliveryContext deliveryContext)
+    IDeliveryContext deliveryContext,
+    IDateTimeProvider dateTimeProvider)
     : IQueryHandler<GetDeliveryByOrderQuery, DeliveryResponse>
 {
     public async Task<Result<DeliveryResponse>> Handle(GetDeliveryByOrderQuery request, CancellationToken cancellationToken)
@@ -35,7 +37,8 @@ internal sealed class GetDeliveryByOrderQueryHandler(
             {
                 request.OrderId,
                 deliveryContext.UserId,
-                IsAdmin = DeliveryAccess.CanViewAnyDelivery(deliveryContext)
+                IsAdmin = DeliveryAccess.CanViewAnyDelivery(deliveryContext),
+                dateTimeProvider.UtcNow
             });
 
         if (row is null)

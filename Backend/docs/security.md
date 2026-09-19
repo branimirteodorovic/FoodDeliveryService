@@ -70,11 +70,12 @@ Every endpoint that takes an id, what scopes it, and what a caller who is not en
 | `GET orders` | `WHERE` on customer / manager / admin | empty list |
 | `POST orders/{id}/cancel` | the order's customer, and only them — no admin bypass | 400 `Orders.NotOwner` |
 | `POST orders/{id}/{accept,reject,preparing,ready}` | `OrderOwnership` — the restaurant's manager or admin | 400 `Orders.NotOwner` |
-| `GET delivery/deliveries/{id}` | ownership **in the SQL**: `DeliveryAccess.VisibleToCallerSql` — customer, assigned driver, or admin | **404** ✔ |
+| `GET delivery/deliveries/{id}` | ownership **in the SQL**: `DeliveryAccess.VisibleToCallerSql` — customer, assigned driver, the driver holding a **live** offer (`offered_driver_id = @UserId AND offer_expires_on_utc > @UtcNow`), or admin | **404** ✔ |
 | `GET delivery/orders/{orderId}/delivery` | the same predicate | **404** ✔ |
 | `GET delivery/deliveries` | `WHERE` on driver / admin | empty list |
 | `GET delivery/drivers/{id}` | self-or-admin, checked **before** the read | 400 `Drivers.NotSelf` — leaks nothing, the row is never read |
 | `GET delivery/drivers/me`, `PUT/PATCH/POST delivery/drivers/me/*` | the route is the caller — no id to confuse | n/a |
+| `GET delivery/drivers/me/offers` | the route is the caller, and the same `LiveOfferSql` half of the predicate above — one constant, so the list and the by-id read cannot disagree | empty list |
 | `POST delivery/deliveries/{id}/{accept,reject,picked-up,delivered}` | the offer/assignment is matched to the calling driver in the aggregate | 400 / 409 from the aggregate |
 | `GET restaurants`, `GET restaurants/{id}`, `GET restaurants/{id}/menu` | **not** ownership-scoped, by design — the catalogue is readable by any authenticated caller (`restaurants:read` / `menu:read`) | 404 if absent |
 | `PUT restaurants/{id}`, all `menu-categories` / `menu-items` writes | `RestaurantOwnership.EnsureCanModify` — owning manager or admin | 400 `Restaurants.NotManager` |

@@ -62,7 +62,12 @@ public partial class ValidatorCoverageTests
         ["GetPaymentMethodsQuery"] =
             "No fields at all, for the same reason — the caller reads their own saved cards and " +
             "there is no parameter with which to ask for anyone else's. Unpaged because at most " +
-            "one card exists per customer."
+            "one card exists per customer.",
+
+        ["GetMyDeliveryOffersQuery"] =
+            "No fields at all. The driver is the JWT subject, and the set is bounded by how many " +
+            "deliveries are mid-offer to one driver at one instant — so there is no page size to " +
+            "cap and no id to tamper with."
     };
 
     /// <summary>

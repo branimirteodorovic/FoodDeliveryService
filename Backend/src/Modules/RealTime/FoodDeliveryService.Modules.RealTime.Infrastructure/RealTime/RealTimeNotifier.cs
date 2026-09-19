@@ -123,4 +123,31 @@ internal sealed class RealTimeNotifier(
                 frame.Status, frame.OrderId, GroupNames.Support);
         }
     }
+
+    public async Task NotifyDriverAsync(Guid driverId, DeliveryOfferFrame frame, CancellationToken cancellationToken = default)
+    {
+        using IDisposable? logScope = logger.BeginScope(new Dictionary<string, object>
+        {
+            ["OrderId"] = frame.OrderId,
+            ["DeliveryId"] = frame.DeliveryId,
+            ["DriverId"] = driverId
+        });
+
+        try
+        {
+            await hubContext.Clients
+                .Group(GroupNames.User(driverId))
+                .SendAsync(TrackingHubMethods.DeliveryOffered, frame, cancellationToken);
+
+            logger.LogDebug("Pushed delivery-offer frame for delivery {DeliveryId} to {Group}",
+                frame.DeliveryId, GroupNames.User(driverId));
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // Ephemeral nudge — the driver's offer list is the read model, not this frame.
+            logger.LogWarning(exception,
+                "Failed to push delivery-offer frame for delivery {DeliveryId} to {Group}",
+                frame.DeliveryId, GroupNames.User(driverId));
+        }
+    }
 }

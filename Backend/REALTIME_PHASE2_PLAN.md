@@ -46,8 +46,9 @@ Decisions locked in for this plan:
 - `DriverLocationChanged(DriverLocationFrame)` — `{ orderId, driverId, latitude, longitude, recordedOnUtc }`
 - `RestaurantActivity(RestaurantActivityFrame)` — dashboard feed (new order, status change) for a restaurant
 - `SupportActivity(SupportActivityFrame)` — global live activity for support
+- `DeliveryOffered(DeliveryOfferFrame)` — `{ deliveryId, orderId, offerExpiresOnUtc }`, to the offered **driver** (added later; see §4.4)
 
-These DTO shapes are the public API of the feature; keep them additive-only after they land.
+These DTO shapes are the public API of the feature; keep them additive-only after they land. The four above `DeliveryOffered` are unchanged since Milestone D — `DeliveryOffered` is the one addition, and it was added, not altered into an existing frame.
 
 **End-to-end flow (customer tracking one order)**
 
@@ -130,14 +131,31 @@ In `RecordDriverLocationCommandHandler` (or the `IDriverLocationStore.RecordAsyn
 ### 4.2 Real-Time — driver→order→customer binding
 - Consume `DriverAssignedIntegrationEvent` → look up `rt:order:{orderId}` (written in Milestone B) for the `customerId`, then write `rt:driver:{driverId}` → `{ orderId, customerId }` (TTL ~ a delivery window). Also fan out a `DriverAssigned` status frame (driver name is on the event) to `user:{customerId}`.
 - Consume `OrderPickedUp` / `OrderDelivered` (Delivery) → fan out the corresponding status frames (this is how the timeline reaches "out for delivery" and "delivered" without new Orders events); on `OrderDelivered`/`OrderCancelled`, **delete** `rt:driver:{driverId}` so later stray positions are dropped.
-- Also fan out `DeliveryOffered`, `DeliveryOfferRejected`, `DeliveryUnassigned` as status frames where they're useful to the customer/support (keep customer-facing set minimal; `DeliveryUnassigned` is mainly support).
+- ~~Also fan out `DeliveryOffered`, `DeliveryOfferRejected`, `DeliveryUnassigned` as status frames where they're useful to the customer/support (keep customer-facing set minimal; `DeliveryUnassigned` is mainly support).~~ **Superseded for `DeliveryOffered` — see §4.4:** it is not a customer timeline entry, and its real audience is the offered driver. `DeliveryOfferRejected`/`DeliveryUnassigned` remain unconsumed.
 
 ### 4.3 Real-Time — the Redis location subscriber
 A hosted `BackgroundService` subscribes to `delivery:driver-locations`. On each message: resolve `rt:driver:{driverId}` → if a binding exists, broadcast `DriverLocationChanged{ orderId, driverId, lat, lon, recordedOnUtc }` to `user:{customerId}`; if no binding (unassigned/finished driver), drop it. Wrap the resolve+forward in a named OTel activity.
 
+### 4.4 The offer nudge to the driver *(shipped after the fact)*
+
+§4.2's last bullet sketched fanning `DeliveryOffered` out "as status frames where they're useful to the customer/support". **That reading was wrong and was not implemented.** An offer is not a point on the order's timeline: the customer has no interest in which driver is being asked, and until somebody accepts, nothing about the order has changed. The audience for `DeliveryOffered` is the one party §4.2 did not consider — the **driver being offered the work**, who otherwise has no way to learn an offer exists (see `DELIVERY_PHASE2_PLAN.md` §6.5 for the read-side half of the same gap).
+
+**What shipped**
+
+- `DeliveryOfferedConsumer` (Infrastructure/Consumers) — a direct `IConsumer<DeliveryOfferedIntegrationEvent>` on its own queue (`.Endpoint(c => c.InstanceId = instanceId)`), registered in `RealTimeModule.ConfigureConsumers` beside the Milestone C Delivery consumers. Same no-inbox justification; it is deliberately **not** a `DeliveryStatusConsumer<T>` subclass, because that base resolves the *customer* from the routing map and emits an `OrderStatusFrame`. Consequently there is no routing-map lookup and no fallible resolution step at all — the audience is on the event.
+- `TrackingHubMethods.DeliveryOffered` + `DeliveryOfferFrame(DeliveryId, OrderId, OfferExpiresOnUtc)` — added beside the other frames; the existing four are untouched (§1).
+- `IRealTimeNotifier.NotifyDriverAsync(driverId, DeliveryOfferFrame, ct)` — same best-effort swallow-and-log contract as the other overloads.
+
+**No new group type.** The frame goes to the driver's existing `user:{driverId}` group. `Driver.Id` *is* the Users service's user id (the `Driver` aggregate is keyed by it — there is no separate user replica, per `DELIVERY_PHASE2_PLAN.md` §3.3), and that is the same `sub` `TrackingHub.OnConnectedAsync` derives `GroupNames.User` from. A `driver:{id}` group would have been a second name for a group that already exists.
+
+**The frame is a thin nudge, on purpose.** It carries no pickup or drop-off detail; its XML doc names `GET delivery/drivers/me/offers` as the call the client is expected to make on receipt. That is this service's stated contract (§7, "best-effort, re-sync on connect") applied to a new audience: a driver who was offline when the frame went out and a driver who received it must arrive at the same screen by the same call, or the socket has quietly become load-bearing.
+
+**A withdrawn offer sends nothing, and that is the decision.** An offer ends by lapsing, by being declined, or by being accepted, and only the last is something this service hears about. A re-offer after expiry publishes a new `DeliveryOffered` to the *next* driver and says nothing to the previous one. **The client self-expires on `OfferExpiresOnUtc`.** A retraction frame was considered and rejected: it would be a second, contradictory expiry mechanism riding a best-effort transport, so a client that missed the retraction would hold a stale offer forever and the deadline would have to stay regardless — and the deadline alone is both sufficient and correct, because it is the same instant `Delivery.AcceptOffer` refuses past. The cost is a driver's screen showing a dead offer for up to their own clock skew; the accept then fails with `OfferExpired`, which is the honest answer.
+
 **Tests**
-- *Unit*: binding lifecycle over a fake store — `DriverAssigned` sets `rt:driver:{id}`, `OrderDelivered`/`OrderCancelled` clears it; the location→group resolver returns the customer group when bound and **nothing** when unbound (post-delivery drop).
+- *Unit*: binding lifecycle over a fake store — `DriverAssigned` sets `rt:driver:{id}`, `OrderDelivered`/`OrderCancelled` clears it; the location→group resolver returns the customer group when bound and **nothing** when unbound (post-delivery drop). §4.4: `NotifyDriverAsync` sends `DeliveryOffered` to exactly `user:{driverId}` and to no other group.
 - *Integration* (real Redis + RabbitMQ): publish `OrderReadyForPickup`/`OrderAccepted` (seeds `rt:order` map) then `DriverAssignedIntegrationEvent`; connect as the customer; `PUBLISH` a location on `delivery:driver-locations` → the customer receives `DriverLocationChanged`; publish `OrderDeliveredIntegrationEvent`, then publish another location → it is **not** delivered. (Optionally drive the real Delivery endpoint in-process to prove the PUBLISH fires, mirroring the cross-service pattern the Delivery suite already uses.)
+- *Integration, §4.4* (`DeliveryOfferFanOutTests`, 3 tests): publish `DeliveryOfferedIntegrationEvent{ DriverId = TestUserId }` → the connected driver receives `DeliveryOffered` with the right order id and deadline; the same event addressed to another driver reaches them not at all; and a second connected subject holding the *support-dashboard* permission — the broadest audience this service has — still never sees an offer addressed to a driver. Each test first probes itself into its `user:{sub}` group (`StartAsync` returns before `OnConnectedAsync` runs; see `DashboardFanOutTests` for the full reasoning) and matches assertions on delivery id so probe frames in flight cannot stand in for the frame under test.
 
 ---
 

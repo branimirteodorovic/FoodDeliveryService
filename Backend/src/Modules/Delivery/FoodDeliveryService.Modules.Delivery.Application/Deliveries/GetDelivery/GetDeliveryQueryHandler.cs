@@ -1,5 +1,6 @@
 using System.Data.Common;
 using Dapper;
+using FoodDeliveryService.Common.Application.Clock;
 using FoodDeliveryService.Common.Application.Data;
 using FoodDeliveryService.Common.Application.Messaging;
 using FoodDeliveryService.Common.Domain;
@@ -12,7 +13,8 @@ namespace FoodDeliveryService.Modules.Delivery.Application.Deliveries.GetDeliver
 internal sealed class GetDeliveryQueryHandler(
     IDbConnectionFactory dbConnectionFactory,
     IDriverLocationStore driverLocationStore,
-    IDeliveryContext deliveryContext)
+    IDeliveryContext deliveryContext,
+    IDateTimeProvider dateTimeProvider)
     : IQueryHandler<GetDeliveryQuery, DeliveryResponse>
 {
     public async Task<Result<DeliveryResponse>> Handle(GetDeliveryQuery request, CancellationToken cancellationToken)
@@ -20,9 +22,9 @@ internal sealed class GetDeliveryQueryHandler(
         await using DbConnection connection = await dbConnectionFactory.OpenConnectionAsync();
 
         // The ownership check is part of the WHERE clause, not a branch after the read: a caller who
-        // is neither the customer, the assigned driver nor an administrator gets no row, and so the
-        // 404 below. Returning a distinguishable "not yours" here would confirm that the id exists,
-        // which is exactly what somebody guessing delivery ids is trying to learn.
+        // is neither the customer, the assigned or offered driver nor an administrator gets no row,
+        // and so the 404 below. Returning a distinguishable "not yours" here would confirm that the
+        // id exists, which is exactly what somebody guessing delivery ids is trying to learn.
         const string sql =
             $"""
              {DeliveryDetailRow.SelectSql}
@@ -35,7 +37,8 @@ internal sealed class GetDeliveryQueryHandler(
             {
                 request.DeliveryId,
                 deliveryContext.UserId,
-                IsAdmin = DeliveryAccess.CanViewAnyDelivery(deliveryContext)
+                IsAdmin = DeliveryAccess.CanViewAnyDelivery(deliveryContext),
+                dateTimeProvider.UtcNow
             });
 
         if (row is null)

@@ -106,4 +106,26 @@ public class RealTimeNotifierTests
         method.Should().Be(TrackingHubMethods.SupportActivity);
         args.Should().ContainSingle().Which.Should().Be(frame);
     }
+
+    [Fact]
+    public async Task NotifyDriverAsync_SendsTheOfferFrameToTheOfferedDriversGroupOnly()
+    {
+        var driverId = Guid.NewGuid();
+        var otherDriverId = Guid.NewGuid();
+        var frame = new DeliveryOfferFrame(Guid.NewGuid(), Guid.NewGuid(), OccurredOnUtc.AddSeconds(30));
+        var hubContext = new RecordingHubContext();
+        var notifier = new RealTimeNotifier(hubContext, NullLogger<RealTimeNotifier>.Instance);
+
+        await notifier.NotifyDriverAsync(driverId, frame, TestContext.Current.CancellationToken);
+
+        RecordingClientProxy? proxy = hubContext.ProxyFor(GroupNames.User(driverId));
+        proxy.Should().NotBeNull();
+        (string method, object?[] args) = proxy!.Sent.Should().ContainSingle().Subject;
+        method.Should().Be(TrackingHubMethods.DeliveryOffered);
+        args.Should().ContainSingle().Which.Should().Be(frame);
+
+        // A driver's group is a user group: the offer must not leak to any other subject, driver or
+        // customer, and nothing is ever broadcast (the fake throws on every non-Group target).
+        hubContext.ProxyFor(GroupNames.User(otherDriverId)).Should().BeNull();
+    }
 }

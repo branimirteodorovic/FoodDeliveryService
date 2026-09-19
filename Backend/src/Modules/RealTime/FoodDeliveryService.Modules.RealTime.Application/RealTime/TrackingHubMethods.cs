@@ -18,4 +18,11 @@ public static class TrackingHubMethods
 
     /// <summary>An entry on the support agents' global live activity feed (Milestone D onward).</summary>
     public const string SupportActivity = "SupportActivity";
+
+    /// <summary>
+    /// A delivery has been offered to the connected <b>driver</b> (Milestone F). The only frame on
+    /// this hub whose audience is a driver rather than a customer or an operator — it reaches the
+    /// same <c>user:{id}</c> group as the others, because a driver's id is their user id.
+    /// </summary>
+    public const string DeliveryOffered = "DeliveryOffered";
 }

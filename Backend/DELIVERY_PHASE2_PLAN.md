@@ -285,9 +285,40 @@ and for each: load the aggregate, `ExpireOffer(utcNow)`, save, then `OfferNextAs
 ### 6.4 Order-cancellation compensation
 Register `IntegrationEventConsumer<OrderCancelledIntegrationEvent>` in `DeliveryModule.ConfigureConsumers`; the handler loads the delivery by `OrderId` and calls `Delivery.Cancel(utcNow)` (a no-op if already terminal), which releases any reserved driver back to `Available`. No saga, no timers to unwind — the job simply stops finding a `Cancelled` delivery.
 
+### 6.5 Driver-side discovery of a pending offer *(shipped after the fact)*
+
+The offer routine above was written entirely from the dispatcher's side, and the gap only shows once you try to be the driver: `OfferTo` sets `OfferedDriverId` and leaves `DriverId` null until the accept, but **every read in §7.1 keys off `DriverId`**. `DeliveryAccess.VisibleToCallerSql` was `(@IsAdmin OR d.customer_id = @UserId OR d.driver_id = @UserId)` and `GetDeliveriesQuery` filtered `@IsAdmin OR d.driver_id = @UserId`, so the one person who had to answer the offer got a 404 from `GET delivery/deliveries/{id}`, a 404 from `GET delivery/orders/{orderId}/delivery`, and an empty list from `GET delivery/deliveries`. The accept/reject endpoints worked the whole time; nothing could tell a driver there was anything to accept.
+
+**What shipped**
+
+| Method & path | Auth | Query | Purpose |
+|---|---|---|---|
+| `GET delivery/drivers/me/offers` | `drivers:read` | `GetMyDeliveryOffersQuery` (Dapper) | The caller's outstanding offers, soonest deadline first: delivery id, order id, restaurant id, pickup coordinates, the full drop-off address + notes + coordinates, `OfferExpiresOnUtc`. |
+
+- **A collection, not a single offer.** `Driver.Reserve()` runs only on accept (§6.2, `AcceptDeliveryOfferCommandHandler`), so a driver stays `Available` with an offer outstanding and the routine can legitimately offer them a second delivery before they answer the first. A single-object read would have been wrong the first time that happened.
+- **Lapsed offers are excluded in SQL**, not returned for the client to filter. `ProcessExpiredOffersJob` (§6.3) clears `offered_driver_id` on its own tick, so between the deadline and that tick the column still names a driver whose offer is already dead. Filtering on the deadline makes the list agree with what `AcceptOffer` will actually allow, in both directions, with no interval in between.
+- **No new permission.** `drivers:read` — the endpoint joins the self-scoped `delivery/drivers/me/*` family, and it is the narrower of the two candidates: customers hold `deliveries:read`, only drivers and administrators hold `drivers:read`.
+- **Unpaged, and therefore unvalidated.** `GetMyDeliveryOffersQuery` has no fields at all, so it is listed in `ValidatorCoverageTests.RequestsWithNothingToValidate` alongside `GetPaymentMethodsQuery` — the set is bounded by how many deliveries are mid-offer to one driver at one instant, and every row self-expires.
+
+**`DeliveryAccess` widening.** The offered driver was added to the one shared constant rather than to one call site:
+
+```
+(@IsAdmin OR d.customer_id = @UserId OR d.driver_id = @UserId
+          OR (d.offered_driver_id = @UserId AND d.offer_expires_on_utc > @UtcNow))
+```
+
+The live-offer half is its own `DeliveryAccess.LiveOfferSql` constant, reused verbatim by the offers query, so "an offer I may open by id" and "an offer on my list" cannot come to mean different things. The clause is bounded by the deadline rather than by the column being cleared, for the same reason the list is: after a re-offer the column names somebody else entirely, and reading the deadline closes the window exactly when the driver's authority to accept does. This adds a third parameter, `@UtcNow`, so **both** detail handlers now take `IDateTimeProvider` — a query handler here that forgets it fails at the Npgsql parameter bind, not silently. The 404-not-403 convention is untouched: a caller outside the predicate still gets no row.
+
+**`GET delivery/deliveries` was deliberately left alone.** A `?status=Offered` filter was considered and rejected. `DeliverySummaryResponse` carries no pickup or drop-off detail, so a driver filtering the history list would still need a second call before they could decide — and making the filter useful would mean widening that list's `d.driver_id = @UserId` predicate to include offers, i.e. mixing "work I hold" into a history list ordered by `created_on_utc DESC`. The offer screen and the history screen are different screens; the dedicated read is the honest shape. If a future admin view needs to see outstanding offers across drivers, that is a status filter on the **administrator** branch and it will need its own validator rule.
+
+The real-time nudge that tells a driver to call this endpoint is the other half of the same change — see `REALTIME_PHASE2_PLAN.md` §4.4.
+
 **Tests**
-- *Unit*: the full `Delivery` transition table, including accept-after-expiry → `OfferExpired`, accept by a non-offered driver → `NotAssignedDriver`, `OfferTo` refusing a driver already in `_triedDriverIds`, and re-offer from `Offered` after a reject/expiry. The candidate-selection step — nearest first, excluding tried drivers, honouring the radius — is a pure function over the store's result; test it directly.
+- *Unit*: the full `Delivery` transition table, including accept-after-expiry → `OfferExpired`, accept by a non-offered driver → `NotAssignedDriver`, `OfferTo` refusing a driver already in `_triedDriverIds`, and re-offer from `Offered` after a reject/expiry. The candidate-selection step — nearest first, excluding tried drivers, honouring the radius — is a pure function over the store's result; test it directly. *(§6.5 changed no aggregate behaviour and added no SQL to the Domain project, so it added nothing here — `Delivery.UnitTests` references Domain only.)*
 - *Integration* (real Redis + Postgres Testcontainers, short offer window + fast poll): two available drivers at known distances → publish `OrderReadyForPickup` → the **nearer** driver is offered; they accept → `Assigned`, driver is `Busy` and out of the geo pool, `DriverAssignedIntegrationEvent` published. Nearer driver rejects → the farther one is offered, never the first again. Nearer driver stays silent past the window → `ProcessExpiredOffersJob` expires and re-offers (drive the job directly, or poll). No drivers in radius → `Unassigned` + its event. Two concurrent accepts for one delivery → exactly one wins, the other gets a clean failure. Publishing `OrderCancelledIntegrationEvent` mid-offer → delivery `Cancelled`, driver released to `Available`, and the expiry job leaves it alone thereafter.
+- *Integration, §6.5* (`OfferDiscoveryTests`, 6 tests): the offered driver sees the offer on `drivers/me/offers` with every field the screen needs, and can open the delivery by id **and** by order id while `driver_id` is still null; a second, equally authenticated driver sees none of the three — **404, not 403**, which is the security assertion of the set; a lapsed offer leaves the list empty on the deadline rather than on the expiry tick; a customer gets 403 (no `drivers:read`) and an anonymous caller 401.
+
+> **Gotcha for anyone adding to this suite.** The "distinct city per test" rule in §6.2's test notes is load-bearing across *files*, not just within one. A driver released back to `Available` at the end of another test is still in the Redis geo set for the rest of the run, so a new test reusing an existing suite's coordinates at the same offset can have its offer won by that residue driver and then time out waiting for its own. Three of `OfferDiscoveryTests`' first-draft cities collided with `PickupDeliveryTests`/`AssignmentLockTests` this way; the cities in use are worth grepping before picking one.
 
 ---
 
@@ -303,6 +334,8 @@ Register `IntegrationEventConsumer<OrderCancelledIntegrationEvent>` in `Delivery
 | `GET delivery/deliveries/{id}` | `deliveries:read` | `GetDeliveryQuery` (Dapper) | Delivery DTO + driver name + current driver location. Assigned driver, the order's customer, or an admin. |
 | `GET delivery/deliveries` | `deliveries:read` | `GetDeliveriesQuery` (Dapper, paged) | The driver's own delivery history; an admin sees all (`deliveries:administer`). |
 | `GET delivery/orders/{orderId}/delivery` | `deliveries:read` | `GetDeliveryByOrderQuery` (Dapper) | The customer's tracking lookup — Feature 2.2 renders this. Customer must own the order. |
+
+> The two detail reads above later gained a fourth visible caller — the driver holding a live offer, who is not yet the `driver_id` on the row. See §6.5 for the `DeliveryAccess` widening and the `@UtcNow` parameter it added to both handlers.
 
 > `accept`/`reject`/`picked-up`/`delivered` are the endpoints Milestone E's assignment tests already drive; they ship here with their ownership checks and read models. If Milestone E's PR is getting large, `accept`/`reject` can move forward into it and only the pickup/delivered pair stays here.
 
