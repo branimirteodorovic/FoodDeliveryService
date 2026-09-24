@@ -665,6 +665,24 @@ cached) permission lookup per rejected request. It buys a single source of truth
 in Users and take effect within the cache TTL, with no token re-issue and no claim going stale inside
 a JWT somebody is still holding.
 
+**What a client does instead: `GET users/me`.** A browser application still has to decide which
+screens to show and where to send someone after sign-in, and with no role claim in the token it
+cannot read that off the JWT. It asks the Users service, which answers with the caller's profile and
+role names — read from `user_roles` for the JWT subject, with no parameter naming anyone else. Two
+things about it matter here:
+
+- **It is UI convenience, not a security boundary.** Nothing downstream trusts a role the client
+  read from it. Every request is still authorized by `CustomClaimsTransformation` resolving
+  permissions from Users and `PermissionAuthorizationHandler` checking the endpoint's policy, exactly
+  as above. A client that lies to itself about its own roles gets a differently-drawn menu and the
+  same 403s.
+- **It is also where the client learns its own user id.** The token's `sub` is the *identity-provider*
+  id; the id every other service keys a person by — `OrderResponse.customerId`, the SignalR
+  `user:{id}` group — is the Users module's `users.id`. `users/me` returns that one, as `userId`.
+  This is the direct consequence of the split argued above, and the failure mode when the two are
+  confused is silent: the wrong id matches nothing and reads back as an empty list rather than an
+  error. `registration-architecture-decisions.md` §6.
+
 ## 7. Input validation and the error surface
 
 The project plan's phrasing is *"all user inputs are sanitised"*. The accurate description of what

@@ -67,7 +67,12 @@ public partial class ValidatorCoverageTests
         ["GetMyDeliveryOffersQuery"] =
             "No fields at all. The driver is the JWT subject, and the set is bounded by how many " +
             "deliveries are mid-offer to one driver at one instant — so there is no page size to " +
-            "cap and no id to tamper with."
+            "cap and no id to tamper with.",
+
+        ["GetCurrentUserQuery"] =
+            "No fields at all — \"who am I\" has nothing to ask about but the caller. A user id " +
+            "here is the whole reason this is its own query rather than a widening of " +
+            "GetUserQuery(Guid): it would put a role list behind an id the caller supplies."
     };
 
     /// <summary>

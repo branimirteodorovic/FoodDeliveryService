@@ -7,6 +7,17 @@ services:
     build:
       context: .
       dockerfile: src/API/FoodDeliveryService.Notifications.Api/Dockerfile
+    # Every module host applies its migrations at boot, so a database that is merely *starting* kills
+    # it (see the healthcheck on fooddeliveryservice.database). Redis and the queue are listed for
+    # ordering: MassTransit and the Redis multiplexer both retry, so neither is fatal on its own, but
+    # a host that boots into a dead broker logs a wall of connection errors before it settles.
+    depends_on:
+      fooddeliveryservice.database:
+        condition: service_healthy
+      fooddeliveryservice.redis:
+        condition: service_healthy
+      fooddeliveryservice.queue:
+        condition: service_healthy
     ports:
       - 5100:8080
       - 5101:8081
@@ -17,6 +28,13 @@ services:
     build:
       context: .
       dockerfile: src/API/FoodDeliveryService.Orders.Api/Dockerfile
+    depends_on:
+      fooddeliveryservice.database:
+        condition: service_healthy
+      fooddeliveryservice.redis:
+        condition: service_healthy
+      fooddeliveryservice.queue:
+        condition: service_healthy
     ports:
       - 5200:8080
       - 5201:8081
@@ -27,6 +45,13 @@ services:
     build:
       context: .
       dockerfile: src/API/FoodDeliveryService.Restaurants.Api/Dockerfile
+    depends_on:
+      fooddeliveryservice.database:
+        condition: service_healthy
+      fooddeliveryservice.redis:
+        condition: service_healthy
+      fooddeliveryservice.queue:
+        condition: service_healthy
     ports:
       - 5300:8080
       - 5301:8081
@@ -37,6 +62,13 @@ services:
     build:
       context: .
       dockerfile: src/API/FoodDeliveryService.Users.Api/Dockerfile
+    depends_on:
+      fooddeliveryservice.database:
+        condition: service_healthy
+      fooddeliveryservice.redis:
+        condition: service_healthy
+      fooddeliveryservice.queue:
+        condition: service_healthy
     ports:
       - 5400:8080
       - 5401:8081
@@ -47,6 +79,13 @@ services:
     build:
       context: .
       dockerfile: src/API/FoodDeliveryService.Delivery.Api/Dockerfile
+    depends_on:
+      fooddeliveryservice.database:
+        condition: service_healthy
+      fooddeliveryservice.redis:
+        condition: service_healthy
+      fooddeliveryservice.queue:
+        condition: service_healthy
     ports:
       - 5500:8080
       - 5501:8081
@@ -57,6 +96,13 @@ services:
     build:
       context: .
       dockerfile: src/API/FoodDeliveryService.RealTime.Api/Dockerfile
+    depends_on:
+      fooddeliveryservice.database:
+        condition: service_healthy
+      fooddeliveryservice.redis:
+        condition: service_healthy
+      fooddeliveryservice.queue:
+        condition: service_healthy
     ports:
       - 5600:8080
       - 5601:8081
@@ -67,6 +113,13 @@ services:
     build:
       context: .
       dockerfile: src/API/FoodDeliveryService.Support.Api/Dockerfile
+    depends_on:
+      fooddeliveryservice.database:
+        condition: service_healthy
+      fooddeliveryservice.redis:
+        condition: service_healthy
+      fooddeliveryservice.queue:
+        condition: service_healthy
     ports:
       - 5700:8080
       - 5701:8081
@@ -77,6 +130,13 @@ services:
     build:
       context: .
       dockerfile: src/API/FoodDeliveryService.Payments.Api/Dockerfile
+    depends_on:
+      fooddeliveryservice.database:
+        condition: service_healthy
+      fooddeliveryservice.redis:
+        condition: service_healthy
+      fooddeliveryservice.queue:
+        condition: service_healthy
     ports:
       - 5800:8080
       - 5801:8081
@@ -139,6 +199,32 @@ services:
       - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
     ports:
       - 5432:5432
+    # Plain `depends_on` waits for a container to START, not for the service inside it to accept
+    # connections — and every host below applies EF Core migrations at boot, before it serves
+    # anything. Winning that race is fatal, not slow: Npgsql throws `Connection refused`, nothing
+    # catches it, and the host exits during startup (the `Exited (139)` containers in `docker ps -a`).
+    # A cold `docker compose up` is exactly when Postgres is slowest, because initdb runs
+    # docker/postgres/init first. So the readiness signal lives here and the dependents below wait
+    # on `service_healthy` rather than on the container existing.
+    #
+    # Two flags carry the whole check, and both are load-bearing:
+    #
+    #   -h 127.0.0.1  forces TCP. While it runs docker-entrypoint-initdb.d, the postgres image starts
+    #                 a TEMPORARY server with listen_addresses='' — reachable on the unix socket and
+    #                 nowhere else. A socket-based pg_isready (the default) answers "ready" during
+    #                 that window, which is the one boot where this check has real work to do: on an
+    #                 empty ./.containers/db, initdb plus docker/postgres/init is the slow path.
+    #                 Over TCP the temporary server is invisible, so ready means the real one.
+    #   -U postgres   because pg_isready otherwise uses the invoking OS user (root here), which is
+    #                 not a Postgres role.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres -h 127.0.0.1"]
+      interval: 5s
+      timeout: 5s
+      # 24 x 5s = two minutes past start_period. initdb + the role/database script is a one-off cost
+      # on an empty ./.containers/db, and it is much slower than a normal boot.
+      retries: 24
+      start_period: 10s
 
   fooddeliveryservice.identity:
     image: ${DOCKER_REGISTRY-}fooddeliveryserviceidentity
@@ -146,8 +232,12 @@ services:
     build:
       context: .
       dockerfile: src/API/FoodDeliveryService.Identity/Dockerfile
+    # Identity is the one service the integration test suites reach over a real port: every fixture
+    # seeds users against it on :18080, so an Identity that died at boot fails whole collections in
+    # InitializeAsync, before a single test body runs.
     depends_on:
-      - fooddeliveryservice.database
+      fooddeliveryservice.database:
+        condition: service_healthy
     ports:
       - 18080:8080
       - 18081:8081
@@ -168,6 +258,14 @@ services:
     restart: always
     ports:
       - 6379:6379
+    # Redis is an availability dependency, not a latency optimization (CLAUDE.md, Caching): it
+    # carries the cache, IDistributedLock, Delivery's driver GEO store and the SignalR backplane.
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
 
   # Jaeger no longer publishes 4317/4318: the collector below is the OTLP front door now, and it
   # forwards traces here over the compose network. The UI is unchanged.
@@ -319,6 +417,16 @@ services:
     ports:
       - 5672:5672
       - 15672:15672
+    # RabbitMQ is the slowest of the three to become usable — the Erlang VM and the management
+    # plugin both start before the broker accepts AMQP. `check_running` is the port-is-open check;
+    # MassTransit retries a refused connection on its own, so this gates ordering rather than
+    # preventing a crash the way the Postgres check does.
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q check_running"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
 
 volumes:
   # Prometheus' TSDB. Local metrics history is disposable — deleting this volume costs nothing but

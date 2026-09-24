@@ -10,6 +10,16 @@
 > that way, and *which frontend concept it teaches*. Backend remains the main skill — this project
 > proves competent, modern, employable Angular knowledge without chasing "high-tech" frontend
 > architecture.
+>
+> **Revised 2026-09-19 against the backend that exists, not the one that was planned.** The first
+> version of this document was written on 2026-07-19 from `FoodDelivery_ProjectPlan.md` — the *plan*
+> for the backend, not the backend. Since then Support (3.6), Production Hardening (3.7) and Card
+> Payments (3.8) shipped; Fraud Detection (3.4) was built and then reverted; the Kubernetes feature
+> was scoped down; and several things this plan assumed — reviews, restaurant search, the three AI
+> features, a user-profile endpoint — were never built at all. Every endpoint, permission, DTO field
+> and hub method named below was read out of the code on that date. Where a screen needs something
+> that does not exist, it is listed as a **backend prerequisite with its shape**, never designed
+> around.
 
 ---
 
@@ -21,13 +31,17 @@
   - [Architecture](#architecture)
   - [Project structure](#project-structure)
   - [How the frontend talks to the backend](#how-the-frontend-talks-to-the-backend)
-  - [Backend prerequisites](#backend-prerequisites-small-tasks-on-the-net-side)
-  - [Coverage matrix — every backend feature mapped](#coverage-matrix--every-backend-feature-mapped)
+  - [The API surface as it exists today](#the-api-surface-as-it-exists-today)
+  - [Roles, permissions, and which portal may call what](#roles-permissions-and-which-portal-may-call-what)
+  - [The two order-status vocabularies](#the-two-order-status-vocabularies)
+  - [Backend prerequisites](#backend-prerequisites)
+  - [Coverage matrix — every backend feature and its real state](#coverage-matrix--every-backend-feature-and-its-real-state)
+  - [What this plan deliberately does not build](#what-this-plan-deliberately-does-not-build)
 - [Part 2 — Detailed Implementation Plan](#part-2--detailed-implementation-plan)
   - [Phase 0 — Foundations](#phase-0--foundations)
-  - [Phase 1 — Core Features](#phase-1--core-features-matches-backend-phase-1)
-  - [Phase 2 — Real-Time & Driver Experience](#phase-2--real-time--driver-experience-matches-backend-phase-2)
-  - [Phase 3 — Support, AI & Production Polish](#phase-3--support-ai--production-polish-matches-backend-phase-3)
+  - [Phase 1 — Core Features](#phase-1--core-features)
+  - [Phase 2 — Real-Time & Driver Experience](#phase-2--real-time--driver-experience)
+  - [Phase 3 — Payments, Support & Production Polish](#phase-3--payments-support--production-polish)
 - [Conventions & Working Rules](#conventions--working-rules)
 - [Testing Strategy](#testing-strategy)
 - [Learning with AI Tools](#learning-with-ai-tools)
@@ -42,11 +56,11 @@
 
 | Area | Users | Primary device | Key screens |
 |---|---|---|---|
-| **Customer** | Customers | 📱 Phone | Browse restaurants, menu, cart, checkout, live order tracking with driver on a map, order history, reviews, AI support chat |
-| **Restaurant** | Restaurant Managers | 💻 Tablet/desktop | Live incoming-orders dashboard, accept/reject, order preparation flow, menu & category management, opening hours, reviews received |
-| **Driver** | Delivery Drivers | 📱 Phone (always) | Go online/offline, receive assignment, accept/reject, navigate to pickup, mark picked-up/delivered, delivery history |
-| **Admin** | Administrators | 💻 Desktop | Onboard restaurants, provision staff/partner accounts (invitations), platform overview |
-| **Support** | Support Agents | 💻 Desktop | Ticket queue, ticket detail with order history + chatbot transcript, refund requests, fraud flags |
+| **Customer** | Customers | 📱 Phone | Browse restaurants, menu, cart, checkout (cash or saved card), live order tracking with the driver on a map, order history, saved cards, my support tickets |
+| **Restaurant** | Restaurant Managers | 💻 Tablet/desktop | Live incoming-orders dashboard, accept/reject, preparation flow, menu & category management, sold-out toggle, restaurant profile |
+| **Driver** | Delivery Drivers | 📱 Phone (always) | Go online/offline, offer inbox with countdown, accept/reject, navigate to pickup, mark picked-up/delivered, delivery history |
+| **Admin** | Administrators | 💻 Desktop | Onboard restaurants (+ their manager), onboard drivers, decide refund requests, platform overview |
+| **Support** | Support Agents | 💻 Desktop | Ticket queue, ticket detail with the customer thread + internal notes, audit trail, refund requests, analytics summary |
 
 **Why one app instead of several?** One app is simpler to build, test, and deploy; role-based lazy
 loading means a driver's phone never downloads the admin screens; and it demonstrates the
@@ -58,6 +72,14 @@ one of our role areas — so nothing is lost for learning.
 wide phone screen first, then progressively enhanced for tablet/desktop with Tailwind's responsive
 prefixes (`sm:`, `md:`, `lg:`). Restaurant/admin/support screens are desktop-first but must remain
 usable on a tablet.
+
+> ⚠️ **There is no anonymous browsing.** `GET restaurants` and `GET restaurants/{restaurantId}/menu`
+> each carry a permission (`restaurants:read`, `menu:read`) that only an authenticated user holds.
+> Exactly three routes on the whole platform are anonymous: `POST users/register`,
+> `POST users/accept-invitation` and `POST payments/webhooks/stripe` (Stripe's, not yours). Every
+> screen except login, registration and invitation activation therefore sits behind a token — there
+> is no public storefront to build, and no SEO story to tell. Say that in the README; it is the
+> reason SSR is skipped.
 
 ---
 
@@ -72,14 +94,15 @@ exotic.
 | **TypeScript (strict mode)** | Language | Angular's language. Strict mode catches the same class of bugs the C# compiler catches — lean on it. |
 | **Tailwind CSS v4** | Styling | Utility-first CSS. No context-switching to separate stylesheet files; responsive design via `sm:`/`md:` prefixes; the most in-demand styling approach in current job postings. |
 | **Angular Signals** | State management | Angular's built-in reactive primitive. Component and service state as `signal()` / `computed()`. Simpler than RxJS-everywhere or NgRx, and it is the direction the framework itself is going. |
-| **RxJS (targeted use)** | Async streams | Only where it genuinely fits: HTTP calls, debounced search input, SignalR event streams. You do not need to be an RxJS wizard — knowing `map`, `switchMap`, `debounceTime`, `catchError` covers this project. |
-| **Angular Reactive Forms (typed)** | Forms | Login, registration, checkout, menu editing. The typed-forms API is the standard answer to "how do you handle forms in Angular?" in interviews. |
-| **@microsoft/signalr** | Real-time | Official SignalR JavaScript client — connects to the backend's realtime service for live order status and driver location. |
-| **Leaflet + OpenStreetMap** | Maps | Free, no API key, tiny learning curve. Displays the driver's live position for customers and the delivery route for drivers. (Google Maps needs billing setup; Leaflet is the standard free choice.) |
+| **RxJS (targeted use)** | Async streams | Only where it genuinely fits: HTTP calls, the debounced filters on the support queue, SignalR event streams, polling. Knowing `map`, `switchMap`, `debounceTime`, `catchError` covers this project. |
+| **Angular Reactive Forms (typed)** | Forms | Login, registration, checkout, menu editing, category reordering, ticket replies, refund decisions. The typed-forms API is the standard answer to "how do you handle forms in Angular?" in interviews. |
+| **@microsoft/signalr** | Real-time | Official SignalR JavaScript client — connects to `hubs/tracking` **through the gateway** for live order status, driver location and driver offers. |
+| **Leaflet + OpenStreetMap** | Maps | Free, no API key, tiny learning curve. Displays the driver's live position for customers and the pickup/drop-off pins for drivers. (Google Maps needs billing setup; Leaflet is the standard free choice.) |
+| **@stripe/stripe-js** | Payments | Stripe Elements collects the card **in the browser, against Stripe directly**. The backend's entire PCI posture (SAQ-A) rests on the card never reaching this SPA's own API calls. See Milestone 3.1. |
 | **angular-eslint + Prettier** | Code quality | Linting and formatting exactly like `dotnet format` + analyzers. Set up once, forget. |
 | **Vitest** | Unit tests | Angular's current default test runner (replaces Karma). Fast, simple API. |
 | **Playwright (small suite)** | E2E tests | 3–5 happy-path browser tests. Even a tiny E2E suite is a strong CV signal. |
-| **GitHub Actions** | CI/CD | Build + lint + test on every push, mirroring the backend pipeline. Deploy to Azure Static Web Apps later. |
+| **GitHub Actions** | CI/CD | Build + lint + test on every push. `.github/workflows/ci.yml` already exists for the backend — add a `Frontend/**` job to it rather than starting a second workflow. |
 
 **Deliberately NOT used (and why):**
 
@@ -90,10 +113,16 @@ exotic.
 - **Angular Material / PrimeNG** — component libraries would fight Tailwind and hide the CSS
   learning. We build a small set of our own UI components instead (great learning, great
   portfolio evidence). If a screen needs something genuinely hard (date picker), reconsider then.
-- **Server-side rendering (Angular SSR)** — meaningful for SEO/marketing pages; our app is behind
-  a login. Skip.
+- **Server-side rendering (Angular SSR)** — meaningful for SEO/marketing pages; this app is behind
+  a login end to end. Skip.
 - **Micro frontends, module federation, monorepo tooling (Nx)** — real technologies, wrong
   project size. Mentioning *why* you didn't use them is itself a good interview answer.
+- **An Application Insights browser SDK** — the backend has no Application Insights. Its telemetry
+  stack is OpenTelemetry Collector → Prometheus/Grafana, plus Jaeger and Seq (backend Feature 2.4
+  Milestone E); the optional Azure Monitor milestone was never built, and a grep for
+  `ApplicationInsights` across the solution returns nothing. The honest browser-side equivalent is
+  in Milestone 3.4, and it is smaller and better: correlate on the `X-Correlation-Id` the gateway
+  already exposes to the browser by name.
 
 ---
 
@@ -111,14 +140,21 @@ exotic.
 │                       ▼                       ▼                           │
 │              core/  (auth, interceptors, guards, api services)            │
 │              shared/ (UI components, pipes, directives)                   │
-└───────┬──────────────────────┬──────────────────────────┬─────────────────┘
-        │ REST (JSON)          │ tokens                   │ WebSocket
-        ▼                      ▼                          ▼
-  YARP Gateway :3000     Identity :18080           Realtime :5600
-  users/** orders/**     POST /connect/token       SignalR hubs/**
-  restaurants/**         (login + refresh)
-  delivery/** ...
+└───────┬───────────────────────────────────────────┬───────────────────────┘
+        │ REST (JSON) + WebSocket                   │ tokens
+        ▼                                           ▼
+  YARP Gateway :3000                          Identity :18080
+    users/**  orders/**  restaurants/**        POST /connect/token
+    delivery/**  payments/**  support/**       (login + refresh)
+    hubs/**  ← SignalR, same origin
+    docs/{slug}/**  ← Scalar + Swagger
 ```
+
+The SPA holds **two** base URLs, not three. The realtime service does listen on `:5600` in
+`docker-compose`, but the browser never uses that port: the gateway has a route
+`fooddeliveryservice-realtime-route1` matching `hubs/{**catch-all}` that forwards the WebSocket
+upgrade to it. Talking to `:5600` directly would mean a third origin to CORS-allow, a second place
+to configure, and a deployment story that only works on a laptop.
 
 ### Key architectural decisions
 
@@ -138,20 +174,56 @@ exotic.
    simple, interview-defensible pattern: *"signal-based services; I'd reach for NgRx if state
    became complex or needed devtools/time-travel."*
 
-5. **One typed API client service per backend module** (`OrdersApi`, `RestaurantsApi`, …), each a
-   thin wrapper over `HttpClient` returning typed DTOs that mirror the backend contracts. All
-   backend URLs come from `environment.ts` — never hard-coded in components.
+5. **One typed API client service per backend module** (`OrdersApi`, `RestaurantsApi`,
+   `DeliveryApi`, `PaymentsApi`, `SupportApi`, `UsersApi`), each a thin wrapper over `HttpClient`
+   returning typed DTOs that mirror the backend contracts. All backend URLs come from
+   `environment.ts` — never hard-coded in components.
 
-6. **Errors follow the backend's `ProblemDetails` format.** One HTTP interceptor converts every
-   failed response into a typed `ApiError`, shows a toast for unexpected errors, and lets
-   validation errors flow to forms. (The backend's Railway-Oriented `Result` failures arrive as
-   RFC 7807 problem+json — the frontend should treat that contract as seriously as the backend does.)
+6. **Errors follow the backend's `ProblemDetails` format, and `title` is a machine code.** Every
+   failed `Result` comes back through one helper (`Common.Presentation/Results/ApiResults.cs`) that
+   maps the domain error to RFC 7807 problem+json with:
+   - `title` = the error **code**, e.g. `Orders.PaymentNotAuthorized`, `Restaurants.NotFound`
+   - `detail` = the human sentence, e.g. *"The order cannot be accepted until its payment has been
+     authorized"*
+   - `status` = 400 for `Validation` and `Problem`, **404** for `NotFound`, **409** for `Conflict`
+   - `errors` (an extension member) = the field errors, present only on a `ValidationError`
+
+   So your interceptor should branch on `title` and *display* `detail`. Parsing `detail` for
+   meaning is the beginner mistake here; it is prose and it will change.
+
+### What every JSON response looks like
+
+Two facts that will bite on the very first API call if you don't know them, both verified rather
+than assumed — **nowhere in the solution is a `JsonStringEnumConverter` or a custom
+`JsonSerializerOptions` registered**, so minimal APIs run on `JsonSerializerDefaults.Web`:
+
+- **Property names are camelCase.** `OrderResponse.PlacedOnUtc` arrives as `placedOnUtc`.
+- **Enums are numbers, in *responses*.** `OrderResponse.Status` arrives as `1`, not `"Pending"`.
+  Same for `paymentStatus`, `paymentMethod`, `status` on a delivery, ticket, refund and everything
+  else.
+- **But enums are *names* in requests.** `PlaceOrder.PaymentMethod`, `OnboardDriver.VehicleType`,
+  `ChangeTicketStatus.Status`, `PostTicketMessage.Visibility` and `GetTickets`' `status`/`category`
+  query parameters are all declared as `string` and parsed from the enum member name.
+
+That asymmetry — numbers out, names in — is not a bug to work around, it is the contract. Model it
+once, in `core/api/models/`, as a numeric TypeScript enum per backend enum plus a name constant for
+the request side, and never think about it again:
+
+```ts
+export enum OrderStatus { Pending = 1, Accepted = 2, Rejected = 3, Preparing = 4,
+                          ReadyForPickup = 5, OutForDelivery = 6, Delivered = 7, Cancelled = 8 }
+
+export const PaymentMethodName = { CashOnDelivery: 'CashOnDelivery', Card: 'Card' } as const;
+```
+
+Confirm it yourself in thirty seconds before you write a line: open
+`http://localhost:3000/docs/orders/scalar`, run `GET orders/{id}` and look at the raw response.
 
 ### Authentication design (matches the existing backend exactly)
 
-The backend's Duende IdentityServer already has a **public client with the resource-owner-password
-grant and refresh tokens enabled** (`fooddeliveryservice-public-client`). That means the frontend
-does **not** need an OIDC redirect library — login is a plain form POST:
+The backend's Duende IdentityServer has a **public client with the resource-owner-password grant
+and refresh tokens enabled** (`fooddeliveryservice-public-client`, `Identity/Config.cs`). The
+frontend does **not** need an OIDC redirect library — login is a plain form POST:
 
 ```
 POST http://localhost:18080/connect/token
@@ -167,18 +239,39 @@ scope=openid profile email fooddeliveryservice.api offline_access
 Response: `access_token` (JWT) + `refresh_token`. Refresh uses the same endpoint with
 `grant_type=refresh_token`.
 
+Token lifetimes, from `Config.cs`, so you know what you are testing against:
+
+| Setting | Value | Why it matters to you |
+|---|---|---|
+| `AccessTokenLifetime` | **15 minutes** | You will see refresh happen in a normal session. Good. |
+| `RefreshTokenUsage` | **OneTimeOnly** | Using a refresh token twice invalidates the whole chain. Two concurrent refreshes will log the user out — this is why single-flight refresh matters here more than in most apps. |
+| `SlidingRefreshTokenLifetime` | 8 hours idle | |
+| `AbsoluteRefreshTokenLifetime` | 7 days | |
+| Account lockout | 5 failed attempts → 15 min | Your login form's error message should say so, and a dev account you fat-finger five times really will lock. |
+
 Frontend responsibilities:
 
 - **`AuthService`** — logs in, stores tokens, exposes `currentUser` / `isLoggedIn` / `roles` as
   signals, schedules/executes refresh, logs out.
-- **Auth interceptor** — attaches `Authorization: Bearer …` to every API request; on a 401,
+- **Auth interceptor** — attaches `Authorization: Bearer …` to every gateway request; on a 401,
   attempts one token refresh and replays the request; if refresh fails, redirects to login.
 - **Route guards** — `authGuard` (must be logged in) and `roleGuard('Customer')` etc. per area.
-  After login, the app routes to the user's home area based on their role(s); users with multiple
-  roles get a simple area switcher.
+  After login, the app routes to the user's home area based on their role(s).
 - **Token storage:** `localStorage`, with an honest README note about the XSS trade-off and what
-  production would do differently (BFF/cookie pattern). Interviewers love that you know the
-  trade-off; the pragmatic choice is fine for a portfolio SPA.
+  production would do differently (BFF/cookie pattern).
+
+> 🚧 **The access token does not tell you who the user is.** This is the single most important
+> correction in this revision, and it blocks role-based routing until the backend changes.
+> `CustomClaimsTransformation` (`Common.Infrastructure/Authorization/`) adds the `sub` (module-side
+> user id) and `permission` claims **server-side, on every request, after JWT validation** — they
+> are never minted into the token. And Identity assigns no ASP.NET Identity roles at all: roles live
+> only in the Users module's database. The `ApiResource("fooddeliveryservice.api")` declares no
+> `UserClaims` either, so the access token's user-identifying content is essentially just `sub` —
+> and that `sub` is the **Duende identity id**, a different value from the module-side user id that
+> `OrderResponse.customerId` and the SignalR groups use.
+>
+> Decode a real token at jwt.io on day one and see for yourself. Then read
+> [backend prerequisite #2](#backend-prerequisites), which is the fix and its shape.
 
 > ⚠️ ROPC (password grant) is deprecated in OAuth 2.1 — the backend chose it deliberately for
 > simplicity. Be ready to say in interviews: "production would use Authorization Code + PKCE with
@@ -189,8 +282,7 @@ Frontend responsibilities:
 
 ## Project structure
 
-The frontend lives in `Frontend/` next to `Backend/` in the same monorepo (mirrors Feature 1.1 of
-the backend plan).
+The frontend lives in `Frontend/` next to `Backend/` in the same monorepo.
 
 ```
 Frontend/
@@ -205,15 +297,17 @@ Frontend/
     │   │   │   ├── realtime/         #   SignalR connection service (Phase 2)
     │   │   │   └── layout/           #   app shell: header, mobile bottom nav, sidebar
     │   │   ├── shared/               # reusable, stateless building blocks
-    │   │   │   ├── ui/               #   button, input, card, badge, spinner, modal, toast, empty-state
-    │   │   │   └── pipes/            #   money pipe, relative-time pipe, order-status pipe
+    │   │   │   ├── ui/               #   button, input, card, badge, spinner, modal, toast,
+    │   │   │   │                     #   empty-state, chat-bubble, bar-chart, map
+    │   │   │   └── pipes/            #   money pipe, relative-time pipe, enum-label pipes
     │   │   ├── features/
     │   │   │   ├── auth/             #   login, register, activate-invitation pages
-    │   │   │   ├── customer/         #   restaurants, menu, cart, checkout, orders, tracking, reviews, chat
+    │   │   │   ├── customer/         #   restaurants, menu, cart, checkout, orders, tracking,
+    │   │   │   │                     #   payment-methods, my-tickets
     │   │   │   ├── restaurant/       #   dashboard, orders, menu-editor, profile
-    │   │   │   ├── driver/           #   home (online/offline), assignment, active delivery, history
-    │   │   │   ├── admin/            #   restaurant onboarding, account provisioning
-    │   │   │   └── support/          #   tickets, ticket detail, fraud flags (Phase 3)
+    │   │   │   ├── driver/           #   home (online/offline), offers, active delivery, history
+    │   │   │   ├── admin/            #   restaurant onboarding, driver onboarding, refund decisions
+    │   │   │   └── support/          #   ticket queue, ticket detail, refunds, analytics
     │   │   ├── app.routes.ts         # top-level routes; each feature lazy-loaded
     │   │   ├── app.config.ts         # providers: router, http+interceptors, etc.
     │   │   └── app.component.ts
@@ -233,69 +327,521 @@ business logic, no HTTP. `features/` = pages and feature-specific components; ma
 
 | Backend service | URL (local dev) | Frontend uses it for |
 |---|---|---|
-| **YARP Gateway** | `http://localhost:3000` | ALL REST calls: `users/**`, `orders/**`, `restaurants/**`, `delivery/**`, `notifications/**` |
-| **Identity (Duende)** | `http://localhost:18080` | `POST /connect/token` (login + refresh); invitation activation |
-| **Realtime (SignalR)** | `http://localhost:5600` | `hubs/**` — live order status + driver location (Phase 2, per `REALTIME_PHASE2_PLAN.md`) |
+| **YARP Gateway** | `http://localhost:3000` | Everything the browser does over HTTP **and** the WebSocket: `users/**`, `restaurants/**`, `orders/**`, `delivery/**`, `payments/**`, `support/**`, and `hubs/**` |
+| **Identity (Duende)** | `http://localhost:18080` | `POST /connect/token` — login and refresh, and nothing else |
 
-Only these three base URLs exist in `environment.ts`. Individual services (Orders :5200 etc.) are
-an internal backend detail the frontend never sees — exactly the point of the gateway.
+**Two** base URLs in `environment.ts`. The individual services (Orders :5200, RealTime :5600,
+Payments :5800 …) are an internal backend detail the frontend never sees — exactly the point of the
+gateway. Token issuance is the one exception: it does not pass through the gateway, by design
+(`docs/security.md` §6.3), which is why Identity gets its own entry and its own CORS prerequisite.
 
----
+Two more gateway facts worth knowing up front:
 
-## Backend prerequisites (small tasks on the .NET side)
-
-Do these on the backend **before** frontend Phase 1; each is small:
-
-1. **CORS** — the SPA (e.g. `http://localhost:4200`) is a different origin. Add a CORS policy
-   allowing the SPA origin on the **Gateway** and the **Identity** host (and later the Realtime
-   host, which additionally needs `AllowCredentials` for SignalR WebSocket negotiation).
-2. **Roles visible to the client** — the app routes users by role after login. Verify the access
-   token (or a `users/profile` response) exposes the user's roles; if not, add role claims to the
-   Duende profile service or extend the profile endpoint.
-3. **Invitation activation route** — the activation email should link to the SPA
-   (`/auth/activate?token=…&email=…`), and the SPA posts to the set-password endpoint. Confirm
-   that endpoint is reachable for an anonymous caller (directly on Identity or via a gateway
-   route) and that the email template contains the SPA URL.
-4. **Swagger check** — the frontend DTOs will be hand-written from the Swagger/Scalar docs of each
-   service. Make sure they're accurate (backend Feature 3.7 cares about this anyway).
+- **`notifications/**` is routed but empty.** The gateway proxies it, and the Notifications service
+  has never exposed a single HTTP endpoint — it is a pure event consumer that sends email. There is
+  no notifications API to call. See Milestone 2.1 step 5.
+- **The docs are live and proxied.** `http://localhost:3000/docs/{orders|restaurants|users|delivery|support|payments|realtime|notifications}`
+  redirects to Scalar; `/docs/{slug}/swagger` is the same document in Swagger UI, and
+  `/docs/{slug}/openapi/v1.json` is the raw document. Three of those are empty on purpose
+  (`notifications` has no endpoints, `realtime` only has a hub and `MapHub` contributes no
+  `ApiDescription`, and `payments`' document predates its endpoints). Hand-write your DTOs from the
+  other five.
 
 ---
 
-## Coverage matrix — every backend feature mapped
+## The API surface as it exists today
 
-The frontend plan covers **all three phases** of `FoodDelivery_ProjectPlan.md`. This table maps
-each backend feature to the milestone(s) where its UI lives, so nothing silently falls through.
-Some backend features are pure infrastructure with no screens — those are marked and briefly
-justified, which is itself a fact worth knowing at demo time.
+Read this table before designing any screen. Everything here was read out of the `IEndpoint`
+classes on 2026-09-19; anything not in it does not exist.
 
-| Backend feature | Frontend coverage |
+### Users — `users/**` (2 endpoints, both anonymous)
+
+| Method & path | Permission | Body / query | Returns |
+|---|---|---|---|
+| `POST users/register` | *anonymous* | `{ email, password, firstName, lastName }` | `Guid` (module user id). Role is **forced to Customer** server-side whatever you send |
+| `POST users/accept-invitation` | *anonymous* | `{ email, token, newPassword }` | `204` |
+
+That is the entire Users HTTP surface. **There is no `users/profile`, no `users/me`, no user list,
+no provisioning endpoint.** Provisioning happens over the message bus
+(`ProvisionUserRequest` / `ProvisionManagerUserRequest`), triggered by the restaurant and driver
+onboarding endpoints below.
+
+### Restaurants — `restaurants/**`
+
+| Method & path | Permission | Body / query | Returns |
+|---|---|---|---|
+| `GET restaurants` | `restaurants:read` | **`page`, `pageSize` only** (`pageSize` 1–100) | `RestaurantResponse[]` |
+| `GET restaurants/{id}` | `restaurants:read` | — | `RestaurantResponse` |
+| `POST restaurants` | `restaurants:create` (admin) | restaurant fields + `commissionRate` + `managerEmail/FirstName/LastName` | `Guid` |
+| `PUT restaurants/{id}` | `restaurants:update` | name, taxIdentification, cuisineType, email, phone, address, lat/lng | `204` |
+| `GET restaurants/{restaurantId}/menu` | `menu:read` | — | `MenuResponse` |
+| `POST restaurants/{restaurantId}/menu-categories` | `menu:manage` | `{ name, displayOrder }` | `Guid` |
+| `PUT restaurants/{restaurantId}/menu-categories/{categoryId}` | `menu:manage` | `{ name, displayOrder }` | `204` |
+| `POST restaurants/{restaurantId}/menu-items` | `menu:manage` | `{ categoryId, name, description, price, photoUrl?, isAvailable }` | `Guid` |
+| `PUT restaurants/{restaurantId}/menu-items/{menuItemId}` | `menu:manage` | `{ name, description, price, photoUrl? }` | `204` |
+| `PATCH restaurants/{restaurantId}/menu-items/{menuItemId}/availability` | `menu:manage` | `{ isAvailable }` | `204` |
+
+`RestaurantResponse` = `id, managerUserId, name, taxIdentification, cuisineType, email, phoneNumber,
+street, city, postalCode, country, latitude?, longitude?, commissionRate, status, createdOnUtc`.
+**No opening hours, no rating, no review count, no logo, no distance.**
+`commissionRate` is a **fraction in [0, 1)** — `0.20` means 20%.
+`status` is `Active = 1 | Suspended = 2`, and nothing in the API can change it.
+
+`MenuResponse` = `{ restaurantId, categories: [{ id, name, displayOrder, items: [{ id, name,
+description, price, photoUrl?, isAvailable }] }] }`.
+
+**There is no DELETE anywhere in this module** — no way to remove a category or an item. Marking an
+item unavailable is the closest thing.
+
+### Orders — `orders/**`
+
+| Method & path | Permission | Body / query | Returns |
+|---|---|---|---|
+| `POST orders` | `orders:create` | `{ restaurantId, items: [{ menuItemId, quantity }], deliveryAddress: { street, city, postalCode, country, notes?, latitude?, longitude? }, paymentMethod: "CashOnDelivery" \| "Card" }` + **`Idempotency-Key` header** | `Guid` |
+| `GET orders` | `orders:read` | `page`, `pageSize` | `OrderSummaryResponse[]` — **self-scoped** |
+| `GET orders/{id}` | `orders:read` | — | `OrderResponse` |
+| `POST orders/{id}/cancel` | `orders:create` (the *customer's* code) | — | `204` |
+| `POST orders/{id}/accept` | `orders:manage` | — | `204` |
+| `POST orders/{id}/reject` | `orders:manage` | `{ reason }` | `204` |
+| `POST orders/{id}/preparing` | `orders:manage` | — | `204` |
+| `POST orders/{id}/ready` | `orders:manage` | — | `204` |
+
+The request carries **menu item ids and quantities, never prices** — the server prices every line
+from its own menu replica.
+
+`OrderResponse` = `id, customerId, restaurantId, status, paymentMethod, paymentStatus, subtotal,
+commissionRate, street, city, postalCode, country, notes?, placedOnUtc, items: [{ id, menuItemId,
+name, unitPrice, quantity, lineTotal }]`.
+
+**An order has a `subtotal` and a `commissionRate` and nothing else.** There is no delivery fee, no
+tax, no tip and no grand total — `commissionRate` is the platform's cut of the subtotal, a
+business-side number, not something to add to what the customer pays. Any screen that renders
+"Total" is inventing a number.
+
+`GET orders` is scoped in the handler from the authenticated identity — a customer's own, a
+manager's incoming (by owned restaurant), all of them for an administrator. **There is no parameter
+that widens it**, and no parameter that narrows it either: no status filter, no restaurant filter,
+no date range. Just `page` and `pageSize`.
+
+### Delivery — `delivery/**`
+
+| Method & path | Permission | Body / query | Returns |
+|---|---|---|---|
+| `POST delivery/drivers` | `users:provision` (admin) | `{ email, firstName, lastName, vehicleType: "Bicycle" \| "Motorcycle" \| "Car" }` | `Guid` (= the provisioned user id) |
+| `GET delivery/drivers/me` | `drivers:read` | — | `DriverResponse` |
+| `PUT delivery/drivers/me` | `drivers:update` | `{ firstName, lastName, vehicleType }` | `204` |
+| `PATCH delivery/drivers/me/availability` | `drivers:update` | `{ available: boolean }` | `204` |
+| `POST delivery/drivers/me/location` | `drivers:update` | `{ latitude, longitude }` | `204` |
+| `GET delivery/drivers/me/offers` | `drivers:read` | — | `DeliveryOfferResponse[]` |
+| `GET delivery/drivers/{id}` | `drivers:read` | — | `DriverResponse` |
+| `GET delivery/deliveries` | `deliveries:read` | `page`, `pageSize` | `DeliverySummaryResponse[]` — **self-scoped** |
+| `GET delivery/deliveries/{id}` | `deliveries:read` | — | `DeliveryResponse` |
+| `GET delivery/orders/{orderId}/delivery` | `deliveries:read` | — | `DeliveryResponse` |
+| `POST delivery/deliveries/{id}/accept` | `deliveries:manage` | — | `204` (`409` if you lost the race) |
+| `POST delivery/deliveries/{id}/reject` | `deliveries:manage` | — | `204` |
+| `POST delivery/deliveries/{id}/picked-up` | `deliveries:manage` | — | `204` |
+| `POST delivery/deliveries/{id}/delivered` | `deliveries:manage` | — | `204` |
+
+`DeliveryOfferResponse` = `id, orderId, restaurantId, pickupLatitude, pickupLongitude,
+dropoffStreet, dropoffCity, dropoffPostalCode, dropoffCountry, dropoffNotes?, dropoffLatitude,
+dropoffLongitude, offerExpiresOnUtc, createdOnUtc` — soonest deadline first, lapsed offers excluded
+server-side. **No driver name, no live position, no status: every row is `Offered` by
+construction.**
+
+`DeliveryResponse` adds the driver (`driverId?`, `driverFirstName?`, `driverLastName?`), the
+timestamps (`offerExpiresOnUtc?`, `assignedOnUtc?`, `pickedUpOnUtc?`, `deliveredOnUtc?`) and the
+live position (`currentDriverLatitude?`, `currentDriverLongitude?`,
+`currentDriverLocationRecordedOnUtc?`, read from Redis, null once terminal or stale).
+
+`DeliveryStatus` = `Pending = 0, Offered = 1, Assigned = 2, PickedUp = 3, Delivered = 4,
+Unassigned = 5, Cancelled = 6`. `DriverStatus` = `Offline = 1, Available = 2, Busy = 3`.
+`VehicleType` = `Bicycle = 1, Motorcycle = 2, Car = 3`.
+
+Like `GET orders`, **`GET delivery/deliveries` is scoped from the token and has no widening
+parameter** — a driver's own history, or all of them for an administrator.
+
+### Payments — `payments/**`
+
+| Method & path | Permission | Body / query | Returns |
+|---|---|---|---|
+| `GET payments/payment-methods` | `payment-methods:manage` | — | `PaymentMethodResponse[]` (at most one; saving another replaces it) |
+| `POST payments/payment-methods/setup-intents` | `payment-methods:manage` | — | `{ setupIntentId, clientSecret }` |
+| `DELETE payments/payment-methods/{id}` | `payment-methods:manage` | — | `204` |
+| `POST payments/payment-methods/test-cards` | `payment-methods:manage`, **Development only** | `{ stripePaymentMethodId? }` | `Guid` |
+| `POST payments/webhooks/stripe` | *anonymous* | Stripe's, not yours | — |
+
+`PaymentMethodResponse` = `id, brand?, last4?, expiryMonth?, expiryYear?, attachedOnUtc?`. That is
+everything the platform stores about a card, deliberately.
+
+`payments/payment-methods/test-cards` exists **because this SPA does not yet exist**: it attaches
+one of Stripe's server-side test tokens (`pm_card_visa`) so the payment flow can be demonstrated
+without a browser card form. Its own doc comment says *"Delete it when the Angular card flow
+lands."* Milestone 3.1 is that flow — the test-card endpoint is your scaffolding while you build it,
+and removing it is a legitimate backend follow-up you can raise in the same pull request.
+
+Note what is **not** here: `payments:read` is seeded on Customer and Administrator but **no endpoint
+uses it**. There is no "my payments" list. An order's payment state is visible in exactly one place,
+`OrderResponse.paymentStatus`.
+
+### Support — `support/**`
+
+| Method & path | Permission | Body / query | Returns |
+|---|---|---|---|
+| `POST support/tickets` | `support-tickets:open` | `{ onBehalfOfCustomerId?, orderId?, subject, category }` | `Guid` |
+| `GET support/tickets` | `support-tickets:read` | `status`, `category`, `assignedAgentId`, `unassigned`, `from`, `to`, `page`, `pageSize` | `TicketSummaryResponse[]` |
+| `GET support/tickets/{id}` | `support-tickets:read` | — | `TicketResponse` |
+| `GET support/tickets/{id}/messages` | `support-tickets:read` | — | `TicketMessageResponse[]` |
+| `POST support/tickets/{id}/messages` | `support-tickets:read` | `{ body, visibility: "CustomerVisible" \| "InternalNote" }` | `Guid` |
+| `GET support/tickets/{id}/audit` | `support-tickets:manage` (**staff only**) | — | `SupportAuditEntryResponse[]` |
+| `POST support/tickets/{id}/status` | `support-tickets:manage` | `{ status, reason? }` | `204` |
+| `POST support/tickets/{id}/claim` | `support-tickets:assign` | — | `204` |
+| `POST support/tickets/{id}/assign` | `support-tickets:assign` (+ `:administer` to name someone else) | `{ agentId, reason? }` | `204` |
+| `POST support/tickets/{id}/unassign` | `support-tickets:assign` | `{ reason }` (required) | `204` |
+| `POST support/tickets/{id}/refund-requests` | `refunds:request` | `{ amount, reason }` | `Guid` |
+| `GET support/refund-requests` | `refunds:request` | `status`, `page`, `pageSize` | `RefundRequestResponse[]` |
+| `POST support/refund-requests/{id}/approve` | `refunds:approve` (**admin only**) | `{ note? }` | `204` |
+| `POST support/refund-requests/{id}/reject` | `refunds:approve` (**admin only**) | `{ note? }` | `204` |
+| `GET support/analytics/summary` | `support-analytics:read` | `from`, `to` (both default server-side) | `SupportSummaryResponse` |
+
+`GET support/tickets` is **the same endpoint** for the agent queue and a customer's own list —
+whose tickets come back is decided from the token. `?status=Open&unassigned=true` is the agent
+queue; a customer calling it with the same parameters still only sees their own.
+
+Enums: `TicketStatus` = `Open = 0, InProgress = 1, Resolved = 2, Escalated = 3, Closed = 4`.
+`TicketCategory` = `OrderNotReceived = 0, ItemMissing = 1, FoodQuality = 2, DriverIssue = 3,
+PaymentIssue = 4, AppIssue = 5, Other = 6`. `TicketPriority` = `Low = 0 … Urgent = 3`.
+`TicketSource` = `CustomerPortal = 0, AgentCreated = 1, Chatbot = 2, FraudFlag = 3` — the last two
+are reserved enum members with nothing producing them, since neither feature was built.
+`TicketAuthorKind` = `Customer = 0, Agent = 1, System = 2`. `TicketMessageVisibility` =
+`CustomerVisible = 0, InternalNote = 1`. `RefundStatus` = `Requested = 0, Approved = 1,
+Rejected = 2, Settled = 3, Failed = 4`.
+
+### RealTime — the SignalR hub
+
+One hub, at **`hubs/tracking`** through the gateway. `[Authorize]` but **no particular permission** —
+customers, drivers, managers and agents all connect to the same hub and each is shown a different
+slice.
+
+**The hub has no client→server methods at all.** There is nothing to `invoke`. Group membership is
+derived entirely from the connecting principal's claims in `OnConnectedAsync`, and re-derived on
+every automatic reconnect:
+
+| Group | Who lands in it |
 |---|---|
-| **1.1** Solution structure | `Frontend/` folder in the same monorepo; CI for `Frontend/**` — **Milestone 0.A** |
-| **1.2** Identity (registration, login, invitations, refresh, logout) | Login, customer registration, invitation activation, silent refresh, logout, session restore — **Milestone 1.1** |
-| **1.3** API Gateway | All REST traffic goes through the gateway :3000; frontend never sees internal services — **all milestones**; 401/403 handling in interceptors (**1.1**) |
-| **1.4** Restaurant Service | Customer browse/search/filters (cuisine, rating, proximity "near me") + menus — **1.2**; manager menu/category CRUD, availability, profile & opening hours — **1.5**; admin onboarding — **1.6** |
-| **1.5** Order Service | Cart, checkout with idempotency key — **1.3**; order list/detail/timeline/cancel — **1.4**; restaurant accept/reject/status flow — **1.5** |
-| **1.6** Notification Service | Emails are backend-side; the SPA's surfaces are the invitation-activation link target (**1.1**) and the in-app notification bell + toasts fed by SignalR (**2.1**); PWA push notifications — optional stretch in **3.4** |
-| **1.7** CI/CD Phase 1 | Frontend CI from day one — **0.A**; deploy to Azure Static Web Apps — **3.4** |
-| **2.1** Delivery Service & drivers | Full driver portal: availability, geolocation updates, assignment offers with expiry, picked-up/delivered flow, history — **2.2** |
-| **2.2** SignalR real-time | Realtime connection service, live order status for customer + manager dashboards — **2.1**; live driver map for customers — **2.3** |
-| **2.3** Redis caching | Backend-only (no UI); the frontend just gets faster responses. Worth one README sentence, zero screens |
-| **2.4** Telemetry & observability | Mostly backend; optional frontend contribution: Application Insights **JavaScript SDK** for browser-side page/AJAX telemetry correlated with backend traces — optional item in **3.4** |
-| **2.5** Kubernetes / AKS | Backend-only; frontend deploys as static assets (**3.4**) and is unaffected by cluster topology |
-| **2.6** Reviews & ratings | Review submission, star component, ratings in search/detail, manager read-only view — **2.4**; support-agent **moderation** (hide abusive reviews) — **3.1** |
-| **3.1** AI support chatbot (RAG) | Full chat UI with escalation-to-human state — **3.2**; the pre-escalation transcript shown to agents — **3.1** |
-| **3.2** Personalised recommendations | "Recommended for you" + "Trending near you" on customer home — **3.3** |
-| **3.3** AI-powered ETA | Live ETA on checkout, order detail, tracking screen via SignalR — **3.3** (slot designed in **2.3**) |
-| **3.4** Fraud & anomaly detection | Fraud dashboard in the support portal: flagged orders/accounts, risk scores, mark-reviewed — **3.1** |
-| **3.5** Load testing | Backend-only (k6 targets the API). Frontend analogue: Lighthouse performance budget in **3.4** |
-| **3.6** Support Service & ticketing | Ticket queue, detail, messaging, refund workflow, **analytics summary dashboard** — **3.1** |
-| **3.7** Production hardening | Frontend equivalent: a11y/perf/PWA/E2E/deploy/README pass — **3.4** |
+| `user:{sub}` | **everyone**, where `sub` is the module-side user id |
+| `restaurant:{restaurantId}` | a caller holding `restaurants:update` **and** having a RestaurantManager replica row |
+| `support` | a caller holding `support:dashboard` |
+
+Server→client methods and their payloads (`TrackingHubMethods` + the frame records):
+
+| Method | Payload | Audience |
+|---|---|---|
+| `OrderStatusChanged` | `{ orderId, status, occurredOnUtc, driverName?, driverVehicle? }` | the order's customer |
+| `DriverLocationChanged` | `{ orderId, driverId, latitude, longitude, recordedOnUtc }` | the order's customer |
+| `DeliveryOffered` | `{ deliveryId, orderId, offerExpiresOnUtc }` | the offered **driver** |
+| `RestaurantActivity` | `{ orderId, status, occurredOnUtc }` | the restaurant's manager |
+| `SupportActivity` | `{ orderId, restaurantId, status, occurredOnUtc }` | all support agents |
+
+`status` on all three status-bearing frames is a **string** from `OrderStatuses`, not a number and
+not the REST enum — see the next section.
+
+The socket is explicitly **best-effort**: the hub's own doc comment says the client re-fetches
+authoritative state from `GET orders/{id}` and `GET delivery/orders/{orderId}/delivery` on connect
+and on every reconnect, then applies socket deltas. Build that re-sync; it is the load-bearing
+assumption the backend made when it decided not to persist frames.
+
+---
+
+## Roles, permissions, and which portal may call what
+
+Straight from the seed in `Users.Infrastructure/Users/PermissionConfiguration.cs`. Five roles;
+`Administrator` cannot be registered or provisioned — the first one is seeded from configuration.
+
+| Permission | Customer | RestaurantManager | DeliveryDriver | SupportAgent | Administrator |
+|---|:--:|:--:|:--:|:--:|:--:|
+| `users:read` / `users:update` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `carts:read` / `carts:add` / `carts:remove` | ✅ | | | | ✅ |
+| `orders:create` | ✅ | | | | ✅ |
+| `orders:read` | ✅ | ✅ | | | ✅ |
+| `orders:manage` | | ✅ | | | ✅ |
+| `restaurants:read` | ✅ | ✅ | | | ✅ |
+| `restaurants:update` | | ✅ | | | ✅ |
+| `restaurants:create` | | | | | ✅ |
+| `menu:read` | ✅ | ✅ | | | ✅ |
+| `menu:manage` | | ✅ | | | ✅ |
+| `users:provision` | | | | | ✅ |
+| `drivers:read` / `drivers:update` | | | ✅ | | ✅ |
+| `deliveries:read` | ✅ | | ✅ | | ✅ |
+| `deliveries:manage` | | | ✅ | | ✅ |
+| `deliveries:administer` | | | | | ✅ |
+| `support:dashboard` | | | | ✅ | |
+| `support-tickets:open` | ✅ | | | | ✅ |
+| `support-tickets:read` | ✅ | | | ✅ | ✅ |
+| `support-tickets:manage` / `:assign` | | | | ✅ | ✅ |
+| `support-tickets:administer` | | | | | ✅ |
+| `refunds:request` | | | | ✅ | ✅ |
+| `refunds:approve` | | | | | ✅ |
+| `support-analytics:read` | | | | ✅ | ✅ |
+| `payment-methods:manage` / `payments:read` | ✅ | | | | ✅ |
+| `payments:administer` | | | | | ✅ |
+
+*An empty cell means the role does not hold that permission — and on this backend a missing
+permission is a `403`, never a quietly narrower result. The two exceptions are deliberate: a
+customer holding `orders:read` or `support-tickets:read` gets **their own** rows, because one
+permission code cannot express "yours only" and the narrowing happens in the handler instead.*
+
+Four consequences worth knowing before you design a screen:
+
+1. **`carts:*` exists and no cart endpoint does.** The cart is genuinely browser-only state. That is
+   not a gap to fill — it is the reason `CartService` in Milestone 1.3 is the state-management
+   showcase.
+2. **A SupportAgent cannot open a ticket.** `POST support/tickets` requires `support-tickets:open`,
+   which is seeded to Customer and Administrator only. The endpoint's `onBehalfOfCustomerId` field
+   — "an agent files a ticket from a phone call" — is therefore reachable by an administrator and
+   not by an agent. Don't put that button on the agent portal.
+3. **An Administrator does not join the `support` SignalR group.** `support:dashboard` is seeded to
+   SupportAgent alone. An admin *does* hold `restaurants:update`, so the hub tries to put them in a
+   restaurant group, finds no replica row, logs a warning and moves on. Both are correct; both will
+   look like bugs if you don't expect them.
+4. **A customer cannot read a driver record.** `GET delivery/drivers/{id}` needs `drivers:read`. The
+   customer gets the driver's name from `DeliveryResponse.driverFirstName/LastName` or from the
+   `DriverAssigned` hub frame's `driverName` — those are the only two sources.
+
+---
+
+## The two order-status vocabularies
+
+The plan used to treat "order status" as one thing. It is two, and they are decoupled on purpose:
+the REST read models expose the domain enum, and the socket has its own stable string contract
+(`RealTime.Application/RealTime/OrderStatuses.cs`) whose comment says outright that it is
+*"intentionally decoupled from any service's internal enum"*.
+
+| REST — `OrderStatus` (a **number**) | Socket — `OrderStatuses` (a **string**) | Note |
+|---|---|---|
+| `Pending = 1` | `"Placed"` | **different name for the same state** |
+| `Accepted = 2` | `"Accepted"` | |
+| `Rejected = 3` | `"Rejected"` | |
+| `Preparing = 4` | `"Preparing"` | |
+| `ReadyForPickup = 5` | `"ReadyForPickup"` | |
+| *(no equivalent)* | `"DriverAssigned"` | **socket-only** — see below |
+| `OutForDelivery = 6` | `"OutForDelivery"` | published by Delivery, not Orders |
+| `Delivered = 7` | `"Delivered"` | published by Delivery, not Orders |
+| `Cancelled = 8` | `"Cancelled"` | |
+
+Two traps live in that table:
+
+- **`Pending` vs `Placed`.** A naïve `ORDER_STATUS_META` keyed by string will simply miss one of
+  them, and the badge renders blank or falls through to a default. This is the classic "wrong badge
+  in production" bug.
+- **`DriverAssigned` has no REST equivalent.** When a driver accepts, the socket pushes
+  `DriverAssigned` (with the driver's name and vehicle), but the Orders aggregate does not move —
+  the order is still `ReadyForPickup = 5` and stays there until the driver marks pickup. So a
+  customer who receives `DriverAssigned` and then refreshes the page will see the timeline *go
+  backwards* unless you handle it. The delivery's own status (`DeliveryStatus.Assigned = 2`, via
+  `GET delivery/orders/{orderId}/delivery`) is where that state actually lives.
+
+**Design the shared map against the socket vocabulary and normalize REST into it**, because the
+socket has strictly more states:
+
+```ts
+export type TimelineStatus =
+  | 'Placed' | 'Accepted' | 'Preparing' | 'ReadyForPickup'
+  | 'DriverAssigned' | 'OutForDelivery' | 'Delivered'
+  | 'Rejected' | 'Cancelled';
+
+export const ORDER_STATUS_META: Record<TimelineStatus,
+  { label: string; tone: 'neutral' | 'progress' | 'success' | 'danger'; step: number | null }> = { /* … */ };
+
+// The bridge. One function, one place to be wrong.
+export function toTimelineStatus(rest: OrderStatus): TimelineStatus { /* Pending → 'Placed', … */ }
+```
+
+`step: null` for `Rejected` and `Cancelled` — they are not points on the line, they are terminal
+banners.
+
+A **separate** map handles `PaymentStatus`, because it is a second, orthogonal dimension:
+`NotRequired = 1` (cash — for the whole life of the order), `Authorizing = 2`, `Authorized = 3`,
+`Captured = 4`, `Released = 5`, `Failed = 6`. See Milestone 1.4 and Milestone 3.1.
+
+---
+
+## Backend prerequisites
+
+Four things block or degrade a real screen. Each is listed with the shape it needs, so the backend
+work is a ticket rather than a discussion. Do #1 and #2 before frontend Phase 1; #3 before Milestone
+1.1 step 5; #4 before Milestone 1.6 step 2.
+
+### 1. CORS on Identity (the Gateway's half is **done**)
+
+**Done:** `Cors:AllowedOrigins` in `Gateway/appsettings.Development.json` is already
+`[ "http://localhost:4200", "https://localhost:4200" ]`, with `AllowCredentials: true` and
+`ExposedHeaders: ["X-Correlation-Id", "Retry-After"]`. `AddEdgeCors`/`UseEdgeCors` sit in the
+gateway pipeline *before* `UseAuthentication`, so preflights are answered without a token, and the
+policy is applied to **every** proxied route — which includes `hubs/**`. The SignalR handshake is
+covered, and so is the query-string token (`AddRealTimeHubAuthentication` in the RealTime host reads
+`access_token` for `hubs/*` paths). **Nothing to do for the gateway or the realtime path.**
+
+**Outstanding:** `Identity/Program.cs` registers no CORS at all — no `AddCors`, no `UseCors`, and no
+Duende `AllowedCorsOrigins`. The SPA posts to `http://localhost:18080/connect/token` from
+`http://localhost:4200`, which is cross-origin, so login fails at the preflight. Two acceptable
+shapes:
+
+- **(a)** Add `builder.Services.AddEdgeCors(builder.Configuration)` and `app.UseEdgeCors()` to the
+  Identity host (before `app.UseIdentityServer()`) and give it the same `Cors:AllowedOrigins`
+  section. Reuses the shared, already-tested component. *Recommended.*
+- **(b)** Add a gateway route for `connect/{**catch-all}` (+ `.well-known/{**catch-all}`) with
+  `AuthorizationPolicy: anonymous`, and drop the Identity base URL from the SPA entirely. Cleaner
+  for the frontend — one base URL — but it contradicts `docs/security.md` §6.3, which states as a
+  deliberate decision that token issuance does not pass through the gateway.
+
+**How you'll recognise it:** a red request with no response and a CORS message in the console, with
+a failed `OPTIONS` preflight just above it in the Network tab. That is this item, not your code.
+
+### 2. The user's role must reach the client — **blocking**
+
+**The problem, verified:** the access token carries no role and no permission.
+`CustomClaimsTransformation` adds `sub` and `permission` claims server-side per request; Identity
+assigns no ASP.NET Identity roles (roles live only in the Users module's database); and
+`ApiResource("fooddeliveryservice.api")` declares no `UserClaims`, so even name and email are absent
+from the access token. Without a change, `roleGuard('Customer')` has nothing to guard on and the
+app cannot decide which area to route a user to after login.
+
+Two shapes, either of which unblocks Phase 1:
+
+- **(a) A `role` claim in the access token.** Add `UserClaims = { "role" }` to the `ApiResource` and
+  an `IProfileService` that supplies it. The catch: Identity has no role data, so it would need
+  Users to tell it — and the platform forbids service-to-service HTTP except `api/users`. Doable,
+  but it fights the architecture.
+- **(b) `GET users/me` on the Users module.** *Recommended.* Gated on `users:read`, which every role
+  holds. Returns exactly what the SPA needs and nothing more:
+
+  ```jsonc
+  // GET users/me  →  200
+  {
+    "userId":      "…",          // the MODULE-side id — the one on OrderResponse.customerId
+                                 // and the one the SignalR user:{id} group uses
+    "email":       "…",
+    "firstName":   "…",
+    "lastName":    "…",
+    "roles":       ["Customer"], // Role.Name values
+    "permissions": ["orders:create", "…"]   // optional, but it makes permission-driven UI honest
+  }
+  ```
+
+  It is ~40 lines: an `IQuery`, a Dapper read against `users` + `user_roles` + `role_permissions`,
+  an `IEndpoint`. The SPA calls it once at app start (Milestone 1.1 step 6) and caches it in a
+  signal. It also hands back the module-side user id, which the token cannot supply at all.
+
+**Until it lands:** the dev role-switcher from Milestone 0.C stays as the *only* way to route by
+role, and you cannot demo the app. Treat this as the first backend ticket, not the last.
+
+### 3. The invitation email links to the API, not the SPA
+
+`Notifications.Infrastructure/Email/EmailService.SendInvitationEmailAsync` builds:
+
+```
+{InvitationEmail:BaseUrl}/users/accept-invitation?email={email}&token={token}
+```
+
+with `InvitationEmailOptions.BaseUrl` defaulting to `http://localhost:3000` — the **gateway**. An
+invitee clicking it gets a `405` from an endpoint that only accepts POST. The fix is two lines:
+point `InvitationEmail:BaseUrl` at the SPA origin (`http://localhost:4200`) and change the hardcoded
+path segment to the SPA route (`/auth/activate`). The query string is already exactly what the SPA
+needs.
+
+**Also:** there is no Mailpit or any other dev mail sink in `docker-compose.yml`. `EmailService`
+*logs* the message — subject and body, activation link included. Read it from the Notifications
+container's console output or from Seq at `http://localhost:8081`.
+
+### 4. A provisioning endpoint for support agents and administrators
+
+Today an administrator can provision exactly two kinds of account, and both are side effects of a
+domain action: `POST restaurants` (which provisions the manager) and `POST delivery/drivers`. There
+is **no HTTP route that provisions a SupportAgent**, so the support portal cannot be staffed from
+the UI at all. The bus contract already exists and already takes the role —
+`ProvisionUserRequest(email, firstName, lastName, role)`, consumed by
+`Users.Presentation/Users/ProvisionUserRequestConsumer` — so the endpoint is a thin wrapper:
+
+```
+POST users/invitations          RequireAuthorization("users:provision")
+{ "email": "…", "firstName": "…", "lastName": "…", "role": "SupportAgent" }
+→ 200 { "userId": "…" }
+```
+
+`Role.Assignable` is `Customer | RestaurantManager | DeliveryDriver | SupportAgent`, and the
+consumer already rejects `Administrator` and unknown names — so the endpoint inherits its own
+validation.
+
+### Nice-to-have (each unlocks a screen, none blocks a milestone)
+
+- **Filtering on `GET restaurants`.** It takes `page` and `pageSize` and nothing else. A
+  `?city=&cuisineType=&q=` trio would make a search screen worth building; see Milestone 1.2, which
+  currently ships client-side filtering over the loaded page and says so out loud.
+- **`DELETE` for menu categories and items.** Neither exists. A mistyped item is permanent (you can
+  only mark it unavailable), which is a visible rough edge in a manager demo.
+- **Opening hours on `RestaurantResponse`.** There is no such field and no endpoint that would set
+  one. This is what killed the `FormArray` exercise; Milestone 1.5 re-homes it on something real.
+
+---
+
+## Coverage matrix — every backend feature and its real state
+
+Backend feature numbering follows `FoodDelivery_ProjectPlan.md`. **State** is what is in the
+repository on 2026-09-19, not what the plan intends.
+
+| Backend feature | State | Frontend coverage |
+|---|---|---|
+| **1.1** Solution structure | ✅ shipped | `Frontend/` in the same monorepo; a `Frontend/**` job added to the existing `.github/workflows/ci.yml` — **0.A** |
+| **1.2** Identity (registration, login, invitations, refresh, logout) | ✅ shipped | Login, customer registration, invitation activation, silent refresh, logout, session restore — **1.1**. Blocked on [prerequisite #2](#backend-prerequisites) for role routing |
+| **1.3** API Gateway | ✅ shipped (+ edge rate limiting, CORS, security headers from 3.7) | All REST **and** the WebSocket go through `:3000` — **all milestones**; 401/403/**429 with `Retry-After`** handled in **1.1** |
+| **1.4** Restaurant Service | ✅ shipped — **no search, no filters, no opening hours, no ratings** | Paged browse + menu — **1.2**; manager menu/category CRUD and sold-out toggle — **1.5**; admin onboarding — **1.6** |
+| **1.5** Order Service | ✅ shipped | Cart + checkout with idempotency key — **1.3**; order list/detail/timeline/cancel — **1.4**; manager accept → reject → preparing → ready — **1.5** |
+| **1.6** Notification Service | ✅ shipped — **email only, zero HTTP endpoints** | The invitation-activation link target — **1.1**; a session-scoped in-app bell fed by SignalR, *not* an API — **2.1** |
+| **1.7** CI/CD Phase 1 | ⚠️ never built as its own feature; CI first arrived with 2.5's Milestone A0 | Frontend job appended to the existing workflow — **0.A** |
+| **2.1** Delivery Service & drivers | ✅ shipped | Full driver portal: availability, geolocation, the real offer contract, pickup/delivered, history — **2.2**; the customer's view of it — **2.3** |
+| **2.2** SignalR real-time | ✅ shipped (5 hub methods; A–D done, optional Azure SignalR not built) | Realtime connection service + live status — **2.1**; driver offers — **2.2**; live map — **2.3** |
+| **2.3** Redis caching | ✅ shipped | Backend-only. The frontend just gets faster menu reads. One README sentence, zero screens |
+| **2.4** Telemetry & observability | ✅ shipped (A–E, G; optional Azure Monitor **not built**) | **No App Insights exists.** Browser-side contribution is correlation via the exposed `X-Correlation-Id` header — **3.4** |
+| **2.5** Kubernetes / AKS | ⚠️ **scoped down** — plain `kubectl` manifests in `Backend/deploy/` only; Helm, HPA, Ingress, CI-deploy and AKS were cut | Backend-only. It does mean **there is no deployed backend to point a hosted SPA at** — see **3.4** step 6 |
+| **2.6** Reviews & ratings | ❌ **not built** — no module, no endpoints, nothing | **Dropped.** See [what this plan deliberately does not build](#what-this-plan-deliberately-does-not-build) |
+| **3.1** AI support chatbot (RAG) | ❌ **not built** | **Dropped.** The `TicketSource.Chatbot` enum member exists with nothing producing it |
+| **3.2** Personalised recommendations | ❌ **not built** | **Dropped** |
+| **3.3** AI-powered ETA | ❌ **not built** | **Dropped.** No ETA slot is designed into the tracking screen |
+| **3.4** Fraud & anomaly detection | ⛔ **built, then reverted** (commit `6ae4879`, 2026-08-08) — only stale `bin/obj` artifacts remain, and the projects are out of the solution | **Dropped.** `TicketSource.FraudFlag` is the last trace of it |
+| **3.5** Load testing | ✅ shipped | Backend-only (k6 targets the API). Frontend analogue: a Lighthouse performance budget — **3.4** |
+| **3.6** Support Service & ticketing | ✅ shipped (A–C, E–G; H–I not built) | Customer-side tickets — **3.2**; agent/admin portal with queue, thread + internal notes, audit, refunds and analytics — **3.3** |
+| **3.7** Production hardening | ✅ shipped — **except Milestone H (supply chain), which was cut**; the Azure cost model was cut with it | Frontend equivalent: a11y / perf / PWA / E2E / deploy / README pass — **3.4** |
+| **3.8** Card payments (Stripe) | ✅ shipped (A–I, feature complete) | Saved cards via Stripe.js, card-vs-cash at checkout, the `PaymentStatus` badge on every order — **3.1**, with the badge itself from **1.4** |
+
+---
+
+## What this plan deliberately does not build
+
+A deleted feature with a stated reason is an interview answer. A silent deletion is a gap. Each of
+these was in the 2026-07-19 plan and is gone; the concept it was going to teach is either re-homed
+or explicitly written off.
+
+| Dropped | Why | Where the concept went |
+|---|---|---|
+| **Reviews & ratings** (old Milestone 2.4) and every rating reference in browse/detail | There is no review service — Feature 2.6 was never built. `RestaurantResponse` has no rating field and `GET restaurants` has nothing to sort or filter by | The accessible-radiogroup pattern the star component was for is re-homed on the **ticket category selector** (3.2) and the **refund decision** (3.3). Written off: partial-star clipping, cached-average reasoning |
+| **Minimum-rating filter** | Same | — |
+| **Restaurant search, cuisine filter chips, "near me" proximity** (old 1.2 steps 3–4) | `GET restaurants` accepts `page` and `pageSize`. There is no search parameter, no cuisine parameter and no coordinate parameter to send | `debounceTime` + `switchMap` + URL-as-state move to the **support ticket queue** (3.3), which really does filter server-side on `status`, `category`, `assignedAgentId`, `unassigned`, `from`, `to`. Browser geolocation survives, in the **driver portal** (2.2), where it was always the more honest use |
+| **Opening hours editor** (old 1.5 step 3) | `RestaurantResponse` carries no hours and `PUT restaurants/{id}` accepts none. A `FormArray` of seven day-rows would post to nothing | The `FormArray` exercise moves to the **menu category reorder form** (1.5 step 2), which is a real `FormArray` of N rows over a real endpoint |
+| **AI chatbot UI** (old 3.2) | Feature 3.1 was never built | Chat-bubble rendering, auto-scroll and optimistic send all survive in the **ticket message thread** (3.2/3.3), which is a genuine two-sided conversation. Written off: consuming a streamed HTTP response — there is no streaming endpoint on this platform |
+| **Recommendations carousel** (old 3.3 step 1) | Feature 3.2 was never built | Written off. `snap-x` carousels are a 20-minute skill; say so if asked |
+| **Live ETA** (old 3.3 step 2, slot designed in 2.3) | Feature 3.3 was never built, and nothing on any DTO or hub frame carries an estimate | Written off. Do **not** design a placeholder slot for it — an empty "ETA: –" on a portfolio screenshot reads as an unfinished feature, not a planned one |
+| **Fraud dashboard** (old 3.1 step 3) | Feature 3.4 was built and then reverted in `6ae4879`. The service is gone; only stale build artifacts remain | Written off. This one is worth mentioning in interviews as *"we built it and took it back out"* — knowing why a thing was removed is the more interesting half |
+| **Review moderation** (old 3.1 step 4) | Depends on reviews, which do not exist | Written off |
+| **A notifications API / persisted notification list** | The Notifications service has never exposed an HTTP endpoint | The bell becomes a **session-scoped feed of socket events** (2.1 step 5) — honest, and the honesty is the point |
+| **`users/profile`** (old 1.1 steps 1 & 6, old prerequisite #2) | The Users module exposes exactly two endpoints, both anonymous | Replaced by [backend prerequisite #2](#backend-prerequisites), which specifies `GET users/me` properly instead of assuming it |
+| **Application Insights browser SDK** (old 3.4 step 7) | There is no Application Insights anywhere in the backend | Replaced by correlation on the `X-Correlation-Id` response header, which the gateway's CORS policy already exposes by name — **3.4** |
+| **Web push notifications** (old 3.4 step 8) | Would need a subscription endpoint and a push sender in Notifications; neither exists, and neither is a small change | Written off. The PWA install (3.4 step 1) stays; push does not |
 
 ---
 
 # Part 2 — Detailed Implementation Plan
 
-Each milestone lists: **Goal → Steps → New concepts you learn → Definition of done.**
+Each milestone lists: **Goal → Steps → New concepts you learn → 💡 Hints → Done when.**
 Milestones are ordered; each builds on the previous. Estimated effort assumes evenings/weekends
 alongside backend work — treat estimates as loose.
 
@@ -312,15 +858,16 @@ alongside backend work — treat estimates as loose.
 **Steps**
 1. Install the current LTS Node.js and the Angular CLI. Run `ng new food-delivery-web` inside
    `Frontend/` — choose **CSS** (Tailwind replaces SCSS), routing **yes**, SSR **no**.
-2. Add Tailwind CSS v4 (per official Angular guide: install, add `@import "tailwindcss";` to
+2. Add Tailwind CSS v4 (per the official Angular guide: install, add `@import "tailwindcss";` to
    `styles.css`).
 3. Add angular-eslint (`ng add angular-eslint`) and Prettier with the Tailwind class-sorting
    plugin (`prettier-plugin-tailwindcss`). Add npm scripts: `lint`, `format`.
 4. Enable TypeScript strict options (the CLI default already is strict — verify, don't weaken).
-5. Create `environments/` with the three backend base URLs.
-6. Verify `ng test` runs the default Vitest suite, `ng build` produces a production build.
-7. Commit. Set up a GitHub Actions workflow now, while it's trivial: install → lint → test → build
-   on every push touching `Frontend/**`.
+5. Create `environments/` with the **two** backend base URLs: `gatewayUrl`
+   (`http://localhost:3000`) and `identityUrl` (`http://localhost:18080`).
+6. Verify `ng test` runs the default Vitest suite and `ng build` produces a production build.
+7. Commit. Add a **frontend job to the repo's existing `.github/workflows/ci.yml`** — install →
+   lint → test → build, `paths`-filtered to `Frontend/**`. Do not start a second workflow file.
 
 **New concepts:** Angular CLI, the dev server, project configuration, how a frontend "build" works
 (TypeScript → bundled/minified JS), CI for frontend.
@@ -337,15 +884,17 @@ alongside backend work — treat estimates as loose.
   `npx prettier --write .` once so the first real commit isn't polluted by formatting noise.
 - *Step 5:* if the CLI didn't scaffold environments, `ng generate environments` creates them plus
   the `fileReplacements` build config. Type the environment object (`interface Env`) so a typo in
-  a URL key is a compile error.
-- *Step 7:* in the workflow use `actions/setup-node` with `cache: 'npm'` and run `npm ci` (not
-  `npm install` — `ci` respects the lockfile exactly, like `dotnet restore --locked-mode`). Set
-  `defaults.run.working-directory: Frontend/food-delivery-web` so every step runs in the right
-  folder.
+  a URL key is a compile error. **Two keys, not three** — if you find yourself adding a
+  `realtimeUrl`, re-read [How the frontend talks to the backend](#how-the-frontend-talks-to-the-backend).
+- *Step 7:* the existing workflow's jobs run from the repo root with `SOLUTION: Backend/…`; yours
+  needs `defaults.run.working-directory: Frontend/food-delivery-web`. Use `actions/setup-node` with
+  `cache: 'npm'` and run `npm ci` (not `npm install` — `ci` respects the lockfile exactly, like
+  `dotnet restore --locked-mode`). Add `paths: ['Frontend/**']` so a backend-only PR doesn't run it.
 - Install the **Angular DevTools** browser extension today — you'll use its component tree and
   signal inspection constantly.
 
-**Done when:** `ng serve` shows a page styled by a Tailwind class; CI is green on GitHub.
+**Done when:** `ng serve` shows a page styled by a Tailwind class; CI is green on GitHub and the
+frontend job is visibly skipped on a backend-only commit.
 
 ### Milestone 0.B — Design tokens & shared UI kit (2–3 days)
 
@@ -360,7 +909,7 @@ transferable Angular skill.
    signal functions:
    - `app-button` (variants: primary/secondary/danger; sizes; `loading` state that disables + spins)
    - `app-input` (label, error message slot — designed to work with Reactive Forms)
-   - `app-card`, `app-badge` (used for order statuses everywhere), `app-spinner`,
+   - `app-card`, `app-badge` (used for order **and payment** statuses everywhere), `app-spinner`,
      `app-empty-state` (icon + message + optional action)
    - `app-modal` (confirm dialogs) and a `ToastService` + toast container (global notifications)
 3. Create a throwaway `/styleguide` route that renders every component in every variant — your
@@ -375,6 +924,10 @@ transferable Angular skill.
 - *Step 2 (component APIs):* declare inputs like `variant = input<'primary' | 'secondary' |
   'danger'>('primary')` and build the class string in a `computed()`. Union types instead of
   strings = autocomplete + compile errors for callers.
+- *Step 2 (badge):* give it a `tone` input rather than a `status` input. It will render order
+  statuses, payment statuses, ticket statuses, refund statuses and delivery statuses — five
+  unrelated enums — and a badge that knows about any of them is a badge you'll rewrite. Map
+  enum → tone at the call site, via the `*_STATUS_META` constants.
 - *Step 2 (button):* one `app-button` gotcha — a `loading` button must also set `disabled` and
   keep its width (reserve space for the spinner) so the layout doesn't jump.
 - *Step 2 (modal):* build it on the native `<dialog>` element — you get focus trapping, ESC to
@@ -397,16 +950,16 @@ copies of markup) by everything that follows.
 
 **Steps**
 1. Define top-level routes with lazy loading: `/auth/**`, `/customer/**` (also the default),
-   `/restaurant/**`, `/driver/**`, `/admin/**`, plus a `**` not-found page. Each feature gets a
-   `<feature>.routes.ts` file loaded via `loadChildren`.
+   `/restaurant/**`, `/driver/**`, `/admin/**`, `/support/**`, plus a `**` not-found page. Each
+   feature gets a `<feature>.routes.ts` file loaded via `loadChildren`.
 2. Build two layout components in `core/layout/`:
    - **Mobile-first shell** (customer & driver): sticky top bar + **bottom tab navigation** —
      the standard mobile app pattern (Home, Orders, Cart, Profile for customers).
    - **Desktop shell** (restaurant/admin/support): collapsible left sidebar + top bar.
 3. Create `AuthService` with a **hard-coded fake user** switchable from a dev-only dropdown in the
-   header (Customer / Manager / Driver / Admin). Implement `authGuard` and `roleGuard` against the
-   fake user. Real backend auth replaces the internals in Milestone 1.1 — the guards, layouts, and
-   role routing won't change.
+   header (Customer / Manager / Driver / Support / Admin). Implement `authGuard` and `roleGuard`
+   against the fake user. Real backend auth replaces the internals in Milestone 1.1 — the guards,
+   layouts, and role routing won't change.
 4. Placeholder pages ("Restaurants coming soon") for each area's landing route to prove guards and
    lazy loading work.
 
@@ -426,9 +979,14 @@ copies of markup) by everything that follows.
   inject(AuthService).isLoggedIn() ? true : inject(Router).createUrlTree(['/auth/login']);`
   Returning the UrlTree lets the router handle redirect + history correctly. Make `roleGuard` a
   factory: `roleGuard('Customer')` returns a `CanActivateFn`.
-- *Step 3 (fake auth):* keep the fake user in `signal<User | null>` with the same shape the real
-  `AuthService` will have — that's what makes the 1.1 swap painless. Show the role-switcher only
-  when `isDevMode()` is true.
+- *Step 3 (fake auth):* keep the fake user in `signal<User | null>` with the **exact shape
+  [prerequisite #2](#backend-prerequisites) specifies** — `{ userId, email, firstName, lastName,
+  roles: string[], permissions: string[] }`. That is what makes the 1.1 swap painless, and it means
+  the shape is already agreed with the backend before either side writes it. Show the role-switcher
+  only when `isDevMode()` is true.
+- *Step 3 (role names):* they are exactly `Administrator`, `Customer`, `RestaurantManager`,
+  `DeliveryDriver`, `SupportAgent` (`Users.Domain/Users/Role.cs`). Type them as a union, not
+  `string`.
 - *Step 4:* verify lazy loading in devtools Network tab (filter JS): navigating to `/restaurant`
   the first time should fetch a new chunk file. If everything loads upfront, you used a static
   `import` somewhere in a routes file.
@@ -438,137 +996,186 @@ wrong areas, and the network tab shows each area's JS chunk loading only on firs
 
 ---
 
-## Phase 1 — Core Features (matches backend Phase 1)
+## Phase 1 — Core Features
 
 > **Goal:** the app works end-to-end against the real backend: register → log in → browse
-> restaurants → order → restaurant accepts → status visible. After this phase the project is
-> already demo-able.
+> restaurants → order (cash) → restaurant accepts → status visible. After this phase the project is
+> already demo-able. Cards, live sockets and support tooling come later; none of them is needed for
+> a complete order.
 
 ### Milestone 1.1 — Real authentication (3–5 days)
 
 **What & why:** The frontend's front door, wired to Duende exactly as described in the
 [architecture section](#authentication-design-matches-the-existing-backend-exactly).
 
+> ⛔ **Read [backend prerequisite #2](#backend-prerequisites) first.** Steps 1 and 6 depend on it.
+> If it has not landed, build everything else in this milestone and keep the dev role-switcher
+> supplying `roles` — but do not invent a role from the email address or the route you happened to
+> land on. That kind of guess is exactly how a driver ends up looking at the admin portal.
+
 **Steps**
-1. **DTOs & AuthService:** implement `login(email, password)` posting the password-grant form to
-   `/connect/token`; parse the JWT payload (base64 decode — no library needed) for user id/email;
-   get roles (from claims or `users/profile` — see backend prerequisites). Store tokens; expose
-   `currentUser`, `isLoggedIn`, `hasRole()` as signals/computed.
-2. **Interceptors:** `authInterceptor` adds the bearer token (skip for the token endpoint);
-   `errorInterceptor` maps ProblemDetails → `ApiError`, toasts unexpected errors. On 401: refresh
-   once, replay, else logout. (This is the hardest code in the whole app — take it slow, test it
-   by temporarily setting an expired token.)
+1. **DTOs & `AuthService`:** implement `login(email, password)` posting the password-grant form to
+   `{identityUrl}/connect/token`. Decode the JWT payload (base64url — no library needed) and look at
+   what is actually in it: `sub` (the **Duende identity id**, not the module user id), `client_id`,
+   `scope`, `aud`, `exp`. **No role, no permission, no email.** Then call `GET users/me` through the
+   gateway for the real user (prerequisite #2) and hold it in a signal. Expose `currentUser`,
+   `isLoggedIn`, `hasRole()`, `hasPermission()` as signals/computed.
+2. **Interceptors:** `authInterceptor` adds the bearer token to gateway requests only (never to the
+   identity host); `errorInterceptor` maps ProblemDetails → `ApiError` (`{ code, detail, status,
+   errors? }` where `code` is the response's `title`), toasts unexpected errors. On 401: refresh
+   once, replay, else logout. On **429**: read the `Retry-After` header and toast *"Too busy — retry
+   in Ns"* rather than a generic failure. This is the hardest code in the whole app — take it slow.
 3. **Login page:** typed reactive form, validation messages via `app-input`, loading button,
-   "invalid credentials" handling, redirect to role home on success.
-4. **Customer registration page:** posts to gateway `users/register` (anonymous), then auto-login.
-   Mirror backend validation rules client-side (password rules etc.) — but remember the backend
-   remains the source of truth; the form just gives fast feedback.
-5. **Invitation activation page** (`/auth/activate`): reads token from the URL query, lets the
-   invitee set a password, posts to the set-password endpoint, then routes to login. This
-   completes the admin-provisioning story from backend Feature 1.2.
-6. **Logout** + session restore on app start (`APP_INITIALIZER`-style: validate stored token,
-   fetch profile).
+   "invalid credentials" handling, redirect to role home on success. Mention lockout in the error
+   copy — five failures really does lock the account for 15 minutes.
+4. **Customer registration page:** posts to gateway `POST users/register` (anonymous) with
+   `{ email, password, firstName, lastName }`, then auto-login. Mirror the backend's password rules
+   client-side for fast feedback, but remember the backend is the source of truth — and note that
+   **Development relaxes them to a 1-character minimum** while production requires 12 plus the
+   default character classes (`Identity/Program.cs`). Validate against the production rules; a form
+   that accepts `a` locally and fails in a demo is worse than one that's strict everywhere.
+5. **Invitation activation page** (`/auth/activate`): reads `email` and `token` from the query
+   string, lets the invitee set a password, posts to
+   `POST users/accept-invitation { email, token, newPassword }` (anonymous, returns `204`), then
+   routes to login. Depends on [prerequisite #3](#backend-prerequisites) for the email to link here
+   at all — until then, paste the link's query string by hand from the Notifications logs.
+6. **Logout** + session restore on app start: validate the stored token, re-fetch `users/me`,
+   *then* let the router start.
 7. Replace the fake auth internals from 0.C; keep the dev role-switcher working via seeded test
-   accounts (dev admin from backend config + accounts you create).
+   accounts (the dev admin from backend configuration, plus accounts you create).
 
 **New concepts:** typed reactive forms + validators, HTTP interceptors, JWT anatomy from the
 client side, RxJS `switchMap`/`catchError` in the refresh flow, query params, app initialization.
 
 **💡 Hints**
-- *Step 1 (token request):* the token endpoint wants
-  `application/x-www-form-urlencoded`, **not JSON** — pass an `HttpParams` object as the POST
-  *body* and HttpClient sets the content type for you. Sending JSON produces
-  `unsupported_grant_type`/`invalid_request` errors that look like backend bugs but aren't.
+- *Step 1 (token request):* the token endpoint wants `application/x-www-form-urlencoded`, **not
+  JSON** — pass an `HttpParams` object as the POST *body* and HttpClient sets the content type for
+  you. Sending JSON produces `unsupported_grant_type`/`invalid_request` errors that look like
+  backend bugs but aren't.
 - *Step 1 (JWT decode):* the payload is **base64url**, not plain base64 — `atob` alone breaks on
   `-`/`_` characters. Write a 5-line helper that replaces them (`-`→`+`, `_`→`/`) before `atob` +
   `JSON.parse`. No JWT library needed.
+- *Step 1 (the two ids):* the JWT's `sub` and `users/me`'s `userId` are **different values**. The
+  module-side `userId` is the one that matches `OrderResponse.customerId`, `TicketResponse
+  .customerId` and the SignalR `user:{id}` group. Name them `identityId` and `userId` in your model
+  and never let them touch.
 - *Step 2 (interceptors):* use functional interceptors (`HttpInterceptorFn`) registered via
   `provideHttpClient(withInterceptors([...]))`. Skip attaching the bearer token when the URL is
   the identity host (sending a stale token with a refresh request is a classic loop-starter).
 - *Step 2 (refresh loop protection):* mark replayed requests with an `HttpContextToken` so a 401
-  on the *retried* request logs out instead of refreshing forever. If several requests 401
-  simultaneously, share one in-flight refresh via `shareReplay(1)` — or ship the naive version
-  and leave a `// TODO: single-flight refresh` you can discuss honestly.
-- *Step 2 (debugging):* a red request with no response and a console message about CORS is the
-  **backend prerequisite**, not your code — look for the failed `OPTIONS` preflight in the
-  Network tab.
+  on the *retried* request logs out instead of refreshing forever.
+- *Step 2 (single-flight refresh is not optional here):* the Duende client sets
+  `RefreshTokenUsage = OneTimeOnly`, so two simultaneous refreshes invalidate the whole chain and
+  log the user out. Share one in-flight refresh with `shareReplay(1)`. On most backends the naive
+  version merely wastes a request; on this one it is a bug you *will* hit when a page fires three
+  parallel GETs after a 15-minute idle.
+- *Step 2 (`X-Correlation-Id`):* the gateway's CORS policy exposes it by name, so the browser can
+  read it. Stash the last one in your `ApiError` and render it in the toast's detail — "reference
+  `a1b2c3`". You can then grep Seq for exactly that request. This is the cheapest full-stack debug
+  tool you will ever build, and it takes four lines.
+- *Step 2 (debugging CORS):* a red request with no response and a console message about CORS is
+  [prerequisite #1](#backend-prerequisites), not your code — look for the failed `OPTIONS`
+  preflight in the Network tab.
 - *Step 3/4 (forms):* build with `NonNullableFormBuilder` (`inject(NonNullableFormBuilder)`) so
   values are typed without `| null` everywhere. Show a field's error only after `touched` — wire
   that logic once into `app-input`, not per page.
-- *Step 5:* read the token from the URL with router input binding (`withComponentInputBinding()`
-  in `provideRouter`, then `token = input<string>()` in the page).
+- *Step 5:* read the query string with router input binding (`withComponentInputBinding()` in
+  `provideRouter`, then `token = input<string>()` in the page).
 - *Step 6:* register session restore with `provideAppInitializer(...)` in `app.config.ts` so the
   router doesn't start before you know whether the user is logged in (otherwise guards redirect
   to login on every F5).
-- *Testing refresh:* set the access token lifetime to ~60 s in the Duende client config and watch
-  the Network tab do a token call mid-session, invisible to the UI.
+- *Testing refresh:* the access token already lives for only 15 minutes — leave a tab open over
+  lunch and watch the Network tab do a token call mid-session, invisible to the UI. Lower it in the
+  Duende client config if you want it in 60 seconds.
 
-**Done when:** all auth flows work against the running backend; refresh is observable (set access
-token lifetime low and watch the network tab); a full page reload keeps you logged in.
+**Done when:** all auth flows work against the running backend; refresh is observable in the network
+tab; a full page reload keeps you logged in; and logging in as a driver lands you on `/driver`, not
+on the customer home.
 
-### Milestone 1.2 — Customer: browse restaurants & menus (3–4 days)
+### Milestone 1.2 — Customer: browse restaurants & menus (2–3 days)
+
+> **Scope note, read it before you start.** `GET restaurants` takes `page` and `pageSize` and
+> nothing else, and `RestaurantResponse` carries no rating, no opening hours and no distance. This
+> milestone is therefore smaller than it was in the previous plan, and it is honest about it. The
+> debounced-server-search exercise moves to Milestone 3.3, which has an endpoint that can actually
+> take filters; browser geolocation moves to Milestone 2.2, where a driver's position genuinely
+> matters.
 
 **Steps**
-1. `RestaurantsApi` client + DTOs for restaurant search and menu endpoints (from Swagger).
+1. `RestaurantsApi` client + DTOs for `GET restaurants`, `GET restaurants/{id}` and
+   `GET restaurants/{restaurantId}/menu`, hand-written from
+   `http://localhost:3000/docs/restaurants/scalar`.
 2. **Restaurant list page** (customer home): mobile-first card grid (1 column on phone, 2–3 on
-   larger screens), each card = logo, name, cuisine, rating placeholder. Server-side pagination
-   ("Load more" button — simpler than infinite scroll, fine for portfolio).
-3. **Search & filters:** search box with `debounceTime(300)` + `switchMap` (the classic RxJS
-   interview example — implement it once, understand it forever), cuisine filter chips, and a
-   minimum-rating filter (once ratings exist in 2.4). Keep search state in the URL query params
-   so the back button and refresh work.
-4. **"Near me" proximity search:** ask for browser geolocation (with a graceful "enter your area
-   manually" fallback when denied) and pass the coordinates to the backend's proximity search;
-   show distance on each card. This is your first taste of the Geolocation API before the driver
-   portal leans on it hard in Phase 2.
-5. **Restaurant detail / menu page:** header with restaurant info + opening hours, menu grouped by
-   category with a sticky category tab bar, sold-out items visibly disabled.
-6. Loading skeletons and `app-empty-state` for no-results; error state with retry.
+   larger screens), each card = name, cuisine type, city. Server-side pagination via a "Load more"
+   button — simpler than infinite scroll, fine for a portfolio, and the only thing the endpoint
+   supports.
+3. **Client-side filter box** over what is already loaded: a text input that filters the loaded
+   `signal<Restaurant[]>` on name and cuisine with a `computed()`. **Label it honestly in the UI**
+   ("filter loaded results") and write one sentence in the README saying the backend has no search
+   parameter yet — see the nice-to-have in [backend prerequisites](#backend-prerequisites). A
+   client-side filter you are upfront about is a scope decision; one that pretends to be search is
+   a lie your own demo will expose at page 2.
+4. **Restaurant detail / menu page:** header with name, cuisine, address and phone; menu grouped by
+   category (ordered by `displayOrder`) with a sticky category tab bar; items showing name,
+   description, price and photo; `isAvailable: false` items visibly disabled and unclickable.
+5. Loading skeletons and `app-empty-state` for no-results; error state with retry.
 
-**New concepts:** container/presentational split in practice, debounced search, URL-as-state,
-browser geolocation basics, skeleton loading UX, rendering nested backend data.
+**New concepts:** container/presentational split in practice, `computed()` as a derived view of
+server state, skeleton loading UX, rendering nested backend data, sticky positioning.
 
 **💡 Hints**
 - *Step 2 (grid):* `grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4` is the whole layout.
   For "Load more", append to a `signal<Restaurant[]>` and track the next page number — resist
   infinite scroll (IntersectionObserver) until everything else works.
-- *Step 3 (search):* the canonical pipe is `search.valueChanges.pipe(debounceTime(300),
-  distinctUntilChanged(), switchMap(term => api.search(term)))` — `switchMap` *cancels* the
-  in-flight request when a new keystroke arrives; that cancellation is the whole point and the
-  interview answer.
-- *Step 3 (URL state):* write filters with `router.navigate([], { queryParams: { q, cuisine },
-  queryParamsHandling: 'merge' })` and read them back via route input binding. If state lives
-  only in component fields, refresh/back will lose it — the URL *is* the store here.
-- *Step 4 (geolocation):* `navigator.geolocation.getCurrentPosition` is callback-based — wrap it
-  in a `Promise` once, in a small `GeolocationService`. It only works on `localhost` or HTTPS,
-  and the user can deny — treat "denied" as a normal state (show the manual fallback), not an
-  error.
-- *Step 5 (sticky tabs):* `sticky top-0 z-10` on the tab bar + `scrollIntoView({ behavior:
+- *Step 2 (page size):* the validator caps `pageSize` at 100 and requires `page >= 1`; send 0 or
+  101 and you get a 400 with a `ValidationError` body. Worth triggering once on purpose so you see
+  the `errors` extension member your interceptor parses.
+- *Step 2 (no logo field):* `RestaurantResponse` has no image. Render a colored initial-letter tile
+  derived from the name — deterministic, no asset pipeline, and it looks intentional.
+- *Step 3 (why not URL state here):* URL-as-state is the right pattern for a *server* filter,
+  because the server is the thing you want to re-ask on refresh. A client-side filter over an
+  already-loaded page is genuinely component state. You'll do the URL version properly in 3.3.
+- *Step 4 (sticky tabs):* `sticky top-0 z-10` on the tab bar + `scrollIntoView({ behavior:
   'smooth' })` on tab click gets you 90% of the effect; highlighting the active section while
   scrolling needs `IntersectionObserver` — skip it if it fights back.
-- *Step 6 (skeletons):* gray boxes matching the card's real dimensions + Tailwind's
+- *Step 4 (menu shape):* the whole menu — every category and every item — arrives in **one**
+  `GET .../menu` call. There is no per-category endpoint and no paging. It is also Redis-cached
+  server-side and evicted inline on every menu write, so a manager's change shows up on the very
+  next read, not an outbox hop later.
+- *Step 5 (skeletons):* gray boxes matching the card's real dimensions + Tailwind's
   `animate-pulse`. Show them on *initial* load only; "Load more" gets a spinner on the button
   instead.
 
-**Done when:** you can find a seeded restaurant on a phone-sized screen in under three taps and it
-feels like a real food app.
+**Done when:** you can find a seeded restaurant on a phone-sized screen in under three taps, the
+menu renders grouped and ordered with sold-out items visibly dead, and the README says in one
+sentence why there is no search box.
 
 ### Milestone 1.3 — Customer: cart & checkout (3–4 days)
 
 **Steps**
-1. **`CartService`** — the state-management showcase: `signal<CartItem[]>`, `computed` subtotal /
-   count, add/remove/change-quantity methods, persisted to `localStorage` (survives refresh),
-   one-restaurant-per-cart rule (adding from another restaurant prompts to clear — standard UX).
-2. **Menu integration:** add-to-cart buttons with quantity steppers; cart icon with `computed`
+1. **`CartService`** — the state-management showcase, and genuinely the only place this app owns
+   state the server does not: `signal<CartItem[]>`, `computed` subtotal / count, add/remove/
+   change-quantity methods, persisted to `localStorage`, one-restaurant-per-cart rule (adding from
+   another restaurant prompts to clear — standard UX).
+2. **Menu integration:** add-to-cart buttons with quantity steppers; cart icon with a `computed`
    item-count badge in the shell.
-3. **Cart page/drawer:** line items, edit quantities, totals.
-4. **Checkout page:** delivery address form (typed reactive form), payment method fixed to "Cash
-   on delivery", order summary. On submit: generate an **idempotency key** (`crypto.randomUUID()`
-   created *when checkout opens*, sent as a header) — this pairs with the backend's idempotent
-   order placement and is a great cross-stack story to tell.
-5. **Order placement** via `OrdersApi` → success screen → clear cart → link to order detail.
-   Handle the failure case where menu prices changed since the cart was built (backend validates —
-   show which items changed).
+3. **Cart page/drawer:** line items, edit quantities, and a **subtotal**. Not a "total" — see the
+   box below.
+4. **Checkout page:** delivery address form (typed reactive form for `street`, `city`,
+   `postalCode`, `country`, optional `notes`), payment method **fixed to "Cash on delivery"** in
+   this milestone, order summary. On submit: generate an **idempotency key**
+   (`crypto.randomUUID()`, created *when checkout opens*) and send it as the `Idempotency-Key`
+   header.
+5. **Order placement** via `POST orders` → the response is a bare `Guid` → success screen → clear
+   cart → link to order detail. Handle the failure cases: an item that went unavailable, or a menu
+   item id the server no longer prices.
+
+> 💰 **There is no total, and inventing one is the trap.** `OrderResponse` has `subtotal` and
+> `commissionRate` and nothing else — no delivery fee, no tax, no tip, no grand total.
+> `commissionRate` (a fraction, e.g. `0.20`) is the **platform's** cut of the subtotal; it is
+> business-side, and adding it to what the customer sees would overstate their bill by 20%. Render
+> "Subtotal" and stop. If a reviewer asks where the delivery fee is, the answer is that the backend
+> does not model one — which is a better answer than a number you made up.
 
 **New concepts:** shared client state with signals (the heart of frontend thinking — state that
 exists only in the browser), `effect()` for localStorage persistence, optimistic vs. confirmed UI,
@@ -580,53 +1187,84 @@ idempotency from the client side.
   Hydrate in the constructor with a `try/catch` around `JSON.parse` — a corrupt value must clear
   the cart, not crash the app.
 - *Step 1 (money):* JavaScript floats will happily tell you `0.1 + 0.2 = 0.30000000000000004`.
-  Keep prices as the numbers the backend sends, do arithmetic in a `computed`, and round **only
-  at display time** in your money pipe (`Intl.NumberFormat`). Never accumulate rounded values.
+  Keep prices as the numbers the backend sends, do arithmetic in a `computed`, and round **only**
+  at display time in your money pipe (`Intl.NumberFormat`). Never accumulate rounded values.
 - *Step 1 (one-restaurant rule):* store `restaurantId` on the cart itself; on add-from-elsewhere,
   open the confirm modal and clear on confirm — copy the UX of any big delivery app.
-- *Step 4 (idempotency key):* create it with `crypto.randomUUID()` **when the checkout page
-  opens** (a component field), not inside the submit handler — a double-click must reuse the
-  same key, that's the entire mechanism.
+- *Step 1 (prices are advisory):* your cart holds prices only so the customer can see a subtotal.
+  The `POST orders` body carries **`menuItemId` and `quantity` only** — the server prices every
+  line from its own replica. Sending a price is impossible, which is a nice thing to be able to say
+  in an interview about client-supplied data.
+- *Step 4 (idempotency key):* create it with `crypto.randomUUID()` **when the checkout page opens**
+  (a component field), not inside the submit handler — a double-click must reuse the same key,
+  that's the entire mechanism. The header name is exactly `Idempotency-Key`.
 - *Step 4 (double-submit):* also set a `submitting` signal that disables the button; the
   idempotency key is the backend guarantee, the disabled button is the UX guarantee. You want
   both, and you can name that distinction in interviews.
-- *Step 5 (price-changed failure):* the backend rejects stale prices — match the returned
-  ProblemDetails against cart items and highlight the changed lines instead of a generic toast.
-  This is the first place your error-handling design pays off.
+- *Step 4 (paymentMethod is a string):* the field is declared `string` and defaults to
+  `"CashOnDelivery"`. Send the enum **member name**, not `1`. Milestone 3.1 makes `"Card"` real.
+- *Step 4 (lat/lng are optional):* `deliveryAddress.latitude`/`longitude` are `double?`. They are
+  what the Delivery service uses to find a nearby driver and to draw the drop-off pin, so an order
+  placed without them still works but tracks poorly. Leave them null for now and revisit in 2.3.
+- *Step 5 (failures):* match the ProblemDetails `title` (the code, e.g. `Orders.MenuItemNot
+  Available`) against cart lines and highlight them, instead of a generic toast. This is the first
+  place your error-handling design pays off — and the first place you'll be glad `title` is a code
+  and not a sentence.
 
 **Done when:** the classic demo works end-to-end: browse → add items → checkout → order row exists
-in the backend DB; double-clicking "Place order" creates exactly one order.
+in the backend DB; double-clicking "Place order" creates exactly one order; and the cart survives a
+refresh.
 
-### Milestone 1.4 — Customer: my orders & order detail (2–3 days)
+### Milestone 1.4 — Customer: my orders & order detail (3–4 days)
 
 **Steps**
-1. **Orders list page:** active orders on top, history below; status shown with `app-badge` and a
-   shared `orderStatus` pipe/mapping (color + label per status — reused by every role area).
-2. **Order detail page:** items, totals, address, and a **status timeline** component (Pending →
-   Accepted → Preparing → Ready → Out for delivery → Delivered) — visual, mobile-friendly, built
-   once and reused by restaurant and driver views.
-3. **Cancel order** where the state machine allows it, with `app-modal` confirmation; surface the
-   backend's rule violations (Result failures) as friendly messages.
-4. Polling refresh (every ~15 s on the detail page) as a stopgap — explicitly replaced by SignalR
-   in Phase 2 (a nice before/after story).
+1. **Orders list page:** `GET orders` (self-scoped, `page`/`pageSize` only — there is no status
+   filter to offer, so sort client-side into "active" and "past" from the status you already have).
+   Each row shows **two badges**: the lifecycle status and the payment status.
+2. **The two-badge rule.** `OrderStatus` and `PaymentStatus` are orthogonal dimensions on every
+   order, by explicit backend design. A cash order is `NotRequired` for its entire life, so its
+   payment badge is either hidden or a quiet "Cash". A card order moves `Authorizing → Authorized →
+   Captured` alongside a lifecycle that is doing something completely different. Build both maps in
+   `core/api/models/` now, even though nothing produces a non-`NotRequired` value until Milestone
+   3.1 — retrofitting a second badge into a settled row layout is worse than reserving space for it.
+3. **Order detail page:** items with `unitPrice`/`quantity`/`lineTotal`, **subtotal**, delivery
+   address, notes, and a **status timeline** component — visual, mobile-friendly, built once and
+   reused by the restaurant and driver views. Drive it from `ORDER_STATUS_META` and
+   `toTimelineStatus()` (see [the two vocabularies](#the-two-order-status-vocabularies)).
+4. **Cancel order** where the state machine allows it, via `POST orders/{id}/cancel`, with
+   `app-modal` confirmation; surface the backend's rule violations as friendly messages.
+5. **Polling refresh** (every ~15 s on the detail page) as a stopgap — explicitly replaced by
+   SignalR in Phase 2. Keep the commit that deletes it; it's a good before/after story.
+
+**New concepts:** mapping two independent enums onto one row, timeline/step rendering, polling with
+`takeUntilDestroyed`, modeling "the server owns this rule" in the UI.
 
 **💡 Hints**
-- *Steps 1–2 (status metadata):* define one
-  `ORDER_STATUS_META: Record<OrderStatus, { label: string; color: string; step: number }>`
-  constant and drive the badge, the timeline, and later the manager/driver views from it. When a
-  status rendering looks wrong anywhere, there's exactly one place to fix.
-- *Step 2 (timeline):* it's a list of steps compared against the current status's `step` index —
-  completed/current/upcoming get different Tailwind classes. Handle the branch: Rejected and
-  Cancelled aren't steps on the line, render them as a terminal banner instead.
-- *Step 3 (cancel):* the backend's state machine is the source of truth — on failure show the
-  ProblemDetails `detail` message ("order already accepted"), don't try to replicate every rule
-  client-side. Only hide the button in states where cancelling is *obviously* impossible.
-- *Step 4 (polling):* `interval(15_000).pipe(startWith(0), switchMap(() => api.getOrder(id)))`
+- *Steps 1–3 (status metadata):* define **one** `ORDER_STATUS_META` keyed by the socket vocabulary
+  and **one** `toTimelineStatus(rest: OrderStatus)` bridge, and drive the badge, the timeline and
+  later the manager/driver views from them. When a status renders wrong anywhere, there is exactly
+  one place to fix. Unit-test the bridge — nine socket values, eight REST values, and the
+  `Pending`/`Placed` mismatch is the assertion that earns its keep.
+- *Step 3 (timeline branches):* `Rejected` and `Cancelled` aren't steps on the line — give them
+  `step: null` and render a terminal banner instead. `DriverAssigned` **is** a step, but it has no
+  REST equivalent, so a page loaded fresh will never show it and a page that received the socket
+  frame will. That's expected; don't "fix" it by faking a status.
+- *Step 4 (cancel):* the backend's state machine is the source of truth — on failure show the
+  ProblemDetails `detail` ("order already accepted"), don't replicate every rule client-side. Only
+  hide the button in states where cancelling is *obviously* impossible (`Delivered`, `Cancelled`,
+  `Rejected`).
+- *Step 4 (409 is normal here):* an illegal transition is a `Conflict`, not a server error. Your
+  interceptor should let 409 through to the page rather than toasting it as "something went wrong".
+- *Step 5 (polling):* `interval(15_000).pipe(startWith(0), switchMap(() => api.getOrder(id)))`
   with `takeUntilDestroyed()` so navigation away stops it. `startWith(0)` makes the first load
   immediate — forgetting it means a 15-second blank page.
+- *Step 5 (be kind to the limiter):* reads are the **first** thing the gateway's rate limiter sheds
+  (`RateLimitTier.Read`). 15 seconds per open detail page is fine; 1 second is how you discover
+  `Retry-After` the hard way.
 
-**Done when:** placing an order and having the backend move it through states (via Swagger for
-now) is fully visible in the customer UI.
+**Done when:** placing an order and having the backend move it through states (via Scalar for now)
+is fully visible in the customer UI, both badges render, and cancelling an accepted order shows the
+backend's own explanation rather than a generic error.
 
 ### Milestone 1.5 — Restaurant Manager portal (4–6 days)
 
@@ -634,129 +1272,210 @@ now) is fully visible in the customer UI.
 where reactive forms really pay off.
 
 **Steps**
-1. **Incoming orders dashboard:** new (Pending) orders as prominent cards with items + accept /
-   reject buttons (reject requires a reason — modal). Columns/sections per active status; buttons
-   to advance status (Start preparing → Ready for pickup) following the state machine. Poll every
+1. **Incoming orders dashboard:** `GET orders` returns the manager's incoming orders, scoped from
+   the token by owned restaurant (no parameter needed, and none available). Render `Pending` orders
+   as prominent cards with their items, plus **accept** / **reject** (reject requires a reason —
+   modal). Sections per active status, with buttons that follow the state machine:
+   `POST orders/{id}/accept` → `POST orders/{id}/preparing` → `POST orders/{id}/ready`. Poll every
    ~10 s until Phase 2 real-time replaces it.
-2. **Menu management:** category list with create/rename/delete/reorder; menu item CRUD in a
-   drawer/modal form (name, description, price, photo URL, availability toggle). An
-   **availability toggle** flips items to "sold out" instantly from the list — the single most-used
-   manager action, so it gets first-class UX.
-3. **Restaurant profile page:** edit description, opening hours (per-day open/close — a nice
-   `FormArray` exercise), cuisine type.
+2. **Menu management:**
+   - Category list with create (`POST .../menu-categories`) and rename.
+   - **A reorder form built as a `FormArray`** — one `FormGroup` per category holding
+     `{ categoryId, name, displayOrder }`, rendered as a list with up/down buttons that swap
+     `displayOrder`, saved with one `PUT .../menu-categories/{categoryId}` per changed row. This is
+     the `FormArray` exercise the old opening-hours editor was going to be, on an endpoint that
+     exists.
+   - Menu item create/edit in a drawer/modal form (`categoryId`, `name`, `description`, `price`,
+     `photoUrl`, `isAvailable`).
+   - An **availability toggle** (`PATCH .../availability`) that flips items to sold out instantly
+     from the list — the single most-used manager action, so it gets first-class UX.
+3. **Restaurant profile page:** `PUT restaurants/{id}` — name, tax id, cuisine type, email, phone,
+   full address, optional lat/lng. **No opening hours**: the field does not exist on
+   `RestaurantResponse` and the endpoint accepts none.
 4. Guard everything with `roleGuard('RestaurantManager')`; the backend enforces ownership — the
    frontend just handles 403s gracefully.
 
-**New concepts:** CRUD-heavy forms, `FormArray`, edit-in-place UX, optimistic updates with
+**New concepts:** CRUD-heavy forms, **`FormArray`**, edit-in-place UX, optimistic updates with
 rollback on error (do it for the availability toggle only), handling authorization failures.
 
 **💡 Hints**
 - *Step 1 (dashboard):* reuse the polling recipe from 1.4 (10 s interval). Highlight orders that
   arrived since the last poll (compare ids, flash a ring) — cheap code, big "live" feel until
   real SignalR lands in 2.1.
-- *Step 2 (item form):* one form component used for both create and edit — pass an optional
-  `item` input and `patchValue` when present. Price input: `<input type="number" step="0.01">`
-  plus a validator for `> 0`; remember the value arrives as a number *or* string depending on
-  browser — normalize in one place.
-- *Step 2 (availability toggle):* the optimistic recipe: flip the signal immediately → fire the
+- *Step 1 (accept can fail for a reason you won't expect):* once Milestone 3.1 exists, a card order
+  whose authorization is still in flight returns `400 Orders.PaymentNotAuthorized` — *"The order
+  cannot be accepted until its payment has been authorized"*. It is a **transient** state, typically
+  under a second, and the right UI is a retry, not an error. Build the accept button so it can
+  re-enable itself and say "payment still processing — try again", and you won't have to revisit it.
+  Cash orders can never hit this (`PaymentStatus.NotRequired`).
+- *Step 1 (why those four transitions and no more):* `OutForDelivery` and `Delivered` are driven by
+  the Delivery service over the bus. There is no Orders endpoint for them and there should not be a
+  button.
+- *Step 2 (FormArray):* iterate `categories.controls` with `@for (…; track $index)` in the template;
+  the `formArrayName` + index wiring is fiddly the first time — get **one** row rendering and saving
+  before you style anything. Swap two rows by swapping their `displayOrder` values and marking both
+  dirty, then `PUT` only the dirty ones.
+- *Step 2 (no delete):* there is no `DELETE` for categories or items anywhere in the module. Don't
+  build a delete button that calls nothing — mark items unavailable instead, and put the missing
+  endpoint in your README's "known gaps" list (it is a nice-to-have in
+  [backend prerequisites](#backend-prerequisites)).
+- *Step 2 (item form):* one form component for both create and edit — pass an optional `item` input
+  and `patchValue` when present. Price: `<input type="number" step="0.01">` plus a `> 0` validator;
+  the value arrives as a number *or* string depending on browser — normalize in one place.
+- *Step 2 (availability toggle):* the optimistic recipe — flip the signal immediately → fire the
   API call → on error flip back and toast. Do it for this one control only; everywhere else,
   boring "wait for the server" updates are the right default.
-- *Step 2 (reordering):* up/down arrow buttons that swap positions are completely fine. Drag &
-  drop (`@angular/cdk/drag-drop`) is a fun stretch, not a requirement.
-- *Step 2 (photos):* a URL input + live `<img>` preview with an `(error)` fallback image. Real
-  file upload means backend blob storage — scope creep, skip it.
-- *Step 3 (opening hours):* `FormArray` of 7 groups `{ day, open, close, closed }` with `<input
-  type="time">`. In the template, iterate `hours.controls` with `@for (…; track $index)` — the
-  `formArrayName`/index wiring is fiddly the first time; get one row working before styling.
+- *Step 2 (photos):* `photoUrl` is a URL and nothing else — there is no upload endpoint and no blob
+  storage. A URL input with a live `<img>` preview and an `(error)` fallback is the whole feature.
+- *Step 3 (commission is read-only here):* `commissionRate` is set at onboarding and
+  `PUT restaurants/{id}` does not accept it. Show it, disabled, with a "set by the platform" hint.
 - *Step 4 (403s):* the error interceptor should turn 403 into a "You don't have access to this"
   toast + redirect to the area home — build it once here, every later portal inherits it.
 
-**Done when:** a manager can run their restaurant for a day without touching Swagger: see a new
-order, accept it, progress it, and sell out an item.
+**Done when:** a manager can run their restaurant for a day without touching Scalar: see a new
+order, accept it, progress it through preparing and ready, reorder their menu categories, and sell
+out an item.
 
 ### Milestone 1.6 — Administrator portal (2–3 days)
 
 **Steps**
-1. **Restaurant onboarding wizard** (2 steps): restaurant data (name, tax id, address, cuisine,
-   commission %) → manager account (email, name) → submit to the backend onboarding endpoint →
-   success screen explaining the invitation email was sent.
-2. **Staff/partner account provisioning:** simple form (email, name, role: Driver / Support Agent /
-   Administrator) → invite endpoint; list of provisioned accounts with invitation status if the
-   backend exposes it.
-3. Now close the loop you built in 1.1: provision an account → grab the activation link (from
-   the dev email sink, e.g. Mailpit) → activate in the SPA → log in with the new role. **This
-   end-to-end flow across Identity, Users, email, and the SPA is one of the strongest demos in
-   the whole project.**
+1. **Restaurant onboarding wizard** (2 steps): restaurant data (name, tax id, cuisine, full
+   address, optional lat/lng, commission) → manager account (`managerEmail`, `managerFirstName`,
+   `managerLastName`) → `POST restaurants` → success screen explaining the invitation email was
+   sent. One call does both: the endpoint provisions the manager's invited account over the bus.
+2. **Driver onboarding:** `POST delivery/drivers` with `{ email, firstName, lastName, vehicleType }`
+   where `vehicleType` is the **name** `"Bicycle" | "Motorcycle" | "Car"`. Same
+   provision-and-invite flow, different module. Returns the driver id, which is also the user id.
+3. **Support agent onboarding:** *blocked* — see [prerequisite #4](#backend-prerequisites). Build
+   the form against the specified `POST users/invitations` shape so it is ready, but leave it behind
+   a feature flag (or simply don't route to it) until the endpoint exists. Do **not** fake it by
+   calling one of the other two.
+4. **Refund decisions** live here too, not in the support portal: `refunds:approve` is administrator
+   only. Covered in Milestone 3.3 step 4, because the queue it decides on is a support screen —
+   route it under `/admin` and link it from both.
+5. Now close the loop you built in 1.1: onboard a restaurant → find the activation link in the
+   Notifications logs (or Seq at `:8081`) → activate in the SPA → log in as the new manager and see
+   their empty restaurant. **This end-to-end flow across Identity, Users, Restaurants, email and the
+   SPA is one of the strongest demos in the whole project.**
 
 **💡 Hints**
 - *Step 1 (wizard):* don't route between steps — one parent component with a `step = signal(1)`
   and one child form per step. Advance only when the current step's form group is valid
   (`markAllAsTouched()` on a failed "Next" so errors show). Keep both groups alive so "Back"
   preserves input.
-- *Step 1 (commission input):* percentage field — validate `0–100` and display with a `%` suffix;
-  decide (and document) whether the backend wants `12.5` or `0.125` *before* wiring it.
-- *Step 2:* after a successful invite, show the invited email + a "Copy invite link" button
-  (`navigator.clipboard.writeText(...)`) if the API returns the activation link — invaluable for
-  your own testing loop.
-- *Step 3 (finding the email):* the dev mail sink (e.g. Mailpit in `docker-compose`) has a web UI
-  — check the compose file for its port. The activation link in the email must point at your SPA
-  (`http://localhost:4200/auth/activate?...`) — if it doesn't, that's the backend-prerequisite
-  item, fix the email template, not the frontend.
+- *Step 1 (commission — settled):* the backend wants a **fraction in [0, 1)**. `OnboardRestaurant`
+  says so in a comment on the field: *"Fraction in [0, 1) — e.g. 0.20 = 20%."* So show a percentage
+  input (`20`), validate `0–100`, and divide by 100 exactly once, in the API client. Put a unit
+  test on that conversion; an off-by-100 commission is the kind of bug that is invisible until
+  someone reads a report.
+- *Step 2 (vehicle type):* send the name, not the number — the request property is a `string`. The
+  *response* (`DriverResponse.vehicleType`) comes back as `1 | 2 | 3`. Same enum, two encodings;
+  this is the asymmetry from
+  [What every JSON response looks like](#what-every-json-response-looks-like) biting for the first
+  time.
+- *Step 2 (no driver list):* there is no `GET delivery/drivers`. You can read one by id
+  (`GET delivery/drivers/{id}`) if you already have it — the onboarding response gives you exactly
+  that. Keep the ids you create in a session-scoped signal so the success screen can link to the
+  profile you just made, and say in the README that a roster endpoint doesn't exist.
+- *Step 5 (finding the email):* there is **no Mailpit** in `docker-compose.yml`.
+  `EmailService.SendEmailAsync` logs the subject and body — activation link included — so read it
+  from `docker compose logs fooddeliveryservice.notifications.api` or from Seq at
+  `http://localhost:8081`. If the link points at `:3000` instead of your SPA, that is
+  [prerequisite #3](#backend-prerequisites); fix the backend config, not the frontend.
 
-**Done when:** you can onboard a fresh restaurant + manager and they can log in and see their
-(empty) restaurant — without touching the database or Swagger.
+**Done when:** you can onboard a fresh restaurant + manager and a fresh driver, and both can
+activate and log in to their own portal — without touching the database or Scalar.
 
 > ✅ **Phase 1 checkpoint:** tag a release, record a 2-minute demo GIF for the README, and take a
-> breath — you now have a full-stack marketplace. Everything after this is depth.
+> breath. You have a full-stack marketplace: an admin onboards a restaurant, a manager fills in a
+> menu, a customer orders from it in cash, and the manager cooks it. Everything after this is
+> depth — it gets live, it gets paid, and it gets supported.
 
 ---
 
-## Phase 2 — Real-Time & Driver Experience (matches backend Phase 2)
+## Phase 2 — Real-Time & Driver Experience
 
-> **Goal:** the app comes alive — statuses update by themselves, drivers get a real mobile
-> workflow, and customers watch their food travel on a map.
+> **Goal:** the app comes alive. Statuses update by themselves over a socket that already exists and
+> already pushes five different frame types; drivers get a real mobile workflow built against the
+> offer contract as shipped; and customers watch their food travel on a map. No polling survives
+> this phase.
 
 ### Milestone 2.1 — SignalR foundation (2–3 days)
 
 **Steps**
-1. `RealtimeService` in `core/realtime/`: wraps one `HubConnection` to the realtime service
-   (:5600), authenticated via `accessTokenFactory` (reuses `AuthService` tokens), with automatic
-   reconnect and a connection-state signal (show a subtle "reconnecting…" indicator in the shell).
+1. `RealtimeService` in `core/realtime/`: wraps one `HubConnection` to
+   **`${environment.gatewayUrl}/hubs/tracking`** — through the gateway, on `:3000`, not to `:5600` —
+   authenticated via `accessTokenFactory` (reusing `AuthService` tokens), with automatic reconnect
+   and a connection-state signal (show a subtle "reconnecting…" indicator in the shell).
 2. Start/stop the connection based on login state (`effect()` watching `isLoggedIn`).
-3. Bridge hub events to the app as RxJS `Subject`s or signals per event type (`orderStatusChanged$`,
-   `driverLocation$`), matching the hub contracts in `REALTIME_PHASE2_PLAN.md`.
-4. Replace the polling from 1.4/1.5: customer order detail and restaurant dashboard update
-   instantly. Delete the polling code with a satisfied commit message.
-5. **In-app notifications:** a bell icon in the shell with an unread badge and a dropdown/sheet
+3. Bridge the **five** hub methods to the app as signals or `Subject`s — `orderStatusChanged$`,
+   `driverLocation$`, `deliveryOffered$`, `restaurantActivity$`, `supportActivity$` — typed to the
+   frame records in [the API surface](#realtime--the-signalr-hub). **Register every `.on(...)`
+   before `.start()`.**
+4. **Implement the re-sync the backend assumes.** The hub's own contract says the client re-fetches
+   authoritative state from `GET orders/{id}` and `GET delivery/orders/{orderId}/delivery` on
+   connect and on every reconnect, then applies socket deltas. Wire `onreconnected` to re-fetch
+   whatever the current screen is showing. This is not belt-and-braces; it is the reason the
+   backend is allowed to persist nothing per frame.
+5. Replace the polling from 1.4/1.5: the customer order detail and the restaurant dashboard now
+   update instantly. Delete the polling code with a satisfied commit message.
+6. **In-app notifications:** a bell icon in the shell with an unread badge and a dropdown/sheet
    listing recent events ("Your order was accepted", "Driver assigned: Marko"), fed by the same
-   SignalR events and kept in a signal-based `NotificationsService`. This is the frontend face of
-   the backend's Notification story (emails stay backend-side; browser push is a Phase 3 stretch).
+   socket and kept in a signal-based `NotificationsService`. **It is session-scoped and that is the
+   only thing it can be**: the Notifications service has no HTTP endpoints — no list, no unread
+   count, no mark-as-read. Closing the tab loses the list. Say so in the README; the alternative
+   (persisting to `localStorage` and pretending it's server state) is worse, because it will
+   disagree with a second device.
 
 **New concepts:** WebSockets from the client, connection lifecycle management, push-based UI
-updates, translating server events into signal updates.
+updates, translating server events into signal updates, reconciling a best-effort stream with an
+authoritative read model.
 
 **💡 Hints**
-- *Step 1 (connection):* the incantation is `new HubConnectionBuilder().withUrl(url, {
-  accessTokenFactory: () => this.auth.accessToken() }).withAutomaticReconnect().build()`.
+- *Step 1 (connection):* the incantation is
+
+  ```ts
+  new HubConnectionBuilder()
+    .withUrl(`${environment.gatewayUrl}/hubs/tracking`, {
+      accessTokenFactory: () => this.auth.accessToken(),
+    })
+    .withAutomaticReconnect()
+    .build();
+  ```
+
   `accessTokenFactory` may return a `Promise<string>` — refresh there if the token is about to
-  expire, otherwise reconnects after a long idle will 401.
-- *Step 1 (auth transport):* browsers can't set headers on WebSocket connects, so SignalR passes
-  the token as a query string — the realtime backend must read it from there (the realtime plan
-  covers this; if the hub rejects you with 401, look server-side first).
-- *Step 2:* register **all** `.on('EventName', handler)` listeners *before* calling `.start()` —
+  expire, otherwise a reconnect after a long idle will 401 against a 15-minute token.
+- *Step 1 (why it works):* browsers can't set headers on a WebSocket connect, so SignalR passes the
+  token as the `access_token` query parameter. The RealTime host already reads it —
+  `AddRealTimeHubAuthentication()` hooks `OnMessageReceived` for `hubs/*` paths only — and the
+  gateway's CORS policy sets `AllowCredentials: true` for exactly this. Both halves are done; if the
+  handshake 401s, look at your token, not at the backend.
+- *Step 1 (the limiter leaves you alone):* `hubs/**` is `RateLimitTier.Exempt` in
+  `RateLimitRoutePolicy`. Negotiate, connect and the socket itself are never throttled.
+- *Step 2 (there is nothing to join):* **the hub exposes no client→server methods.** Do not look for
+  a `JoinOrderTracking`; there isn't one, and `invoke` will fail. Every group you belong to —
+  `user:{yourUserId}` always, plus `restaurant:{id}` or `support` if your claims earn it — is
+  derived server-side in `OnConnectedAsync` from your JWT, and re-derived on every reconnect. A
+  customer automatically receives status and location frames for their own orders and for no one
+  else's. This is simpler *and* safer than the join-by-id design; be ready to explain why.
+- *Step 3:* register **all** `.on('EventName', handler)` listeners *before* calling `.start()` —
   events that arrive before a handler is registered are dropped silently, which looks exactly
-  like "SignalR randomly doesn't work".
-- *Step 3:* inside handlers just write to signals (`this.orderStatus.set(...)`) — the UI updates
-  automatically; no change-detection tricks needed. Log every received event to the console in
-  dev; you will thank yourself.
-- *Step 4 & testing:* use one normal window + one incognito window for two different logins.
+  like "SignalR randomly doesn't work". Log every received frame to the console in dev.
+- *Step 3 (status is a string):* `OrderStatusFrame.status` is one of the nine `OrderStatuses`
+  strings, **not** the numeric REST enum. Feed it straight into `ORDER_STATUS_META`; feed REST
+  responses through `toTimelineStatus()` first.
+- *Step 5 & testing:* use one normal window + one incognito window for two different logins.
   Simulate flaky networks with devtools → Network → "Offline" and watch `withAutomaticReconnect`
   do its thing; the connection-state signal should visibly move disconnected → reconnecting →
-  connected.
+  connected, and step 4's re-fetch should fire on the way back.
+- *Step 6 (an admin sees less than you expect):* `support:dashboard` is seeded to SupportAgent
+  only, so an administrator does **not** receive `SupportActivity`. An administrator *does* hold
+  `restaurants:update`, so the hub tries to put them in a restaurant group, finds no manager replica
+  row and logs a warning. Neither is a bug; both will look like one at 11pm.
 
-**Done when:** two browser windows (customer + manager) side by side: manager clicks Accept, the
-customer's timeline advances with no refresh. Toast on status change if the customer is elsewhere
-in the app.
+**Done when:** two browser windows side by side (customer + manager): the manager clicks Accept and
+the customer's timeline advances with no refresh. Kill the network, bring it back, and the page
+re-syncs to the truth rather than sitting on a stale frame.
 
 ### Milestone 2.2 — Driver portal (5–7 days)
 
@@ -764,258 +1483,447 @@ in the app.
 standing next to a scooter. Big touch targets, one primary action per screen, works one-handed.
 
 **Steps**
-1. **Driver home:** giant online/offline toggle (calls availability endpoints), current status,
-   today's summary. While online, send geolocation updates: `navigator.geolocation.watchPosition`
-   → throttle to every few seconds → location update endpoint. Handle permission-denied with a
-   clear explanation screen.
-2. **Assignment offer screen:** when the backend assigns a delivery (event via SignalR), show a
-   full-screen offer — restaurant, distance, destination — with Accept / Reject and the
-   backend-driven expiry countdown (Quartz expiry job on the backend). This is the most
-   "app-like" screen in the project.
-3. **Active delivery flow:** one screen, one state machine (mirroring backend Delivery states):
-   navigate-to-restaurant → **Mark picked up** → navigate-to-customer → **Mark delivered**.
-   Leaflet map with restaurant/customer pins and the driver's own live position; a link out to
-   Google Maps/Waze for actual navigation (what real driver apps do).
-4. **Delivery history list** with earnings-free summary (no payments in this project).
-5. Test outdoors once with a phone on the local network (serve with `--host 0.0.0.0`; geolocation
-   needs HTTPS or localhost — use a dev tunnel or accept emulated locations in dev).
+1. **Driver home:** giant online/offline toggle calling
+   `PATCH delivery/drivers/me/availability { available }`, current status from
+   `GET delivery/drivers/me` (`DriverStatus`: `Offline | Available | Busy`), today's summary from
+   `GET delivery/deliveries`. While online, send geolocation with
+   `navigator.geolocation.watchPosition` → throttle to every few seconds →
+   `POST delivery/drivers/me/location { latitude, longitude }`. Handle permission-denied with a
+   clear explanation screen — **a driver who is `Available` but reporting no position is not an
+   assignment candidate**, so this is not an optional nicety.
+2. **The offer inbox — built against the contract that shipped.** The flow has two halves, and the
+   socket is only the nudge:
+   - **`GET delivery/drivers/me/offers`** is the authority. It returns
+     `DeliveryOfferResponse[]` — `{ id, orderId, restaurantId, pickupLatitude, pickupLongitude,
+     dropoffStreet, dropoffCity, dropoffPostalCode, dropoffCountry, dropoffNotes?,
+     dropoffLatitude, dropoffLongitude, offerExpiresOnUtc, createdOnUtc }` — soonest deadline
+     first, with lapsed offers already excluded server-side. An empty array means there is
+     genuinely nothing to accept.
+   - **The `DeliveryOffered` hub frame** carries only `{ deliveryId, orderId, offerExpiresOnUtc }`
+     and its documented purpose is to tell the client that a call to the endpoint above is worth
+     making. It deliberately carries no pickup or drop-off detail, so that a driver who was offline
+     for the frame and a driver who received it **arrive at the same screen by the same call**.
+
+   So: fetch the list on entering the portal; on a `DeliveryOffered` frame, re-fetch the list and
+   match on `deliveryId`. Render the top offer as a full-screen card — restaurant pickup point,
+   destination, and a countdown to `offerExpiresOnUtc` — with **Accept**
+   (`POST delivery/deliveries/{id}/accept`) and **Reject**
+   (`POST delivery/deliveries/{id}/reject`). This is the most "app-like" screen in the project.
+   - **There is no retraction frame, ever.** An offer ends by lapsing, by being declined, or by
+     being accepted, and only the last is something the realtime service hears about. The client
+     **self-expires** on `offerExpiresOnUtc`; when the countdown hits zero, drop the card and
+     re-fetch. The backend's consumer documents this explicitly, and it is the right design — a
+     retraction frame that got dropped would strand a stale offer forever, so the deadline has to
+     be load-bearing anyway.
+   - **Losing the race is a `409`, not an error.** Two drivers can be offered in quick succession;
+     accept is guarded by a distributed lock *and* by the aggregate. Render "that one's gone" and
+     refresh the list.
+3. **Active delivery flow:** one screen, one state machine mirroring `DeliveryStatus`:
+   `Assigned` → navigate to restaurant → **Mark picked up** (`POST .../picked-up`) → navigate to
+   customer → **Mark delivered** (`POST .../delivered`). Read the delivery with
+   `GET delivery/deliveries/{id}` for the pickup coordinates and full drop-off address. Leaflet map
+   with pickup/drop-off pins and the driver's own live position; a link out to Google Maps/Waze for
+   actual navigation (what real driver apps do).
+4. **Delivery history list** from `GET delivery/deliveries` — self-scoped, paged, no filters. No
+   earnings: the platform models a commission rate but never a driver payout, so don't display one.
+5. Test outdoors once with a phone on the local network (`ng serve --host 0.0.0.0`; geolocation
+   needs HTTPS or localhost — use a dev tunnel, or accept emulated locations in dev).
 
 **New concepts:** browser Geolocation API, permissions UX, Leaflet maps (markers, panning),
-throttling high-frequency updates, designing for one-handed phone use.
+throttling high-frequency updates, designing for one-handed phone use, socket-as-hint /
+REST-as-truth.
 
 **💡 Hints**
 - *Step 1 (geolocation):* `watchPosition` returns a watch id — store it and `clearWatch(id)` when
-  going offline, or the phone keeps the GPS hot forever. Throttle sends with `throttleTime(3000)`
-  (or timestamp comparison) — GPS can fire several times a second.
-- *Step 1 (simulating movement):* Chrome devtools → ⋮ → More tools → **Sensors** lets you set a
-  fake location; for continuous movement, a dev-only "simulate route" button that emits
-  interpolated coordinates on a timer beats fighting devtools.
+  going offline, or the phone keeps the GPS hot forever. Throttle sends with `throttleTime(3000)` —
+  GPS can fire several times a second, and this is described in the endpoint's own doc comment as
+  *"the system's highest-traffic endpoint"*.
+- *Step 1 (it's fire-and-forget):* `POST .../location` bypasses the aggregate and the outbox
+  deliberately — a position is telemetry, not domain state. It goes to a Redis geospatial set. So
+  don't await it in a way that blocks the UI, and don't retry a failed one; the next tick is three
+  seconds away.
+- *Step 1 (simulating movement):* Chrome devtools → ⋮ → More tools → **Sensors** sets a fake
+  location; for continuous movement, a dev-only "simulate route" button that emits interpolated
+  coordinates on a timer beats fighting devtools.
+- *Step 2 (countdown):* compute time-left from the **server-sent `offerExpiresOnUtc`** on every
+  tick — don't count down from "when I received it". A backgrounded tab throttles timers, and your
+  local countdown will drift from the backend's Quartz expiry job.
+- *Step 2 (don't render from the frame):* it is tempting to build the offer card from
+  `DeliveryOfferFrame` because it arrives first. Don't — it has three fields and none of them is an
+  address. Use it as a trigger only. Writing that down in a code comment is a good interview
+  anecdote about socket-as-hint design.
 - *Step 3 (Leaflet setup):* install `leaflet` + `@types/leaflet`; add `leaflet/dist/leaflet.css`
   to the `styles` array in `angular.json` (missing CSS = gray tiles/broken layout). Create the
   map in `ngAfterViewInit`, never in the constructor, and call `map.invalidateSize()` if the map
   initializes inside a hidden/animating container — the "map renders as a gray square" bug is
   always one of these two.
-- *Step 3 (marker icons):* Leaflet's default marker images 404 under bundlers — the well-known
-  fix is overriding `L.Icon.Default` with imported image URLs, or sidestep it entirely with
-  `L.divIcon` + a Tailwind-styled div (a colored dot for the driver looks better anyway).
-- *Step 2 (countdown):* compute time-left from the **server-sent expiry timestamp** on every
-  tick, don't count down from "when I received it" — a tab in the background throttles timers
-  and your local countdown drifts from the backend's Quartz expiry.
-- *Step 5 (phone testing):* `ng serve --host 0.0.0.0` and open `http://<laptop-ip>:4200` on the
-  phone — but geolocation needs a secure context, so plain HTTP fails: use VS Code's port
-  forwarding (gives an HTTPS URL) or a dev tunnel. Emulated locations on desktop are fine for
-  most of this milestone.
+- *Step 3 (marker icons):* Leaflet's default marker images 404 under bundlers — override
+  `L.Icon.Default` with imported image URLs, or sidestep it entirely with `L.divIcon` + a
+  Tailwind-styled div (a colored dot for the driver looks better anyway).
+- *Step 3 (ownership is enforced, not advisory):* only the assigned driver can pick up or deliver;
+  the domain refuses anyone else. You don't need a client-side check, just a sensible failure.
 - *UX:* primary action buttons full-width at the bottom of the screen (thumb zone), min height
-  ~56 px, one primary action per screen. Add `navigator.vibrate(200)` on new assignment — tiny
-  API, delightful demo.
+  ~56 px, one primary action per screen. Add `navigator.vibrate(200)` on a new offer — tiny API,
+  delightful demo.
 
-**Done when:** with backend + simulated movement, a driver can go online, get an offer, accept,
-pick up, and deliver — driving the customer's order to Delivered, all touch-only.
+**Done when:** with the backend running and simulated movement, a driver can go online, receive an
+offer (both via the socket and by cold-loading the offers list), accept it, pick up and deliver —
+driving the customer's order all the way to `Delivered`, all touch-only. Let one offer expire on
+screen and watch the card remove itself without a server frame.
 
 ### Milestone 2.3 — Customer live tracking map (2–3 days)
 
 **Steps**
-1. On the customer order-detail page for Out-for-delivery orders: Leaflet map with restaurant,
-   home, and the driver marker moving on `driverLocation$` events (subscribe to the order's
-   tracking group on the hub).
-2. Smooth the marker movement (simple interpolation between points — nice-to-have).
-3. Show ETA text when the backend provides it (Phase 3 feature — render "-" until then; design the
-   slot now).
+1. On the customer order-detail page, once a delivery exists, call
+   `GET delivery/orders/{orderId}/delivery` (customers hold `deliveries:read`, and the handler lets
+   the order's own customer read it). Render a Leaflet map with the pickup point
+   (`pickupLatitude/Longitude`), the drop-off (`dropoffLatitude/Longitude`) and the driver marker,
+   moving on `DriverLocationChanged` frames.
+2. **You do not join anything.** The frames arrive in your `user:{userId}` group automatically —
+   the hub has no client→server methods. Filter incoming `DriverLocationFrame`s by `orderId` and
+   ignore the rest. (If you read an older version of this plan that told you to
+   `hub.invoke('JoinOrderTracking', …)` and `leave` it on destroy: that method never existed.)
+3. Show the driver's name once assigned — from `DeliveryResponse.driverFirstName/LastName`, or from
+   the `DriverAssigned` status frame's `driverName`/`driverVehicle`. Those are the only two sources:
+   a customer does not hold `drivers:read` and cannot call `GET delivery/drivers/{id}`.
+4. Handle the null cases honestly: `currentDriverLatitude/Longitude` are null before assignment,
+   and null again once the delivery is terminal or the driver's position has gone stale. Render the
+   two fixed pins and a "waiting for the driver" state rather than a map with one ghost marker.
+5. Smooth the marker movement (simple interpolation between points — nice-to-have).
 
 **💡 Hints**
 - *Step 1 (reuse):* extract a shared `app-map` component from the driver work in 2.2 (inputs:
   markers, center; output: nothing) — two hand-rolled Leaflet setups will drift apart.
-- *Step 1 (groups):* join the order's tracking group on init (`hub.invoke('JoinOrderTracking',
-  orderId)` or whatever the hub contract names it) and **leave it on destroy** via
-  `inject(DestroyRef).onDestroy(...)` — forgetting to leave means you keep receiving another
-  order's coordinates on the next tracking page.
-- *Step 1 (bounds):* call `map.fitBounds([...])` **once** with restaurant + home + driver, then
+- *Step 1 (bounds):* call `map.fitBounds([...])` **once** with pickup + drop-off + driver, then
   stop touching the viewport — re-fitting on every location update makes the map lurch and users
   seasick. Offer a "re-center" button instead.
-- *Step 2:* simplest smoothing that looks good: `requestAnimationFrame`-lerp the marker from its
+- *Step 2 (the `DriverAssigned` gotcha, again):* when the socket says `DriverAssigned`, the REST
+  order is still `ReadyForPickup`. Your timeline will jump forward on the frame and jump back on
+  the next `GET orders/{id}`. Fix it by treating the **delivery** as the source of truth for
+  everything from assignment onward — `DeliveryStatus.Assigned = 2` is the real state — and let
+  `ORDER_STATUS_META` render the merged view. Write the merge in one function and test it.
+- *Step 5:* the simplest smoothing that looks good is a `requestAnimationFrame` lerp from the
   previous position to the new one over ~1 s. Plain `setLatLng` jumps are acceptable; smooth
   movement is the demo upgrade.
+- **No ETA.** Feature 3.3 was never built and nothing on any DTO or frame carries an estimate.
+  Don't design an empty slot for it — see
+  [what this plan deliberately does not build](#what-this-plan-deliberately-does-not-build).
 
 **Done when:** the full theater demo works: phone (driver, moving mock locations) + laptop
-(customer) — the marker moves live. *This is the money shot for the portfolio README GIF.*
+(customer) — the marker moves live, the driver's name appears, and the timeline agrees with itself
+across a refresh. *This is the money shot for the portfolio README GIF.*
 
-### Milestone 2.4 — Reviews & ratings (2–3 days)
-
-**Steps**
-1. Post-delivery review prompt on the order detail (1–5 stars restaurant + separate delivery
-   rating + text) — a reusable `app-star-rating` component (keyboard accessible: arrow keys).
-2. Enforce one-review-per-order in the UI (hide the form if reviewed); backend enforces it for real.
-3. Ratings surface: average stars + count on restaurant cards and detail header; reviews list with
-   pagination on the restaurant page; manager sees their reviews read-only in the portal.
-
-**💡 Hints**
-- *Step 1 (stars):* five buttons in a row; a `hovered` signal drives the preview fill on
-  `mouseenter`, click commits to the form value. Accessibility: wrap as `role="radiogroup"`, each
-  star `role="radio"` with `aria-label="3 stars"`, arrow keys move the value — a small,
-  well-known pattern worth doing right (it's a favorite code-review topic).
-- *Step 1 (partial stars for averages):* render the star row twice, filled over unfilled, and
-  clip the filled row with `overflow-hidden` at `width: {avg/5*100}%` — no SVG math needed.
-- *Step 2:* drive "can review?" from the backend (order status Delivered + no existing review) —
-  fetch it with the order instead of guessing client-side; after submit, flip local state so the
-  form hides immediately.
-- *Step 3:* the average on cards comes from the search response (backend caches it in Redis) —
-  don't compute averages client-side from the reviews list; the two would disagree and confuse
-  you into "fixing" the wrong layer.
-
-**Done when:** deliver → review → the restaurant's average visibly updates in search results.
+> ✅ **Phase 2 checkpoint:** no polling code remains. Re-record the demo GIF with the live map in it,
+> and add a short README section on the socket-as-hint / REST-as-truth design — it is the most
+> architecturally interesting decision in the whole frontend, and you did not make it up, you read
+> it off the backend's own contract.
 
 ---
 
-## Phase 3 — Support, AI & Production Polish (matches backend Phase 3)
+## Phase 3 — Payments, Support & Production Polish
 
-> **Goal:** the differentiators — support tooling, AI features surfaced in the UI — and the final
-> quality pass that makes reviewers take the project seriously.
+> **Goal:** the two shipped backend features this plan previously had no milestone for at all —
+> Stripe payments (3.8) and Support & ticketing (3.6) — plus the quality pass that makes reviewers
+> take the project seriously. Everything here exists server-side today; none of it is speculative.
 
-### Milestone 3.1 — Support Agent portal (3–5 days)
+### Milestone 3.1 — Payments: saved cards & paying by card (4–5 days)
+
+**What & why:** Feature 3.8 is complete on the backend and entirely invisible without this
+milestone. It is also the only place in the app where the *absence* of a thing (the card number) is
+the architecture: Stripe Elements collects the card in the browser, against Stripe directly, and the
+platform stays in PCI SAQ-A. One endpoint that accepted a card number would move the whole project
+into a far heavier compliance tier — which is a genuinely excellent thing to be able to explain.
 
 **Steps**
-1. **Ticket queue:** filterable table (status, date), claim/assign to me, status workflow
-   (Open → In Progress → Resolved / Escalated).
-2. **Ticket detail:** customer + full order context, the AI chatbot transcript that preceded
-   escalation, internal agent↔customer messaging thread, refund-request action (records the
-   request; no payments), and audit-relevant actions always requiring a reason.
-3. **Fraud dashboard** (backend Feature 3.4): flagged orders/accounts with risk scores and the
-   signals that triggered them; mark-reviewed workflow; simple trend chart of flags per day.
-4. **Review moderation** (backend Feature 2.6): list of reported/abusive reviews with a hide/
-   restore action, always with a reason (feeds the backend's audit logging).
-5. **Support analytics summary** (backend Feature 3.6): small dashboard — average resolution time,
-   tickets per day, most common issue types. Render with a lightweight chart approach (a few bars
-   built with plain divs + Tailwind is fine; a chart library is optional, not required).
+1. **`PaymentsApi` + the saved-cards screen** (`/customer/payment-methods`): `GET
+   payments/payment-methods` → `PaymentMethodResponse[]` (`brand`, `last4`, `expiryMonth`,
+   `expiryYear`, `attachedOnUtc`). At most one card is saved at a time — saving another **replaces**
+   it, so the UI is "your card", not "your cards", with a Replace button rather than an Add one.
+2. **Add a card with Stripe.js.** Install `@stripe/stripe-js`. The flow is:
+   1. `POST payments/payment-methods/setup-intents` → `{ setupIntentId, clientSecret }`.
+   2. Mount a Stripe Elements card form and call `stripe.confirmCardSetup(clientSecret, …)`.
+      The card goes from the browser to Stripe. **Your API never sees it.**
+   3. Stripe returns success to the browser — **and the card is not saved yet.**
+3. **Poll for the card, because the webhook is what saves it.** The endpoint's own description says
+   so: *"This call is not the attachment: the card is saved when Stripe's `setup_intent.succeeded`
+   webhook arrives, so a client polls `GET payments/payment-methods` rather than assuming success
+   here."* Build an explicit "confirming with your bank…" state that polls every ~1.5 s for ~20 s
+   and then offers a manual refresh. **Do not optimistically render the card** — an optimistic card
+   that never lands is a customer who thinks they can pay and can't.
+4. **Card at checkout.** Go back to Milestone 1.3's checkout page and make the payment method a real
+   choice: `"CashOnDelivery"` always, `"Card"` only when `GET payments/payment-methods` returns a
+   card. Send the enum **name** in `POST orders`.
+5. **Make the payment badge real.** The `PaymentStatus` map you built in 1.4 now has something to
+   show. On a card order it moves `Authorizing = 2` → `Authorized = 3` (funds held, nothing taken) →
+   `Captured = 4` when the restaurant accepts, or `Released = 5` if the order is rejected or
+   cancelled, or `Failed = 6` if the card is declined — in which case the order is cancelled
+   alongside it. A cash order is `NotRequired = 1` forever. Render the pair on the order row and the
+   order detail, and write one sentence of copy per state; "Authorized" and "Captured" mean nothing
+   to a customer, "Card held" and "Card charged" do.
+6. **Remove a card:** `DELETE payments/payment-methods/{id}` (204). Confirm with a modal, and say
+   what it means — card payment disappears from checkout once Orders projects the event, which is
+   *eventually*, not instantly. A brief window where checkout still offers Card is correct
+   behaviour, not a bug; handle the resulting failure gracefully rather than trying to prevent it.
+7. **Delete the scaffolding.** `POST payments/payment-methods/test-cards` exists only because this
+   screen did not. Its doc comment says *"Delete it when the Angular card flow lands."* Raise that
+   as a backend follow-up in the same PR — closing a loop someone else left open is a good habit and
+   a good story.
+
+**New concepts:** third-party JS SDK integration in Angular, an async-confirmation UX (poll, don't
+assume), modelling two orthogonal status dimensions on one row, eventual consistency the user can
+actually see.
+
+**💡 Hints**
+- *Step 2 (Stripe + Angular):* `loadStripe()` returns a promise — resolve it once in a service, not
+  per component. Mount Elements in `ngAfterViewInit` against a `@ViewChild` element ref, and
+  `element.destroy()` on destroy or a re-entered route leaks an iframe.
+- *Step 2 (test cards):* `4242 4242 4242 4242` with any future expiry and any CVC always succeeds.
+  The backend also names `pm_card_visa_chargeDeclined` and `pm_card_threeDSecure2Required` as the
+  useful alternatives — use them through the dev test-card endpoint to exercise your failure and
+  `Failed` states without fighting Elements.
+- *Step 3 (why polling and not a socket):* the realtime hub has no payment frame. Five methods, none
+  of them about money. Polling here is the right answer, not a stopgap — and knowing *why* the
+  backend chose a webhook for this and a socket for order status is a genuinely good interview
+  answer about which consistency each one needs.
+- *Step 3 (webhooks in local dev):* Stripe cannot reach your laptop. Run the Stripe CLI's
+  `stripe listen --forward-to localhost:3000/payments/webhooks/stripe` — the gateway route for it is
+  anonymous and rate-limit exempt, precisely so this works.
+- *Step 5 (the manager's side):* this is what makes Milestone 1.5's `Orders.PaymentNotAuthorized`
+  retry real. Place a card order and hit Accept fast enough and you *will* see it; it is a real
+  race, typically under a second, and the aggregate refuses rather than accepting an unpaid order.
+- *Step 5 (`Released` vs `Refunded`):* a release is a hold that was never charged — it never appears
+  on the customer's statement. A refund is money that moved and came back. The backend models them
+  as different things because a customer's bank does; your copy should too.
+- *Step 6 (don't guard what the server already guards):* a card id that isn't yours is a `404`, not
+  a `403` — deliberately, so a 403 can't confirm that someone else's card exists. Treat 404 here as
+  "already gone" and refresh.
+
+**Done when:** a customer can save a card with Stripe Elements, see it appear only after the webhook
+lands, place a card order, watch the payment badge go `Authorizing → Authorized → Captured` as the
+restaurant accepts — and place a cash order in the same session with no payment badge at all.
+
+### Milestone 3.2 — Customer support: my tickets (2–3 days)
+
+**What & why:** Customers hold `support-tickets:open` and `support-tickets:read`. There is a real
+customer-side support surface here, not just an agent portal, and the previous version of this plan
+missed it entirely.
+
+**Steps**
+1. **"Get help" entry point** on the order detail page and in the customer profile menu.
+2. **Open a ticket:** `POST support/tickets { orderId?, subject, category }` → `Guid`. `orderId` is
+   optional — not every ticket is about an order — but pre-fill it when the customer came from one.
+   `category` is the enum **name**: `OrderNotReceived`, `ItemMissing`, `FoodQuality`, `DriverIssue`,
+   `PaymentIssue`, `AppIssue`, `Other`. Render it as an accessible **radiogroup** (this is where the
+   star-rating accessibility exercise went — see
+   [what this plan deliberately does not build](#what-this-plan-deliberately-does-not-build)).
+3. **My tickets list:** `GET support/tickets` — the same endpoint the agent queue uses, scoped to
+   the caller. Show `reference` (the human-quotable id), subject, category, status, `openedOnUtc`.
+4. **Ticket detail + thread:** `GET support/tickets/{id}` and `GET support/tickets/{id}/messages`.
+   Render the conversation as chat bubbles, sided by `authorKind` (`Customer = 0`, `Agent = 1`,
+   `System = 2`). Reply with `POST support/tickets/{id}/messages { body }` — omit `visibility` and
+   it defaults to `CustomerVisible`, which is the only kind a customer may write anyway.
+5. **Never render an internal note.** Agents write `InternalNote` messages to each other on the same
+   thread. The backend filters them out **in SQL** for a customer caller, so a correct client simply
+   never receives one — but build your bubble component so that a hypothetical `visibility === 1`
+   message is *dropped*, not styled differently. Defence in depth costs one line here and is the
+   single most consequential thing on this screen.
+
+**New concepts:** chat-bubble rendering and auto-scroll, optimistic message send, accessible
+radiogroups, "the server filters, and so do I".
+
+**💡 Hints**
+- *Step 4 (auto-scroll):* after appending a message set `container.scrollTop =
+  container.scrollHeight` — but **only if the user was already near the bottom** (check before
+  appending); yanking the view while someone reads an older message is the most common chat-UX bug.
+- *Step 4 (optimistic send):* push the customer's bubble into the messages signal immediately with a
+  "sending" tint, then reconcile with the returned id. On failure mark the bubble with a retry
+  affordance rather than dropping it.
+- *Step 4 (author names):* `authorName` is **null for a customer-authored message** on purpose — the
+  Support module keeps no customer-name replica, and the customer reading their own thread knows
+  who they are. Render "You". It is also nullable for agents (a LEFT JOIN, so an agent whose
+  registration event hasn't been projected yet still shows their message) — fall back to "Support".
+- *Step 4 (input):* `<textarea rows="1">` that grows — set `height:auto` then `height:scrollHeight`
+  on input, cap with `max-h-32`. Enter sends, Shift+Enter adds a newline.
+- *Step 5 (no live updates):* there is no ticket frame on the SignalR hub. A customer sees an agent
+  reply when they re-open the thread — and they get an **email**, which the backend sends on every
+  customer-visible agent message. Poll on the open thread if you like (~20 s), and don't apologise
+  for it in the README; email is the channel this feature was designed around.
+- *Mobile:* the thread is `fixed inset-0` + `h-dvh` with the input pinned above the keyboard; test
+  on a real phone — software keyboards eat fixed-bottom inputs (`interactive-widget` viewport meta
+  and `dvh` units are the knobs to reach for).
+
+**Done when:** a customer can open a ticket against a real order, see it in their list, reply on the
+thread, and see an agent's reply — and an internal note written by that agent is nowhere in the DOM.
+
+### Milestone 3.3 — Support agent & administrator portal (5–7 days)
+
+**What & why:** Feature 3.6 shipped a substantial operational surface — a queue with claim/assign
+under a distributed lock, an append-only audit trail, a two-person refund workflow and an analytics
+summary — and the previous plan gave it one line. This is the data-dense desktop milestone.
+
+**Steps**
+1. **Ticket queue** (`/support/tickets`): `GET support/tickets` with the real filters —
+   `status`, `category`, `assignedAgentId`, `unassigned`, `from`, `to`, `page`, `pageSize`. The
+   agent queue is `?status=Open&unassigned=true`. **This is the home for the URL-as-state and
+   debounced-server-query exercise** that used to live on restaurant search: filters live in query
+   params, a `debounceTime(300)` + `distinctUntilChanged()` + `switchMap()` pipe drives the request,
+   and an agent can bookmark "open tickets, oldest first". Sort/paginate with the shared pieces.
+2. **Claim, assign, unassign:**
+   - `POST support/tickets/{id}/claim` — no body, the agent is the caller.
+   - `POST support/tickets/{id}/assign { agentId, reason? }` — naming *someone else* additionally
+     needs `support-tickets:administer`, which only an administrator holds, so hide that control
+     behind `hasPermission('support-tickets:administer')` and let the backend be the real gate.
+   - `POST support/tickets/{id}/unassign { reason }` — the **reason is required**; the aggregate
+     refuses an empty one. Make it a required field in the modal, not an optional note.
+   - All three take the same distributed lock key, so **losing a claim race is normal**: show "another
+     agent got there first", refresh the row, move on.
+3. **Ticket detail** (two-pane on desktop, stacked below `lg:`):
+   - Left: the same message thread from 3.2, **plus** an internal-note composer —
+     `POST .../messages { body, visibility: "InternalNote" }`, gated on `support-tickets:manage`.
+     Style notes unmistakably differently (a warning-toned left border and an explicit "Internal —
+     the customer cannot see this" label). Getting this wrong is the worst bug this portal can have.
+   - Right: ticket metadata, `reference`, the order id, and the **status workflow** via
+     `POST .../status { status, reason? }`. Statuses are `Open`, `InProgress`, `Resolved`,
+     `Escalated`, `Closed`; the aggregate owns which moves are legal and an illegal one comes back
+     as a 409 with a `detail` you should just show. `Resolved` needs a resolution note and
+     `Escalated` needs a reason — both go in `reason`.
+   - Below: the **audit trail**, `GET support/tickets/{id}/audit` — newest first, staff-only
+     (`support-tickets:manage`). Render `action`, `actorName` (nullable — fall back to the id),
+     `fromValue → toValue`, `reason`, `occurredOnUtc` as a vertical timeline. It is append-only by
+     design; there is no edit and no delete, and the UI should feel like a log, not a table you
+     could change.
+4. **Refunds — a two-person workflow, and the UI has to make that visible.**
+   - An agent raises one from a ticket: `POST support/tickets/{id}/refund-requests { amount,
+     reason }`. The `amount` is capped by the **replicated order subtotal**, the order and the
+     customer are read from the ticket, and the reason is required. Show the cap in the form.
+   - The queue: `GET support/refund-requests?status=Requested` → `RefundRequestResponse[]`, which
+     already joins `requestedByAgentName` and `decidedByAdminName` so the list reads as *"Jane
+     asked, Sam approved"*.
+   - The decision: `POST support/refund-requests/{id}/approve { note? }` or `/reject { note? }` —
+     **administrator only** (`refunds:approve`), and **the aggregate refuses the requester even if
+     they are an administrator**. So an admin looking at their own request must see the buttons
+     disabled with "you raised this — another administrator must decide". Segregation of duties you
+     can *see* is worth ten paragraphs of README.
+   - **The decision is not the end.** `RefundStatus` runs `Requested = 0` → `Approved = 1` →
+     `Settled = 3` **or** `Failed = 4`, asynchronously, once the Payments service acts on it.
+     `settledOnUtc`, `failedOnUtc` and a bounded `failureReason` are all on the response. An
+     approved-but-not-yet-settled row is the normal case for a second or two; a `Failed` row with
+     `failureReason` is actionable (a cash order needs settling by hand, an over-large amount needs
+     a smaller request) and should render as a call to action, not an alarm.
+5. **Analytics summary** (`/support/analytics`): `GET support/analytics/summary?from&to`. The
+   response echoes the window it computed (`fromUtc`/`toUtc`) so your chart can label its own axis.
+   Render:
+   - Headline tiles from `totals`: `ticketsOpened`, `ticketsResolved`, `ticketsFirstResponded`, and
+     the four durations. **Every duration is nullable** — a window in which nothing was resolved has
+     no resolution time, and rendering `0` there says "instant" when the truth is "empty". Show "—".
+   - A bar chart from `ticketsPerDay` (`{ date, opened, resolved }`). It is **gap-filled
+     server-side**: a quiet day is a row of zeroes, not a missing row, specifically so a chart
+     doesn't draw a straight line across it. Don't filter those rows out.
+   - Simple breakdowns from `byCategory`, `byStatus`, `byAgent` (`agentName` nullable again).
+   - `refunds` as `{ status, count, totalAmount }` — read it with the status beside it, since
+     `Approved`, `Settled` and `Failed` mean three different things about where the money is.
 
 **New concepts:** data-dense desktop tables (sorting/filtering/pagination as reusable patterns),
-multi-pane layouts, timeline/chat rendering, simple data visualization.
+URL-as-state for real, multi-pane layouts, permission-driven UI, simple data visualization, rendering
+an async decision outcome.
 
 **💡 Hints**
-- *Step 1 (tables):* resist building a generic `<app-table>` component — it's a classic rabbit
-  hole. A plain `<table>` per page with shared Tailwind classes and small reusable pieces
-  (pagination bar, sort-header component) gets you everything with a tenth of the complexity.
-  Wrap tables in `overflow-x-auto` so they survive narrow screens.
-- *Step 1 (filters):* same URL-as-state recipe as milestone 1.2 — filters in query params, so an
-  agent can bookmark "open tickets, oldest first".
-- *Step 2 (detail layout):* two-pane on desktop (`grid grid-cols-[2fr_1fr]`), stacked on smaller
-  screens; the conversation thread reuses the chat-bubble rendering you'll also want in 3.2 —
-  build the bubble component once in `shared/ui`.
-- *Steps 3/5 (charts):* a bar chart is `flex items-end` + divs with `height: (value/max)*100%` +
-  tooltips via `title` — genuinely enough here. If you want a library, Chart.js is the
-  boring-good choice; by this milestone you can afford it.
-- *Step 4:* "hide" is a status change with a mandatory reason (modal), not a delete — mirror the
-  backend's audit-logging mindset in the UI copy ("Hidden by support, reason: …").
+- *Step 1 (tables):* resist building a generic `<app-table>` — it's a classic rabbit hole. A plain
+  `<table>` per page with shared Tailwind classes and small reusable pieces (pagination bar,
+  sort-header component) gets you everything with a tenth of the complexity. Wrap tables in
+  `overflow-x-auto` so they survive narrow screens.
+- *Step 1 (filter values are names):* `status` and `category` go on the query string as enum
+  **member names** (`?status=Open&category=FoodQuality`), while the *responses* carry numbers. Same
+  asymmetry as everywhere else.
+- *Step 2 (permission-driven UI is a courtesy, not a control):* hide what the user can't do so the
+  screen isn't a minefield, but let the 403 be the real answer. Your interceptor already handles it
+  from Milestone 1.5.
+- *Step 3 (internal notes):* set the composer's visibility from an explicit toggle that *defaults to
+  customer-visible*, never a remembered value. The endpoint defaults the same way for the same
+  reason: omitting the field can publish a reply by accident, never a note.
+- *Step 3 (`support-analytics` and `support-tickets:manage` are agent-held; `refunds:approve` is
+  not):* an agent sees the whole portal except the approve/reject buttons. Build it as one feature
+  area with permission-gated controls, not two portals.
+- *Steps 4/5 (charts):* a bar chart is `flex items-end` + divs with `height: (value/max)*100%` +
+  tooltips via `title` — genuinely enough here. If you want a library, Chart.js is the boring-good
+  choice; by this milestone you can afford it.
+- *Step 5 (median beside mean):* the response gives you both, deliberately — one week-old ticket
+  drags a mean far enough to hide what the typical customer experienced. Show both; it is the same
+  instinct as the load-test report leading with p95, and saying that out loud is a good interview
+  moment.
+- *An agent cannot open a ticket.* `POST support/tickets` needs `support-tickets:open`, seeded to
+  Customer and Administrator only. The endpoint's `onBehalfOfCustomerId` field is therefore an
+  admin affordance. Don't put "New ticket" on the agent toolbar.
 
-### Milestone 3.2 — AI chatbot UI (3–4 days)
-
-**Steps**
-1. Floating chat button + slide-up chat panel in the customer area (full-screen sheet on mobile).
-2. Message list (user/bot bubbles, typing indicator), input with send-on-Enter, conversation kept
-   per session (matches the backend chat-history store).
-3. If the backend streams responses, render tokens as they arrive; otherwise show the typing
-   indicator until the reply lands. Render the escalated-to-human handoff state distinctly.
-4. Quick-action chips ("Where is my order?", "Cancel my order") that pre-fill the input — good UX
-   and great demo ergonomics.
-
-**New concepts:** chat UX patterns, auto-scrolling, optimistic message rendering, (optionally)
-consuming streamed HTTP responses.
-
-**💡 Hints**
-- *Step 2 (auto-scroll):* after appending a message set `container.scrollTop =
-  container.scrollHeight` — but **only if the user was already near the bottom** (check before
-  appending); yanking the view while someone reads an old message is the most common chat-UX bug.
-- *Step 2 (optimistic send):* push the user's bubble into the messages signal immediately, then
-  show a typing indicator (three bouncing dots = three divs with `animate-bounce` and staggered
-  `animation-delay`) until the bot reply arrives; on send failure mark the bubble with a retry
-  affordance.
-- *Step 2 (input):* `<textarea rows="1">` that grows: set `height:auto` then
-  `height:scrollHeight` on input, cap with `max-h-32`. Enter sends, Shift+Enter adds a newline.
-- *Step 3 (streaming):* `HttpClient` buffers responses — token-by-token streaming needs `fetch` +
-  `ReadableStream` reader appending to a signal. It's ~20 lines but a separate concept; timebox
-  it, the typing indicator alone demos fine.
-- *Step 3 (handoff):* render the escalation as a system message in the thread ("Connecting you to
-  an agent…") + a visually distinct agent bubble style — the same transcript then appears in the
-  support portal (3.1), which is a great cross-portal demo moment.
-- *Mobile:* the slide-up panel is `fixed inset-0` + `h-dvh` with the input pinned above the
-  keyboard; test on a real phone — software keyboards eat fixed-bottom inputs (`interactive-widget`
-  viewport meta / `dvh` units are the knobs to reach for).
-
-### Milestone 3.3 — AI surfaces: recommendations & live ETA (2–3 days)
-
-**Steps**
-1. **Home personalization:** "Recommended for you" carousel (with the AI's reasoning as a subtle
-   subtitle — differentiating and honest) + "Trending near you" section, from backend Feature 3.2
-   endpoints.
-2. **Live ETA:** fill the ETA slot from 2.3 — show the dynamic estimate on checkout, order detail,
-   and tracking; update via SignalR as the backend refines it (Feature 3.3).
-
-**💡 Hints**
-- *Step 1 (carousel):* a horizontal scroll container with `flex overflow-x-auto snap-x
-  snap-mandatory` and `snap-start` on cards is a complete, touch-native carousel — no library,
-  no JS.
-- *Step 1 (slow AI endpoint):* recommendation calls hit an LLM — treat them as slow by design:
-  skeleton row while loading, and a fallback to "popular restaurants" if the call errors or takes
-  more than a few seconds (`timeout()` from RxJS). The home page must never be blocked by the AI
-  feature.
-- *Step 1 (reasoning subtitle):* truncate to one line with `line-clamp-2` — model-generated text
-  varies wildly in length and will wreck card layouts otherwise.
-- *Step 2 (ETA display):* show a *range* ("19:25–19:35"), computed once from the backend estimate
-  — ranges absorb model error and look more honest than fake precision. When a SignalR update
-  shifts the ETA, animate the change subtly (a brief highlight) so users notice without alarm.
+**Done when:** an agent can work a ticket end to end — claim it from the queue, reply, leave an
+internal note the customer's session never renders, request a refund — a *different* administrator
+approves it, the row moves to `Settled`, and the analytics summary reflects the day's work.
 
 ### Milestone 3.4 — Production polish (4–6 days, spread out)
 
-The checklist that separates "student project" from "hire this person":
+The checklist that separates "student project" from "hire this person".
 
 1. **PWA:** add `@angular/pwa` — installable on a phone home screen with an icon and offline app
-   shell. For a food-delivery app this is *the* fitting finishing touch, and it's cheap.
+   shell. For a food-delivery app this is *the* fitting finishing touch, and it's cheap. (Web push
+   is **not** part of this — see
+   [what this plan deliberately does not build](#what-this-plan-deliberately-does-not-build).)
 2. **Accessibility pass:** keyboard-navigate every flow; labels on all inputs; focus trap in
-   modals; `alt` texts; check color contrast of your tokens; run Lighthouse a11y audit ≥ 95.
-3. **Performance pass:** run Lighthouse on the customer area (mobile preset); ensure lazy chunks
-   are sensible (`ng build` bundle stats); add `@defer` for below-the-fold heavy bits (map,
-   reviews); `NgOptimizedImage` for logos/photos.
-4. **Error & edge polish:** offline banner (`navigator.onLine`), 404 page, empty states
-   everywhere, form double-submit protection audit.
-5. **E2E suite:** 3–5 Playwright tests — login, browse+order happy path, manager accept, guard
-   redirect. Wire into CI.
-6. **Deploy:** Azure Static Web Apps (free tier) via GitHub Actions; point it at the deployed
-   backend from backend Feature 1.7/2.5. Custom README section: architecture diagram including
-   the frontend, screenshots/GIFs (tracking map!), link to the live demo.
-7. **(Optional) Browser telemetry:** add the Application Insights JavaScript SDK so page views,
-   AJAX timings, and frontend errors land in the same Application Insights instance as the
-   backend traces (backend Feature 2.4) — end-to-end correlation from a button click to a SQL
-   query is a spectacular interview demo.
-8. **(Optional) Web push notifications:** the PWA from step 1 enables browser push — subscribe
-   via the service worker and let the backend Notifications service send order updates even when
-   the tab is closed. Completes the Phase 2 promise from backend Feature 1.6; skip if time is
-   short, the in-app bell (2.1) already covers the story.
-9. **(Optional stretch)** refactor `CartService` to `@ngrx/signals` SignalStore and write one
+   modals; `alt` texts; check color contrast of your tokens; run a Lighthouse a11y audit ≥ 95.
+3. **Performance pass:** run Lighthouse on the customer area (mobile preset); check lazy chunks are
+   sensible (`ng build` bundle stats); add `@defer` for below-the-fold heavy bits (the map, the
+   audit trail); `NgOptimizedImage` for menu photos.
+4. **Error & edge polish:** offline banner (`navigator.onLine`), 404 page, empty states everywhere,
+   a form double-submit audit, and a **429 story** — the gateway's edge limiter really will shed
+   reads under load, and a "we're busy, retrying in Ns" banner driven by `Retry-After` is a nicer
+   answer than a red toast. `docs/rate-limiting.md` has the tiers if you want the numbers.
+5. **Browser ↔ backend correlation.** The replacement for the old Application Insights item, and a
+   better one: the gateway's CORS policy already exposes `X-Correlation-Id` to the browser by name
+   (`EdgeCorsOptions.ExposedHeaders`). Surface it in your error toasts and log it to the console in
+   dev, then paste it into Seq (`:8081`) or Jaeger (`:16686`) and read the whole server-side trace
+   for that one click. End-to-end correlation from a button to a SQL query, in about ten lines and
+   with no SDK. Write the README paragraph; it is a spectacular interview demo.
+6. **E2E suite:** 3–5 Playwright tests — login, browse + order happy path, manager accept, guard
+   redirect, and one cross-role test (manager accepts → customer's socket advances). Wire into the
+   frontend CI job.
+7. **Deploy — and be honest about what "deployed" means here.** Backend Feature 2.5 was **scoped
+   down**: what exists is plain `kubectl` manifests in `Backend/deploy/` for a local KinD cluster.
+   Helm, HPA, Ingress, CI-deploy and AKS were all cut, so **there is no hosted backend to point a
+   hosted SPA at.** Two honest options:
+   - Build and deploy the SPA to Azure Static Web Apps (free tier) with the backend base URLs
+     pointing at a locally-run stack, and say in the README that the live link is the frontend only.
+   - Or skip hosting entirely and ship a `docker compose up` + `ng serve` quickstart plus GIFs.
+
+   Either way, add the README section: architecture diagram including the frontend, screenshots and
+   GIFs (the tracking map!), and a clear-eyed "what runs where" note. A portfolio that explains its
+   own deployment boundary reads as more senior than one with a dead demo link.
+8. **(Optional stretch)** refactor `CartService` to `@ngrx/signals` SignalStore and write one
    paragraph in the README comparing the two — interview gold.
 
 **💡 Hints**
-- *Step 1 (PWA):* the service worker is **disabled in `ng serve`** — test with a production
-  build: `ng build` then serve `dist/` with `npx http-server`. While developing, keep devtools →
+- *Step 1 (PWA):* the service worker is **disabled in `ng serve`** — test with a production build:
+  `ng build` then serve `dist/` with `npx http-server`. While developing, keep devtools →
   Application → Service Workers → "Update on reload" checked, or you'll spend an afternoon
   debugging a stale cached bundle (everyone does this once).
-- *Step 2 (a11y):* fastest wins first: every `app-input` already has a label (0.B pays off),
+- *Step 2 (a11y):* fastest wins first — every `app-input` already has a label (0.B pays off),
   `alt` on images, visible focus rings (don't remove Tailwind's defaults), Escape closes modals
-  (free with `<dialog>`). Then run Lighthouse and fix what it lists — it names exact elements.
-- *Step 3 (bundles):* `ng build` prints per-chunk sizes; investigate with
-  `npx esbuild-visualizer` or source-map-explorer if a chunk balloons. Likely suspect: Leaflet
-  imported eagerly — confirm it only lives in lazy chunks, and wrap map/reviews sections in
-  `@defer (on viewport)`.
-- *Step 5 (Playwright):* use the `webServer` option in `playwright.config.ts` so tests auto-start
+  (free with `<dialog>`). Then run Lighthouse and fix what it lists; it names exact elements.
+- *Step 3 (bundles):* `ng build` prints per-chunk sizes; investigate with `npx esbuild-visualizer`
+  or source-map-explorer if a chunk balloons. Likely suspects: Leaflet and `@stripe/stripe-js`
+  imported eagerly — confirm both live only in lazy chunks, and wrap the map in `@defer (on
+  viewport)`.
+- *Step 6 (Playwright):* use the `webServer` option in `playwright.config.ts` so tests auto-start
   `ng serve`; select elements by role/label (`getByRole('button', { name: 'Place order' })`) —
   resort to `data-testid` only when that fails. Seed a dedicated test user; never depend on state
   a previous test created.
-- *Step 6 (SPA deploy):* deep links 404 on static hosts until you add the SPA fallback — for
+- *Step 7 (SPA deploy):* deep links 404 on static hosts until you add the SPA fallback — for
   Azure Static Web Apps that's `staticwebapp.config.json` with `navigationFallback` →
-  `/index.html`. Also swap `environment.ts` URLs at build time via the production file
-  replacement, not by hand.
-- *Step 7 (browser telemetry):* correlation only works if the App Insights JS SDK's
-  `enableCorsCorrelation` is on **and** the backend's CORS policy allows the correlation headers
-  (`Request-Id`, `traceparent`) — otherwise you get frontend telemetry that never joins the
-  backend traces.
+  `/index.html`. Swap `environment.ts` URLs at build time via the production file replacement, not
+  by hand.
+
+> ✅ **Phase 3 checkpoint — and the real definition of done for this plan:** every screen in the app
+> is backed by an endpoint or a hub frame that exists, the README's "known gaps" section lists the
+> four backend prerequisites and the two nice-to-haves by name, and nothing on screen is a
+> placeholder for a feature that was never built.
 
 ---
 
@@ -1029,9 +1937,16 @@ Small set — consistency beats cleverness:
 - **Naming:** files `kebab-case` (CLI default); one component per file; page components end in
   `*Page` (`OrderDetailPage`), presentational ones don't.
 - **DTOs:** TypeScript `interface`s in `core/api/models/`, named exactly like the backend
-  responses. Dates arrive as ISO strings — keep them as strings in DTOs, convert at the edge
-  (pipes) — a classic beginner trap.
+  responses. **Enums are numeric on the way in and string names on the way out** — model both, in
+  one file per backend module, and never inline a magic `1`. Dates arrive as ISO strings — keep
+  them as strings in DTOs and convert at the edge (pipes); it's a classic beginner trap.
 - **No `any`.** If you're tempted, the DTO is missing.
+- **Two base URLs.** `gatewayUrl` and `identityUrl`, both from `environment.ts`. A third one in a
+  component is a code-review reject.
+- **Never guess at a contract.** If a field or endpoint isn't in
+  [The API surface as it exists today](#the-api-surface-as-it-exists-today) or in
+  `http://localhost:3000/docs/{slug}/scalar`, it doesn't exist — raise it as a backend prerequisite
+  with a shape instead of designing around its absence. That rule is why this revision was needed.
 - **Tailwind:** mobile-first always (base classes = phone, `md:` adds desktop); extract repeated
   class clusters into a shared component rather than `@apply`.
 - **Git:** same discipline as the backend — feature branches, conventional-ish commits
@@ -1044,9 +1959,13 @@ Pragmatic pyramid — enough to prove the skill, not test theater:
 
 | Layer | Tool | What to cover |
 |---|---|---|
-| Unit | Vitest | The logic-bearing things: `CartService` (totals, one-restaurant rule), `AuthService` (refresh decision logic), pipes, order-status mapping. Aim for *meaningful* tests, not coverage %. |
-| Component | Vitest + Angular testing utilities | A handful: login form validation display, star-rating interaction, status timeline rendering per status. |
+| Unit | Vitest | The logic-bearing things: `CartService` (subtotal, one-restaurant rule), `AuthService` (refresh decision, single-flight), the **`toTimelineStatus()` bridge** (all nine socket values, all eight REST values, and the `Pending`→`Placed` case), the **commission percent↔fraction conversion**, the payment-status map, pipes. Aim for *meaningful* tests, not coverage %. |
+| Component | Vitest + Angular testing utilities | A handful: login form validation display, the status timeline per status, the ticket thread **dropping an `InternalNote`**, the offer card self-expiring on `offerExpiresOnUtc`. |
 | E2E | Playwright | 3–5 happy paths (Milestone 3.4). |
+
+The three unit tests in bold are the ones that pay for themselves. Each guards a mismatch between
+two systems — two status vocabularies, two ways of writing a percentage, two audiences for one
+message thread — and every one of them is a bug that ships silently and is found by a customer.
 
 Write unit tests *with* each milestone (the backend habit transfers directly); leave component
 tests for when a bug bites or a component stabilizes.
@@ -1062,11 +1981,17 @@ You'll build this with AI assistance — use it to learn, not to skip learning:
 3. **When stuck > 30 min**, ask for a hint ("what concept am I missing?") before asking for the fix.
 4. **Interrogate everything you paste:** "why `switchMap` and not `mergeMap` here?" — interviewers
    ask exactly these questions.
-5. Keep a `LEARNING_NOTES.md` — one line per "aha". It becomes your interview prep doc for the
+5. **Never let it invent an endpoint.** An assistant asked to "add restaurant search" will happily
+   write `GET restaurants?q=` because every other food app has one. Check every route it gives you
+   against `docs/{slug}/scalar` or the `IEndpoint` class. **This whole revision exists because a
+   plan was written against a project plan instead of against the code** — the same mistake is one
+   confident paragraph away at any moment.
+6. Keep a `LEARNING_NOTES.md` — one line per "aha". It becomes your interview prep doc for the
    frontend side, feeding the same interview-questions docs you keep for the backend.
 
 ---
 
 *Execute incrementally. Phase 0 + Phase 1 alone produce a demo-able full-stack product; each later
-phase adds visible wow (live maps, AI chat) on top of a solid foundation. Keep the backend the
-star of the show — the frontend's job is to make it undeniable.*
+phase adds visible wow (live maps, real card payments, an operational support desk) on top of a
+solid foundation. Keep the backend the star of the show — the frontend's job is to make it
+undeniable, and to make it undeniable **as it actually is**.*

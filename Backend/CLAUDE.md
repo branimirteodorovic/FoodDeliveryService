@@ -34,7 +34,7 @@ src/
 ## Service Responsibilities (feature placement guide)
 | Service / Module | Owns | Publishes | Consumes |
 |---|---|---|---|
-| **Users** | Registration, profiles, roles, permissions | `UserRegisteredIntegrationEvent`, `UserProfileUpdatedIntegrationEvent`; responds to `GetUserPermissionsRequest` (MassTransit request/response) | — |
+| **Users** | Registration, profiles, roles, permissions. `GET users/me` is the only place a client learns **its own** module-side `users.id` and role names — the token's `sub` is the *identity* id and matches nothing else on the platform, and the API resource declares no role claim (`docs/registration-architecture-decisions.md` §6). It is for rendering and routing; it authorizes nothing | `UserRegisteredIntegrationEvent`, `UserProfileUpdatedIntegrationEvent`; responds to `GetUserPermissionsRequest` (MassTransit request/response) | — |
 | **Orders** | Order lifecycle (cart → placed → delivered/canceled), local replica of user data | Order lifecycle events (as added) | `UserRegistered`, `UserProfileUpdated` |
 | **Restaurants** | Restaurants, menus, availability | Restaurant/menu events (as added) | (as needed) |
 | **Notifications** | Sending notifications in reaction to events. A new `NotificationType` needs three things, not two: the enum member, a template arm, **and** a `NotificationChannelRouter` route — a type missing from that map sends nothing and reports success | — | `OrderPlaced` (order confirmation), `TicketMessagePosted` (support reply), `RefundApproved`/`RefundRejected` (refund decision), `PaymentAuthorizationFailed` (declined card), `RefundSettled` (the money actually sent), `UserRegistered`/`UserProfileUpdated`/`UserInvited` |
@@ -247,6 +247,16 @@ dotnet ef migrations add {Name} \
   --startup-project src/API/FoodDeliveryService.{Module}.Api
 ```
 Gateway: http://localhost:3000 · Identity: http://localhost:18080 · RabbitMQ UI: http://localhost:15672 · Seq: http://localhost:8081 · Jaeger: http://localhost:16686 · Grafana: http://localhost:3100 · Prometheus: http://localhost:9090
+
+**Two things make a host die at boot rather than start slowly**, and both look like the same `Exited (139)` in `docker ps -a`:
+
+1. **A dependency that is starting but not ready.** Every host applies its migrations at boot, so a Postgres that is still coming up is fatal, not slow. `docker-compose.yml` therefore carries a `healthcheck` on the database, Redis and the queue, and every host plus Identity waits on `condition: service_healthy`. Never downgrade one of those to a bare `depends_on` list — that waits for the *container*, not the service. The database check runs `pg_isready` over **TCP** (`-h 127.0.0.1`) on purpose: during `docker-entrypoint-initdb.d` the image runs a temporary unix-socket-only server, and a socket check reports ready while `docker/postgres/init` is still running.
+2. **A missing HTTPS developer certificate.** The compose override gives every host `ASPNETCORE_HTTPS_PORTS=8081` and mounts `%APPDATA%/ASP.NET/Https`, where Kestrel looks for a **per-project** `FoodDeliveryService.{Service}.pfx`. Visual Studio writes that file the first time it runs a project; a service that has only ever been built with `dotnet build` and started by compose has none, and Kestrel refuses to start. **A new API host needs its cert created once**, or it will crash-loop while every older host runs fine:
+```bash
+dotnet dev-certs https -ep "$APPDATA/ASP.NET/Https/FoodDeliveryService.{Service}.pfx" -p "<password>"
+dotnet user-secrets set "Kestrel:Certificates:Development:Password" "<password>" --project src/API/FoodDeliveryService.{Service}
+```
+Neither affects the integration tests directly — they use Testcontainers — except that **all of them need Identity alive on `:18080`** for real JWTs. An Identity that died at boot fails whole test collections in `InitializeAsync`, before any test body runs.
 
 ## Activity Log
 Claude's actions are logged to `Backend/.claude/activity.log` — verify that CLAUDE.md and relevant files are read on each prompt.

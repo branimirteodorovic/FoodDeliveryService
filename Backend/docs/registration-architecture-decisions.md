@@ -80,6 +80,48 @@ This yields one round trip for the frontend and keeps the shared `UserRegistered
 
 `POST users/register` (identity + role only) followed by `POST restaurants/profile` (UserId + business fields) once the UserId is returned. Avoids any new synchronous RPC and stays purely event-driven, but pushes the "what if step two never happens" problem onto the frontend/UX layer (need a "pending" account state, a second form, and abandonment handling). Rejected in favor of the synchronous-orchestration approach for better UX, since registration is inherently an "create two related things atomically" operation.
 
+## 6. A registered user has two ids. Which one does a client get, and how?
+
+Added 2026-09-23, when the Angular client needed it.
+
+**Decision: `GET users/me` is the one place a client learns who it is — the module-side id and the
+role names — and it is UI convenience, never an authorization check.**
+
+Registration (§1) creates *two* records for one person: an `ApplicationUser` in Identity, and a
+`User` in the Users module holding `IdentityId` as a foreign key. So there are two ids, and they are
+not interchangeable:
+
+| Id | Lives in | Appears as | Used by |
+|---|---|---|---|
+| Identity id | Identity's ASP.NET Identity store | the access token's `sub` claim | Duende, and the `identity_id` column that joins the two |
+| Module-side id | `users.id` | `users/register`'s response; the `sub` **custom claim** added per request by `CustomClaimsTransformation` | everything else — `OrderResponse.CustomerId`, `Delivery.DriverId`, the SignalR `user:{id}` group |
+
+Inside the platform this is already handled: `CustomClaimsTransformation` looks the module-side id up
+by identity id and adds it as a claim, and `ClaimsPrincipalExtensions.GetUserId()` reads that one, so
+no handler ever sees the identity id. A **browser client** has neither of those. It can decode the
+token it holds, which gives it the identity id — the one value that matches nothing it will ever be
+sent — and it has no way at all to learn its roles, because the API resource declares no `UserClaims`
+(the reason for which is `security.md` §6.5) and roles never leave the Users database unasked.
+
+Both gaps are one read, so they are one endpoint: `users/me` returns `userId` (the module-side id),
+the profile fields and `roles`. The alternatives were considered and rejected:
+
+- **Mint the roles and the module-side id into the token** (an `IProfileService` in Identity).
+  Rejected for the reason §3 keeps the two services apart at all: it makes Identity read the Users
+  database. It also puts a role list inside a 15-minute token, where a revocation cannot reach it —
+  the exact staleness the permission RPC was chosen to avoid.
+- **Let the client infer its id from something it is already sent**, e.g. the first order it places.
+  Works until the user has no orders, which is every user on their first screen.
+- **Widen `GetUserQuery(Guid)` to carry roles and let the client pass its own id.** It does not have
+  its own id — that is half the problem — and it would put a role list behind a caller-supplied id,
+  which is an IDOR to write a predicate for rather than a lookup with no parameter at all
+  (`security.md` §2).
+
+**The boundary this does not move.** The client reads roles to decide what to render and where to
+navigate; no server trusts that. Every permission is still resolved per request from Users and
+enforced by `PermissionAuthorizationHandler`. A tampered role in a client's memory changes a menu,
+not an answer.
+
 ## Summary Table
 
 | Question | Decision |
@@ -89,3 +131,4 @@ This yields one round trip for the frontend and keeps the shared `UserRegistered
 | Merge Users into Identity? | No — Identity is protocol-level auth (domain-agnostic); Users is the cross-cutting role/permission registry |
 | Does `User` have FirstName/LastName? | Yes, always — every actor is a person; the restaurant business itself is a separate `Restaurant` aggregate in Restaurants, linked via `ManagerUserId` |
 | How does Restaurants get business details? | One frontend request to `restaurants/register`; Restaurants synchronously calls Users (RPC) to provision identity, then persists business data locally in the same transaction |
+| How does a client learn its own id and roles? | `GET users/me` — returns the **module-side** `users.id` (not the token's `sub`, which is the identity id) plus role names. For rendering and routing only; authorization stays server-side per request |

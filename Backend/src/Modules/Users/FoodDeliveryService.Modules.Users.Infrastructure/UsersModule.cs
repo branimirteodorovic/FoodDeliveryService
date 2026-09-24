@@ -3,9 +3,11 @@ using FoodDeliveryService.Common.Application.EventBus;
 using FoodDeliveryService.Common.Application.Messaging;
 using FoodDeliveryService.Common.Infrastructure.Outbox;
 using FoodDeliveryService.Common.Presentation.Endpoints;
+using FoodDeliveryService.Modules.Users.Application.Abstractions.Authentication;
 using FoodDeliveryService.Modules.Users.Application.Abstractions.Data;
 using FoodDeliveryService.Modules.Users.Application.Abstractions.Identity;
 using FoodDeliveryService.Modules.Users.Domain.Users;
+using FoodDeliveryService.Modules.Users.Infrastructure.Authentication;
 using FoodDeliveryService.Modules.Users.Infrastructure.Authorization;
 using FoodDeliveryService.Modules.Users.Infrastructure.Database;
 using FoodDeliveryService.Modules.Users.Infrastructure.Identity;
@@ -79,6 +81,10 @@ public static class UsersModule
         // services' PermissionService implementations reach this data via MassTransit
         // request/response instead.
         services.AddScoped<IPermissionService, PermissionService>();
+
+        // The authenticated caller, for the self-scoped reads (users/me). Scoped, because it reads
+        // the current request's principal.
+        services.AddScoped<IUsersContext, UsersContext>();
 
         // Typed HttpClient for Duende IdentityServer's local API (api/users). The delegating
         // handler transparently obtains a client-credentials token (scope users:register) and
