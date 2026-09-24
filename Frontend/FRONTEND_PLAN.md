@@ -16,10 +16,10 @@
 > for the backend, not the backend. Since then Support (3.6), Production Hardening (3.7) and Card
 > Payments (3.8) shipped; Fraud Detection (3.4) was built and then reverted; the Kubernetes feature
 > was scoped down; and several things this plan assumed — reviews, restaurant search, the three AI
-> features, a user-profile endpoint — were never built at all. Every endpoint, permission, DTO field
-> and hub method named below was read out of the code on that date. Where a screen needs something
-> that does not exist, it is listed as a **backend prerequisite with its shape**, never designed
-> around.
+> features, a *writable* user-profile endpoint — were never built at all. Every endpoint, permission,
+> DTO field and hub method named below was read out of the code on that date. Where a screen needs
+> something that does not exist, it is listed as a **backend prerequisite with its shape**, never
+> designed around.
 
 ---
 
@@ -251,8 +251,9 @@ Token lifetimes, from `Config.cs`, so you know what you are testing against:
 
 Frontend responsibilities:
 
-- **`AuthService`** — logs in, stores tokens, exposes `currentUser` / `isLoggedIn` / `roles` as
-  signals, schedules/executes refresh, logs out.
+- **`AuthService`** — logs in, stores tokens, fetches `GET users/me` for the identity the token does
+  not carry, exposes `currentUser` / `isLoggedIn` / `roles` as signals, schedules/executes refresh,
+  logs out.
 - **Auth interceptor** — attaches `Authorization: Bearer …` to every gateway request; on a 401,
   attempts one token refresh and replays the request; if refresh fails, redirects to login.
 - **Route guards** — `authGuard` (must be logged in) and `roleGuard('Customer')` etc. per area.
@@ -260,8 +261,8 @@ Frontend responsibilities:
 - **Token storage:** `localStorage`, with an honest README note about the XSS trade-off and what
   production would do differently (BFF/cookie pattern).
 
-> 🚧 **The access token does not tell you who the user is.** This is the single most important
-> correction in this revision, and it blocks role-based routing until the backend changes.
+> 🚧 **The access token does not tell you who the user is — `GET users/me` does.** The token half of
+> that is still worth understanding before you write a line of `AuthService`.
 > `CustomClaimsTransformation` (`Common.Infrastructure/Authorization/`) adds the `sub` (module-side
 > user id) and `permission` claims **server-side, on every request, after JWT validation** — they
 > are never minted into the token. And Identity assigns no ASP.NET Identity roles at all: roles live
@@ -270,8 +271,17 @@ Frontend responsibilities:
 > and that `sub` is the **Duende identity id**, a different value from the module-side user id that
 > `OrderResponse.customerId` and the SignalR groups use.
 >
-> Decode a real token at jwt.io on day one and see for yourself. Then read
-> [backend prerequisite #2](#backend-prerequisites), which is the fix and its shape.
+> So you make one extra call after login: `GET users/me` returns the module-side `userId`, the name,
+> the email and the `roles`, none of which the token carries. **Two ids, and they are never
+> interchangeable** — `sub` identifies the account at the identity provider, `userId` is what every
+> other service's DTOs and hub groups are keyed by. Model them as separate fields with separate
+> names and the trap never fires.
+>
+> Decode a real token at jwt.io on day one and see for yourself — seeing how little is in there is
+> what makes the `/me` call make sense. And keep this straight: what `/me` gives you drives
+> navigation and rendering. It is **not** an authorization check. Every service still resolves
+> permissions server-side per request, so a client that lies to itself about its role gets prettier
+> menus and exactly the same 403s.
 
 > ⚠️ ROPC (password grant) is deprecated in OAuth 2.1 — the backend chose it deliberately for
 > simplicity. Be ready to say in interviews: "production would use Authorization Code + PKCE with
@@ -352,19 +362,28 @@ Two more gateway facts worth knowing up front:
 ## The API surface as it exists today
 
 Read this table before designing any screen. Everything here was read out of the `IEndpoint`
-classes on 2026-09-19; anything not in it does not exist.
+classes — the bulk of it on 2026-09-19, the Users rows re-checked on 2026-09-24; anything not in it
+does not exist.
 
-### Users — `users/**` (2 endpoints, both anonymous)
+### Users — `users/**` (4 endpoints, the two registration ones anonymous)
 
 | Method & path | Permission | Body / query | Returns |
 |---|---|---|---|
 | `POST users/register` | *anonymous* | `{ email, password, firstName, lastName }` | `Guid` (module user id). Role is **forced to Customer** server-side whatever you send |
 | `POST users/accept-invitation` | *anonymous* | `{ email, token, newPassword }` | `204` |
+| `GET users/me` | `users:read` | *none — the subject is the token* | `{ userId, email, firstName, lastName, roles: string[] }`. `404` if the account was deactivated since the token was minted |
+| `PUT users/{userId}/roles` | `user-roles:manage` | `{ roles: string[] }` | `204` |
 
-That is the entire Users HTTP surface. **There is no `users/profile`, no `users/me`, no user list,
-no provisioning endpoint.** Provisioning happens over the message bus
+That is the entire Users HTTP surface. **There is no `users/profile`, no user list, no provisioning
+endpoint.** Provisioning happens over the message bus
 (`ProvisionUserRequest` / `ProvisionManagerUserRequest`), triggered by the restaurant and driver
 onboarding endpoints below.
+
+`GET users/me` is the one endpoint the SPA cannot do without: `roles` and the module-side `userId`
+exist nowhere in the access token (see the [authentication
+design](#authentication-design-matches-the-existing-backend-exactly)). It takes no parameter, so
+there is no way to ask it about anybody else. `users:read` is held by **every** role, so the
+permission is not what decides whose record comes back — the handler is, from the JWT subject.
 
 ### Restaurants — `restaurants/**`
 
@@ -668,7 +687,8 @@ A **separate** map handles `PaymentStatus`, because it is a second, orthogonal d
 ## Backend prerequisites
 
 Four things block or degrade a real screen. Each is listed with the shape it needs, so the backend
-work is a ticket rather than a discussion. Do #1 and #2 before frontend Phase 1; #3 before Milestone
+work is a ticket rather than a discussion. #2 is done — it is kept below because the reasoning behind
+the shape that was chosen is the useful part. Do #1 before frontend Phase 1; #3 before Milestone
 1.1 step 5; #4 before Milestone 1.6 step 2.
 
 ### 1. CORS on Identity (the Gateway's half is **done**)
@@ -697,43 +717,51 @@ shapes:
 **How you'll recognise it:** a red request with no response and a CORS message in the console, with
 a failed `OPTIONS` preflight just above it in the Network tab. That is this item, not your code.
 
-### 2. The user's role must reach the client — **blocking**
+### 2. The user's role must reach the client — **done, via `GET users/me`**
 
 **The problem, verified:** the access token carries no role and no permission.
 `CustomClaimsTransformation` adds `sub` and `permission` claims server-side per request; Identity
 assigns no ASP.NET Identity roles (roles live only in the Users module's database); and
 `ApiResource("fooddeliveryservice.api")` declares no `UserClaims`, so even name and email are absent
-from the access token. Without a change, `roleGuard('Customer')` has nothing to guard on and the
-app cannot decide which area to route a user to after login.
+from the access token. Left alone, `roleGuard('Customer')` would have nothing to guard on and the app
+could not decide which area to route a user to after login.
 
-Two shapes, either of which unblocks Phase 1:
+Two shapes were on the table. **(b) is what the Users module now exposes**; (a) was rejected, and it
+is worth knowing why before you ever propose it in an interview.
 
 - **(a) A `role` claim in the access token.** Add `UserClaims = { "role" }` to the `ApiResource` and
-  an `IProfileService` that supplies it. The catch: Identity has no role data, so it would need
-  Users to tell it — and the platform forbids service-to-service HTTP except `api/users`. Doable,
-  but it fights the architecture.
-- **(b) `GET users/me` on the Users module.** *Recommended.* Gated on `users:read`, which every role
-  holds. Returns exactly what the SPA needs and nothing more:
+  an `IProfileService` that supplies it. Rejected for two reasons. Identity holds no role data at
+  all, so it would have had to ask Users for it — and the platform forbids service-to-service HTTP
+  except `api/users`. And a role baked into a token cannot be taken away before the token expires:
+  demote an administrator and they keep administering for up to 15 minutes. That is precisely the
+  property `CustomClaimsTransformation` exists to avoid, by resolving permissions per request.
+- **(b) `GET users/me` on the Users module.** *Built.* Gated on `users:read`, which every role holds.
+  Takes no parameters — the subject is the JWT, so there is nothing to pass and no way to ask about
+  someone else. The response:
 
   ```jsonc
   // GET users/me  →  200
   {
-    "userId":      "…",          // the MODULE-side id — the one on OrderResponse.customerId
-                                 // and the one the SignalR user:{id} group uses
-    "email":       "…",
-    "firstName":   "…",
-    "lastName":    "…",
-    "roles":       ["Customer"], // Role.Name values
-    "permissions": ["orders:create", "…"]   // optional, but it makes permission-driven UI honest
+    "userId":    "…",          // the MODULE-side id — the one on OrderResponse.customerId
+                               // and the one the SignalR user:{id} group uses
+    "email":     "…",
+    "firstName": "…",
+    "lastName":  "…",
+    "roles":     ["Customer"]  // Role.Name values; empty array on a role-less account
   }
   ```
 
-  It is ~40 lines: an `IQuery`, a Dapper read against `users` + `user_roles` + `role_permissions`,
-  an `IEndpoint`. The SPA calls it once at app start (Milestone 1.1 step 6) and caches it in a
-  signal. It also hands back the module-side user id, which the token cannot supply at all.
+  **There is no `permissions` field** — an earlier draft of this plan hoped for one. The endpoint
+  reads `users` + `user_roles` only, so anything permission-driven in the UI has to be derived from
+  `roles` client-side (the table in [Roles,
+  permissions…](#roles-permissions-and-which-portal-may-call-what) is the mapping, and it is seeded
+  data you would be duplicating). A `404` is possible and means the account was deactivated after the
+  token was minted — treat it as "log out", not as an error toast.
 
-**Until it lands:** the dev role-switcher from Milestone 0.C stays as the *only* way to route by
-role, and you cannot demo the app. Treat this as the first backend ticket, not the last.
+The SPA calls it once after login and once on session restore (Milestone 1.1 steps 1 and 6) and
+caches the result in a signal. **It is UI and routing only.** No service trusts a role the client
+read here; `PermissionAuthorizationHandler` still decides every request server-side, so the worst a
+tampered `roles` signal buys you is a menu item that 403s when you click it.
 
 ### 3. The invitation email links to the API, not the SPA
 
@@ -792,7 +820,7 @@ repository on 2026-09-19, not what the plan intends.
 | Backend feature | State | Frontend coverage |
 |---|---|---|
 | **1.1** Solution structure | ✅ shipped | `Frontend/` in the same monorepo; a `Frontend/**` job added to the existing `.github/workflows/ci.yml` — **0.A** |
-| **1.2** Identity (registration, login, invitations, refresh, logout) | ✅ shipped | Login, customer registration, invitation activation, silent refresh, logout, session restore — **1.1**. Blocked on [prerequisite #2](#backend-prerequisites) for role routing |
+| **1.2** Identity (registration, login, invitations, refresh, logout) | ✅ shipped | Login, customer registration, invitation activation, silent refresh, logout, session restore — **1.1**. Role routing reads `roles` from `GET users/me` ([prerequisite #2](#backend-prerequisites)), never from the token |
 | **1.3** API Gateway | ✅ shipped (+ edge rate limiting, CORS, security headers from 3.7) | All REST **and** the WebSocket go through `:3000` — **all milestones**; 401/403/**429 with `Retry-After`** handled in **1.1** |
 | **1.4** Restaurant Service | ✅ shipped — **no search, no filters, no opening hours, no ratings** | Paged browse + menu — **1.2**; manager menu/category CRUD and sold-out toggle — **1.5**; admin onboarding — **1.6** |
 | **1.5** Order Service | ✅ shipped | Cart + checkout with idempotency key — **1.3**; order list/detail/timeline/cancel — **1.4**; manager accept → reject → preparing → ready — **1.5** |
@@ -833,7 +861,7 @@ or explicitly written off.
 | **Fraud dashboard** (old 3.1 step 3) | Feature 3.4 was built and then reverted in `6ae4879`. The service is gone; only stale build artifacts remain | Written off. This one is worth mentioning in interviews as *"we built it and took it back out"* — knowing why a thing was removed is the more interesting half |
 | **Review moderation** (old 3.1 step 4) | Depends on reviews, which do not exist | Written off |
 | **A notifications API / persisted notification list** | The Notifications service has never exposed an HTTP endpoint | The bell becomes a **session-scoped feed of socket events** (2.1 step 5) — honest, and the honesty is the point |
-| **`users/profile`** (old 1.1 steps 1 & 6, old prerequisite #2) | The Users module exposes exactly two endpoints, both anonymous | Replaced by [backend prerequisite #2](#backend-prerequisites), which specifies `GET users/me` properly instead of assuming it |
+| **`users/profile`** (old 1.1 steps 1 & 6) | No such endpoint, and no way to *edit* a profile over HTTP — `users:update` exists as a permission but nothing maps it to a route | Read-side only, via `GET users/me` ([prerequisite #2](#backend-prerequisites)). The profile screen renders name, email and roles and offers no save button |
 | **Application Insights browser SDK** (old 3.4 step 7) | There is no Application Insights anywhere in the backend | Replaced by correlation on the `X-Correlation-Id` response header, which the gateway's CORS policy already exposes by name — **3.4** |
 | **Web push notifications** (old 3.4 step 8) | Would need a subscription endpoint and a push sender in Notifications; neither exists, and neither is a small change | Written off. The PWA install (3.4 step 1) stays; push does not |
 
@@ -980,10 +1008,11 @@ copies of markup) by everything that follows.
   Returning the UrlTree lets the router handle redirect + history correctly. Make `roleGuard` a
   factory: `roleGuard('Customer')` returns a `CanActivateFn`.
 - *Step 3 (fake auth):* keep the fake user in `signal<User | null>` with the **exact shape
-  [prerequisite #2](#backend-prerequisites) specifies** — `{ userId, email, firstName, lastName,
-  roles: string[], permissions: string[] }`. That is what makes the 1.1 swap painless, and it means
-  the shape is already agreed with the backend before either side writes it. Show the role-switcher
-  only when `isDevMode()` is true.
+  `GET users/me` returns** — `{ userId, email, firstName, lastName, roles: string[] }`, and nothing
+  else (see [prerequisite #2](#backend-prerequisites); there is no `permissions` field, so don't
+  invent one here and discover it in 1.1). Copying the real shape is what makes the 1.1 swap a
+  one-line change to where the signal is filled from. Show the role-switcher only when `isDevMode()`
+  is true.
 - *Step 3 (role names):* they are exactly `Administrator`, `Customer`, `RestaurantManager`,
   `DeliveryDriver`, `SupportAgent` (`Users.Domain/Users/Role.cs`). Type them as a union, not
   `string`.
@@ -1008,18 +1037,21 @@ wrong areas, and the network tab shows each area's JS chunk loading only on firs
 **What & why:** The frontend's front door, wired to Duende exactly as described in the
 [architecture section](#authentication-design-matches-the-existing-backend-exactly).
 
-> ⛔ **Read [backend prerequisite #2](#backend-prerequisites) first.** Steps 1 and 6 depend on it.
-> If it has not landed, build everything else in this milestone and keep the dev role-switcher
-> supplying `roles` — but do not invent a role from the email address or the route you happened to
-> land on. That kind of guess is exactly how a driver ends up looking at the admin portal.
+> 📌 **Read [backend prerequisite #2](#backend-prerequisites) first.** Steps 1 and 6 both call
+> `GET users/me`, and the two-ids trap it describes is the single easiest way to lose a day in this
+> milestone. `roles` comes from that response and from nowhere else — never infer one from the email
+> address or from the route you happened to land on. That kind of guess is exactly how a driver ends
+> up looking at the admin portal.
 
 **Steps**
 1. **DTOs & `AuthService`:** implement `login(email, password)` posting the password-grant form to
    `{identityUrl}/connect/token`. Decode the JWT payload (base64url — no library needed) and look at
    what is actually in it: `sub` (the **Duende identity id**, not the module user id), `client_id`,
    `scope`, `aud`, `exp`. **No role, no permission, no email.** Then call `GET users/me` through the
-   gateway for the real user (prerequisite #2) and hold it in a signal. Expose `currentUser`,
-   `isLoggedIn`, `hasRole()`, `hasPermission()` as signals/computed.
+   gateway for the real user — `{ userId, email, firstName, lastName, roles }` — and hold it in a
+   signal. Expose `currentUser`, `isLoggedIn` and `hasRole()` as signals/computed. No
+   `hasPermission()`: the response carries no permission list, so gate UI on roles and let the 403
+   handling in step 2 be the honest fallback for anything finer.
 2. **Interceptors:** `authInterceptor` adds the bearer token to gateway requests only (never to the
    identity host); `errorInterceptor` maps ProblemDetails → `ApiError` (`{ code, detail, status,
    errors? }` where `code` is the response's `title`), toasts unexpected errors. On 401: refresh
@@ -1771,8 +1803,9 @@ summary — and the previous plan gave it one line. This is the data-dense deskt
 2. **Claim, assign, unassign:**
    - `POST support/tickets/{id}/claim` — no body, the agent is the caller.
    - `POST support/tickets/{id}/assign { agentId, reason? }` — naming *someone else* additionally
-     needs `support-tickets:administer`, which only an administrator holds, so hide that control
-     behind `hasPermission('support-tickets:administer')` and let the backend be the real gate.
+     needs `support-tickets:administer`, which only an administrator holds. `GET users/me` returns no
+     permission list, so hide that control behind `hasRole('Administrator')` — the role is the only
+     proxy you have for the code — and let the backend be the real gate.
    - `POST support/tickets/{id}/unassign { reason }` — the **reason is required**; the aggregate
      refuses an empty one. Make it a required field in the modal, not an optional note.
    - All three take the same distributed lock key, so **losing a claim race is normal**: show "another
