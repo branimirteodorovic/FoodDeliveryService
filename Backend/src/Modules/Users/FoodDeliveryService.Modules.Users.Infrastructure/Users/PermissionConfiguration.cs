@@ -45,7 +45,8 @@ internal sealed class PermissionConfiguration : IEntityTypeConfiguration<Permiss
             Permission.GetSupportAnalytics,
             Permission.ManagePaymentMethods,
             Permission.GetPayments,
-            Permission.AdministerPayments);
+            Permission.AdministerPayments,
+            Permission.ManageUserRoles);
 
         builder
             .HasMany<Role>()
@@ -123,6 +124,11 @@ internal sealed class PermissionConfiguration : IEntityTypeConfiguration<Permiss
                     CreateRolePermission(Role.Administrator, Permission.ManagePaymentMethods),
                     CreateRolePermission(Role.Administrator, Permission.GetPayments),
                     CreateRolePermission(Role.Administrator, Permission.AdministerPayments),
+                    // Role management: the administrator alone re-grants or revokes a role on an
+                    // existing account. Deliberately not folded into users:provision — that code
+                    // creates accounts, this one changes what an existing account may do, and the
+                    // two are separable the day a provisioning operator is not a full admin.
+                    CreateRolePermission(Role.Administrator, Permission.ManageUserRoles),
                     // RestaurantManager: manage only their own restaurant/menu (ownership-enforced in handlers)
                     // + their own profile. No CreateRestaurant/ProvisionUsers. Seeded now, exercised in later milestones.
                     CreateRolePermission(Role.RestaurantManager, Permission.GetRestaurants),

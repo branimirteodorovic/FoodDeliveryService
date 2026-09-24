@@ -85,6 +85,7 @@ Every endpoint that takes an id, what scopes it, and what a caller who is not en
 | `GET support/tickets/{id}/audit` | staff-only (`support-tickets:manage`) — no customer-facing path exists | 404 if absent |
 | `POST support/tickets/{id}/{status,assign,claim,unassign,messages}` | staff permission plus the aggregate's own rules (segregation of duties on refunds) | 400 / 403 / 404 per rule |
 | `GET support/refund-requests`, `GET support/analytics/summary` | staff-only aggregates over every ticket — deliberately not caller-scoped | n/a |
+| `PUT users/{userId}/roles` | **not** caller-scoped, deliberately: `user-roles:manage` is administrator-only and the whole operation is acting on somebody else. The scoping that matters here is on the *target* — an administrator's roles are refused outright, and only `Role.Assignable` names may be granted, so the endpoint can neither mint an administrator nor strip the last one | 409 `Users.AdministratorRolesAreImmutable` / 400 `Users.RoleNotAssignable` / 404 if absent |
 
 No handler was found scoping by **nothing**. Everything that takes an id either checks ownership,
 filters by it in SQL, or is deliberately open to all authenticated callers (the restaurant
@@ -921,15 +922,25 @@ reason: there is no deployed environment to put one in front of, or point one at
 limiter is admission control, not a WAF — it counts requests per client and route tier and inspects
 nothing about their content.
 
-### 11.2 A revoked permission has up to five minutes of lag
+### 11.2 A permission revoked outside the role-change endpoint has up to five minutes of lag
 
-`IPermissionService` caches a caller's permission set in Redis for five minutes (§1). Revoking a
-permission — or a role that grants it — therefore takes effect on the next cache miss, not on the
-next request. The trade is deliberate: the alternative is an RPC to Users on every authorization
-decision in every service. **There is no revocation push and no cache eviction on a role change**, so
-the five minutes is a ceiling that always applies rather than a worst case. An operation that needs
-immediate revocation must disable the account at Identity, which stops token issuance, and then wait
-out the lifetime of any access token already issued (15 minutes, §6.3).
+`IPermissionService` caches a caller's permission set in Redis for five minutes (§1), so a change to
+what they may do normally takes effect on the next cache miss rather than on the next request. The
+trade is deliberate: the alternative is an RPC to Users on every authorization decision in every
+service.
+
+**`PUT users/{userId}/roles` is the exception, and it is exact.** All eight services share one cache
+entry per caller — `user_permissions:{identityId}`, with no service qualifier and no Redis
+`InstanceName` — so the command handler evicts that single entry inline after the write and every
+service is authorizing against the new role set on its very next request. No token is reissued and
+none needs to be: the JWT carries no role or permission claim (§11.3), which is precisely what makes
+this revocable at all. `docs/caching.md` §2.
+
+What still lags is every *other* way the answer could change: a migration that alters
+`role_permissions`, or a direct edit to the Users database. Nothing evicts for those, so the five
+minutes applies in full. And the eviction is a cache operation, not a session kill — an operation
+that needs the caller stopped outright must disable the account at Identity, which stops token
+issuance, and then wait out the lifetime of any access token already issued (15 minutes, §6.3).
 
 ### 11.3 The JWT carries no role claim
 

@@ -52,6 +52,12 @@ public static class RestaurantsModule
             registration.AddConsumer<IntegrationEventConsumer<UserProfileUpdatedIntegrationEvent>>()
                 .Endpoint(c => c.InstanceId = instanceId);
 
+            // Feature: administrator role changes. The registration consumer above is role-filtered and
+            // fires once, so a role granted later needs this to back-fill the replica — see
+            // UserRolesChangedIntegrationEventHandler.
+            registration.AddConsumer<IntegrationEventConsumer<UserRolesChangedIntegrationEvent>>()
+                .Endpoint(c => c.InstanceId = instanceId);
+
             // Explicit request clients for the RPCs this module sends to Users (see
             // Authorization/PermissionService.cs and Provisioning/ManagerProvisioningService.cs) —
             // without these, MassTransit's implicit IRequestClient<T> resolution silently fails to

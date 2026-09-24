@@ -272,6 +272,59 @@ public partial class ValidatorCoverageTests
             moduleName);
     }
 
+    /// <summary>
+    /// The same bound, for free text arriving as a <b>collection</b> of strings rather than as one.
+    /// <para>
+    /// A separate test because <see cref="EveryFreeTextField_Should_BeLengthBounded"/> matches on
+    /// <c>type == typeof(string)</c>, which a <c>IReadOnlyCollection&lt;string&gt;</c> parameter is
+    /// not — it was invisible to that sweep, and the first such field to arrive
+    /// (<c>ChangeUserRolesCommand.Roles</c>) would have been unbounded with the suite still green.
+    /// FluentValidation reports a <c>RuleForEach</c> failure against the indexed property
+    /// (<c>Roles[0]</c>), so the match here is by prefix rather than by equality.
+    /// </para>
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(ModuleNames))]
+    public void EveryFreeTextCollection_Should_BeLengthBounded(string moduleName)
+    {
+        // Arrange
+        ModuleApplication module = Module(moduleName);
+        Dictionary<Type, Type> validators = ValidatorsByRequest(module.Assembly);
+        var offenders = new List<string>();
+
+        foreach (Type request in EndpointReachableRequests(module))
+        {
+            if (!validators.TryGetValue(request, out Type? validatorType))
+            {
+                continue;
+            }
+
+            foreach (ParameterInfo parameter in InputParameters(request, IsStringCollection))
+            {
+                // Act — one element, overlong. A per-element rule fails on it; a validator that only
+                // bounds the collection's Count does not, which is the gap being closed.
+                ValidationResult result = Validate(
+                    validatorType,
+                    Create(request, parameter.Name!, new[] { new string('a', OverlongText) }));
+
+                string property = PropertyName(parameter);
+
+                if (!result.Errors.Any(failure =>
+                        failure.PropertyName.StartsWith(property, StringComparison.Ordinal)))
+                {
+                    offenders.Add($"{request.Name}.{property}");
+                }
+            }
+        }
+
+        // Assert — an unbounded element is the same row the caller sizes as in the test above, only
+        // repeated as many times as they care to send.
+        offenders.Should().BeEmpty(
+            "every free-text collection on {0}'s reachable requests needs a per-element " +
+            "MaximumLength (RuleForEach), not only a bound on how many elements there are",
+            moduleName);
+    }
+
     [Theory]
     [MemberData(nameof(ModuleNames))]
     public void EveryPagedRequest_Should_RejectAnAbusivePageSize(string moduleName)
@@ -463,6 +516,15 @@ public partial class ValidatorCoverageTests
     }
 
     private static Type Underlying(Type type) => Nullable.GetUnderlyingType(type) ?? type;
+
+    /// <summary>
+    /// A parameter carrying several free-text values — <c>IEnumerable&lt;string&gt;</c> in any of its
+    /// shapes (<c>string[]</c>, <c>List&lt;string&gt;</c>, <c>IReadOnlyCollection&lt;string&gt;</c>).
+    /// <c>string</c> is itself an <c>IEnumerable&lt;char&gt;</c>, not of <c>string</c>, so it does
+    /// not match here and stays the other test's business.
+    /// </summary>
+    private static bool IsStringCollection(Type type) =>
+        type != typeof(string) && type.IsAssignableFrom(typeof(string[]));
 
     /// <summary>
     /// FluentValidation reports failures against the PROPERTY name; a positional record's

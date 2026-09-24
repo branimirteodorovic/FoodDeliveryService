@@ -61,5 +61,9 @@ internal sealed class PermissionService(
         return Result.Failure<PermissionsResponse>(failure ?? NotFound);
     }
 
-    private static string CreateCacheKey(string identityId) => CacheKeys.Create("user_permissions", identityId);
+    // CacheKeys.UserPermissions, not a locally composed string: this key is shared verbatim by all
+    // seven PermissionService implementations and by the Users command that evicts it, and nothing
+    // in Redis namespaces it per service. A drift here would not fail - it would just stop the
+    // eviction from reaching this service.
+    private static string CreateCacheKey(string identityId) => CacheKeys.UserPermissions(identityId);
 }

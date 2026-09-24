@@ -56,6 +56,12 @@ public static class OrdersModule
         registrationConfigurator.AddConsumer<IntegrationEventConsumer<UserProfileUpdatedIntegrationEvent>>()
             .Endpoint(c => c.InstanceId = instanceId);
 
+        // Feature: administrator role changes. The registration consumer above is role-filtered and
+        // fires once, so a role granted later needs this to back-fill the replica — see
+        // UserRolesChangedIntegrationEventHandler.
+        registrationConfigurator.AddConsumer<IntegrationEventConsumer<UserRolesChangedIntegrationEvent>>()
+            .Endpoint(c => c.InstanceId = instanceId);
+
         registrationConfigurator.AddConsumer<IntegrationEventConsumer<RestaurantRegisteredIntegrationEvent>>()
             .Endpoint(c => c.InstanceId = instanceId);
         registrationConfigurator.AddConsumer<IntegrationEventConsumer<MenuItemAddedIntegrationEvent>>()

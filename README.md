@@ -157,7 +157,7 @@ graph TB
 
 ### C3 — Event Topology
 
-The C2 diagram draws one dashed line per service to a RabbitMQ box, which is honest about the transport and says nothing about the system. This is what actually travels those lines: **34 integration events**, who publishes each and who reacts to it.
+The C2 diagram draws one dashed line per service to a RabbitMQ box, which is honest about the transport and says nothing about the system. This is what actually travels those lines: **35 integration events**, who publishes each and who reacts to it.
 
 **The hop every one of them takes.** Nothing publishes to the broker from a command handler. A state change and the record of that state change are committed together, and everything after that is out of band:
 
@@ -198,10 +198,10 @@ graph LR
     sup["🎧 <b>Support</b>"]
     pay["💳 <b>Payments</b>"]
 
-    users -->|"UserRegistered · UserProfileUpdated"| orders
-    users -->|"UserRegistered · UserProfileUpdated"| rest
+    users -->|"UserRegistered · UserProfileUpdated<br/>UserRolesChanged"| orders
+    users -->|"UserRegistered · UserProfileUpdated<br/>UserRolesChanged"| rest
     users -->|"UserProfileUpdated"| deliv
-    users -->|"UserRegistered · UserProfileUpdated"| sup
+    users -->|"UserRegistered · UserProfileUpdated<br/>UserRolesChanged"| sup
     users -->|"UserRegistered · UserProfileUpdated<br/>UserInvited"| notif
     users -->|"UserRegistered"| pay
 
@@ -229,9 +229,11 @@ graph LR
     class users,rest,orders,deliv,notif,rt,sup,pay svc
 ```
 
-Three things the picture makes obvious that the prose does not:
+Four things the picture makes obvious that the prose does not:
 
 - **The lifecycle is a loop, not a chain.** Orders tells Delivery an order is ready; Delivery tells Orders it was picked up and delivered, and *those* events are what move the order to `OutForDelivery` and `Delivered`. Neither service calls the other. Payments closes the same shape around the money, twice: `OrderPlaced` goes out, the card is authorized off it, and `PaymentAuthorized`/`PaymentAuthorizationFailed` come back to lift the guard on accepting the order or to cancel it — then the acceptance, rejection or cancellation goes out in turn, the hold is captured or released off *that*, and `PaymentCaptured`/`PaymentReleased` come back onto the same column. Payments never asks Orders anything, and Orders never asks Payments. The refund is the same shape a third time and across a different pair: Support publishes an administrator's approval, Payments refunds the card off it, and `RefundSettled`/`RefundFailed` come back to close the request — the authority to spend and the ability to spend living in two services that only ever send each other messages.
+- **Three services take the same Users event for the same reason, and it is not the obvious one.** `UserRolesChanged` goes to Orders, Restaurants and Support because those three keep a **role-filtered** copy of the user directory — customers, managers, agents — built from `UserRegistered` and skipping everyone who did not hold the role at registration. Roles were immutable until there was an endpoint to change them, so that filter used to be a decision made once and forever; now a grant has to back-fill the table it newly belongs in, or the new agent holds every `support-tickets:*` code and still cannot be assigned a ticket. Notifications and Payments take no such event: neither replica is role-filtered, so neither can be wrong about a role. Note what is *not* on any of these arrows — the permission change itself. All eight services share one Redis entry for a caller's permissions, so the Users command evicts it inline and every service is authorizing against the new roles on the next request, while these arrows catch up with the replicas in their own time.
+
 - **Notifications and RealTime only ever consume.** They publish nothing. Both are pure projections of other services' state — one into email, one into SignalR frames — which is why either can be down without blocking a single write.
 - **Five events are published that nothing consumes yet.** Delivery's `DeliveryOfferRejected` and `DeliveryUnassigned`, and Support's `SupportTicketOpened`, `SupportTicketResolved` and `RefundRequested`. They are the audit and extension surface — an offer's lifecycle and a refund's approval chain are worth publishing whether or not anything listens today — and they are named here rather than omitted, because a topology diagram that quietly drops the unconsumed half is a diagram of what someone wished the system did. Two have already graduated off this list. `RefundApproved` was published for two milestones with nothing behind it, and the Payments service is what a consumer added later to an event kept for exactly that reason looks like; `DeliveryOffered` was the same story one hop smaller, sitting unconsumed until RealTime needed it to tell a driver an offer was waiting.
 

@@ -57,6 +57,15 @@ public sealed class Permission
     // support-tickets:administer: read any payment, force-release an authorization.
     public static readonly Permission AdministerPayments = new("payments:administer");
 
+    // Role management. Administrator only, and a dedicated code rather than a widening of
+    // users:provision — provisioning creates a fresh account whose role is chosen once, while this
+    // re-grants and revokes privileges on an account that already exists and may already be signed
+    // in. Same reasoning as the support-* namespace: an operator trusted to invite a driver is not
+    // automatically trusted to make one a support agent. Namespaced `user-roles:` for the same
+    // reason `payment-methods:` is not `payments:` — the resource being managed is the grant, not
+    // the user.
+    public static readonly Permission ManageUserRoles = new("user-roles:manage");
+
     public Permission(string code)
     {
         Code = code;

@@ -74,6 +74,62 @@ public sealed class User : Entity
         return user;
     }
 
+    /// <summary>
+    /// Replaces the user's role set wholesale — the administrator-only counterpart of assigning a
+    /// role at creation, and the only way a role changes after an account exists.
+    /// <para>
+    /// It is a replacement rather than a grant/revoke pair because the role set is what the
+    /// permission join reads: one call, one resulting set, one event carrying that set as a full
+    /// snapshot. Callers pass roles resolved from the database (see
+    /// <c>IUserRepository.GetRolesAsync</c>) so EF tracks one instance per row; every comparison
+    /// here is therefore by <see cref="Role.Name"/>, never by reference — the <see cref="Role"/>
+    /// statics and the rows EF materializes are different objects with the same key.
+    /// </para>
+    /// <para>
+    /// No-ops on an unchanged set, exactly as <see cref="Update"/> does: no event, no outbox row,
+    /// and nothing downstream is told a change happened that did not.
+    /// </para>
+    /// </summary>
+    public Result ChangeRoles(IReadOnlyCollection<Role> roles)
+    {
+        string[] requested = roles.Select(role => role.Name).Distinct(StringComparer.Ordinal).ToArray();
+
+        if (requested.Length == 0)
+        {
+            return Result.Failure(UserErrors.AtLeastOneRoleRequired);
+        }
+
+        // Role.FromName resolves against Role.Assignable, so this rejects an unknown name and
+        // Administrator with the same check — which is the point: from here they are the same
+        // thing, a name that may not be assigned.
+        string? notAssignable = requested.FirstOrDefault(name => Role.FromName(name) is null);
+
+        if (notAssignable is not null)
+        {
+            return Result.Failure(UserErrors.RoleNotAssignable(notAssignable));
+        }
+
+        string[] current = _roles.Select(role => role.Name).ToArray();
+
+        if (current.Contains(Role.Administrator.Name, StringComparer.Ordinal))
+        {
+            return Result.Failure(UserErrors.AdministratorRolesAreImmutable);
+        }
+
+        if (current.Length == requested.Length &&
+            requested.All(name => current.Contains(name, StringComparer.Ordinal)))
+        {
+            return Result.Success();
+        }
+
+        _roles.Clear();
+        _roles.AddRange(roles.DistinctBy(role => role.Name, StringComparer.Ordinal));
+
+        Raise(new UserRolesChangedDomainEvent(Id, requested));
+
+        return Result.Success();
+    }
+
     public void Update(string firstName, string lastName)
     {
         if (FirstName == firstName && LastName == lastName)

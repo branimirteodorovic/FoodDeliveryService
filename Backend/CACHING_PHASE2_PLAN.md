@@ -77,6 +77,12 @@ Dependency order: **A → B → C**, **A → D**. E and F are independent add-on
 
 **Done when:** `PermissionService` is on the shared helper, all existing permission/auth integration tests stay green, new cache tests pass.
 
+**Learned later (2026-09-24, while building administrator role changes): `user_permissions:{identityId}` is the one key in this plan that no single service owns, and that turns out to be a feature, not an accident.** This milestone's "refactor `PermissionService` onto the shared helper" was written as if there were *one* `PermissionService`; there are seven (every module outside Users), each with its own copy of `CreateCacheKey`, and all seven write **the same Redis entry**: the key carries no service qualifier, `AddStackExchangeRedisCache` is registered with no `InstanceName` (so nothing prefixes it per process), and there is one Redis instance per environment.
+
+The consequence is worth stating because it sizes a whole class of future work correctly. A **single** `RemoveAsync` from anywhere invalidates a caller's permissions in all eight services at once. When the first real trigger for that arrived — `PUT users/{userId}/roles` — it needed no integration event, no consumers in six services and no new key: one `DEL` inline in `ChangeUserRolesCommandHandler`, and the next request to any service is authorized against the new role set instead of waiting out the TTL. Anyone reaching for a cross-service invalidation mechanism should check this property first; it is likely already there.
+
+The flip side is that the property is invisible at each call site and silent when broken. Seven hand-composed copies of `"user_permissions:" + id` would have kept working while quietly diverging, and a service that acquired an `InstanceName` would simply stop receiving evictions — no error, just five minutes of stale authorization. The key therefore now lives in **one** place, `CacheKeys.UserPermissions` in `Common.Application`, rather than in a module convention class: it is the only cached surface not owned by one module, so it is the only one that cannot live in one. All seven implementations were repointed at it in the same change. Note also that it is keyed by the **identity-provider id**, not `users.id` — an evicting handler has to read `user.IdentityId` off the aggregate, and getting that wrong misses silently.
+
 ---
 
 ## 3. Milestone B — Declarative query caching + menu reads
@@ -220,7 +226,7 @@ Four things turned out differently from the tasks above:
 - **`GetRestaurants` list/search caching** — paged + multi-filter → many key permutations and broad invalidation fan-out; low hit rate. Revisit only if load testing (Feature 3.5) shows it's hot.
 - **Session caching** — the project plan lists it, but auth is **stateless Duende JWTs**; there is no server session to cache. The nearest real thing — permission caching — already exists (Milestone A refactors it). Noted as N/A, not skipped silently.
 - **Rate-limiting counters in Redis** — the project plan lists it under caching, but rate limiting is a **Gateway (Feature 1.3)** concern; not moved here.
-- **Cross-service cache coordination / pub-sub eviction** — single Redis instance per environment; each service owns its own keys. Not needed at this scale.
+- **Cross-service cache coordination / pub-sub eviction** — single Redis instance per environment, so no coordination layer is needed. *Corrected 2026-09-24:* the reason given here — "each service owns its own keys" — is true of every `restaurants:*` key and **false of `user_permissions:{identityId}`**, which seven services write and all eight read from one shared entry (§2). That is what makes pub/sub eviction unnecessary for it too, but for the opposite reason: the entry is already shared, so one `RemoveAsync` reaches everybody. Still out of scope, with the reasoning fixed.
 - **Restaurant rating-aggregate caching** — the project plan's "Redis (cached aggregates)" bullet under Feature 2.6 (Reviews). `REVIEWS_PHASE2_PLAN.md` now exists and explicitly reuses this plan's `GetOrCreateAsync` helper (Milestone A) for the per-restaurant average once that service ships — nothing to build here.
 
 ---

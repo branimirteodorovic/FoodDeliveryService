@@ -62,6 +62,12 @@ public static class SupportModule
             registration.AddConsumer<IntegrationEventConsumer<UserProfileUpdatedIntegrationEvent>>()
                 .Endpoint(c => c.InstanceId = instanceId);
 
+            // Feature: administrator role changes. The registration consumer above is role-filtered and
+            // fires once, so a role granted later needs this to back-fill the replica — see
+            // UserRolesChangedIntegrationEventHandler.
+            registration.AddConsumer<IntegrationEventConsumer<UserRolesChangedIntegrationEvent>>()
+                .Endpoint(c => c.InstanceId = instanceId);
+
             // The order replica. Only the placed event today, because the refund ceiling is the
             // only fact about an order this service currently needs and that is the event carrying
             // the subtotal. The other seven lifecycle events join it in the ticket-context

@@ -29,7 +29,29 @@ zone redundancy, not the cheapest one that fits the working set.
 | `restaurants:menu:{restaurantId}` | `GetMenuQuery` | 5 min (`RestaurantCacheKeys.Expiration`) | `CreateMenuItem`, `UpdateMenuItem`, `SetMenuItemAvailability`, `CreateMenuCategory`, `UpdateMenuCategory` |
 | `restaurants:detail:{restaurantId}` | `GetRestaurantQuery` | 5 min | `UpdateRestaurant` |
 | `restaurants:item:{menuItemId}` | `GetMenuItemQuery` | 5 min | `UpdateMenuItem`, `SetMenuItemAvailability` |
-| `user_permissions:{identityId}` | `PermissionService` | 5 min | nothing — TTL only, so a permission change takes up to 5 minutes to apply |
+| `user_permissions:{identityId}` | `PermissionService` (all seven of them) | 5 min | `ChangeUserRoles` (Users), inline — see below |
+
+**One of these keys is not like the others, and it is load-bearing.** `restaurants:*` is written and
+evicted by the one service that owns those tables. `user_permissions:{identityId}` is written by
+**seven** services — every `PermissionService` outside Users — and they all write the *same entry*:
+
+- the key carries no service qualifier (`CacheKeys.UserPermissions` → `user_permissions:{id}`),
+- `AddStackExchangeRedisCache` is registered with **no `InstanceName`**, so nothing prefixes it per
+  process (`Common.Infrastructure/InfrastructureConfiguration.cs`),
+- and there is one Redis instance per environment.
+
+So a single `RemoveAsync` from anywhere evicts a caller's permissions for the whole platform at once.
+That is what lets `ChangeUserRolesCommandHandler` in Users make a role change authoritative in all
+eight services with one `DEL` — no integration event, no consumer in six services, no new key.
+It also means the reverse: a service that ever composed this key by hand, or acquired an
+`InstanceName`, would silently stop receiving that eviction and keep authorizing against the old
+roles for the rest of the TTL. Nothing would fail; it would just be wrong for five minutes. The key
+is therefore built in exactly one place — `CacheKeys.UserPermissions` in **Common**, not in a
+module's convention class, because unlike every other cached surface it is not owned by one service.
+
+Note the id: the key is the **identity-provider id** (the token's `sub`), not the module-side
+`users.id`. The writer has only the `sub` at authorization time; the evicting handler has to read
+`user.IdentityId` off the loaded aggregate to match it.
 
 Keys are never concatenated at a call site: `CacheKeys.Create(area, entity, id)` builds them, and each
 module keeps its own convention class (`RestaurantCacheKeys`, `DeliveryLocks`) so the read side and
@@ -75,8 +97,27 @@ both learned during Milestones B and C:
   read, a snapshot published stale data — a real bug that broke two tests before it was fixed.
 
 The TTL remains the safety net for the crash-between-save-and-evict window. Cross-instance pub/sub
-eviction is deliberately out of scope: keys are owned by exactly one service and every writer evicts
-synchronously.
+eviction is deliberately out of scope: every writer evicts synchronously, and the one key that is
+*not* owned by a single service needs no coordination precisely because all eight services share the
+entry (§2).
+
+**The second invalidation point, added with the role-change feature.** `ChangeUserRolesCommandHandler`
+(Users) evicts `user_permissions:{identityId}` immediately after `SaveChangesAsync` — the same inline
+model, for the same two reasons and one more:
+
+- **Freshness**, sharpened. Here the stale value is not a menu price but an authorization decision.
+  Outbox lag would mean a revoked role kept working for a job tick *on top of* the five-minute TTL.
+- **Correctness.** The domain-event handler that publishes `UserRolesChangedIntegrationEvent` reads
+  the user back through `GetUserQuery` to build its snapshot. That read is uncached, so B's
+  stale-snapshot bug cannot recur — but the ordering only stays safe because the eviction is not
+  *also* on that path.
+- **It is the only cross-service effect a command in this platform has.** Everything else reaches
+  another service through the bus; this one reaches all seven others through a shared cache key, and
+  it does so before the command returns.
+
+The eviction is deliberately **not** conditional on the role set having actually changed.
+`User.ChangeRoles` no-ops on an unchanged set and the handler evicts anyway: an unnecessary `DEL`
+costs one round trip, while a skipped one costs five minutes of a revoked permission still working.
 
 ## 3. Observability
 

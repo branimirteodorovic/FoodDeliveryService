@@ -1,5 +1,11 @@
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text.Json.Serialization;
+using FoodDeliveryService.Modules.Users.Application.Abstractions.Data;
+using FoodDeliveryService.Modules.Users.Domain.Users;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
 using Testcontainers.PostgreSql;
 using Testcontainers.RabbitMq;
 using Testcontainers.Redis;
@@ -18,6 +24,20 @@ namespace FoodDeliveryService.Modules.Users.IntegrationTests.Abstractions;
 public class IntegrationTestWebAppFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
     private const string IdentityBaseUrl = "http://localhost:18080";
+    private const string ConfidentialClientId = "fooddeliveryservice-confidential-client";
+    private const string ConfidentialClientSecret = "PzotcrvZRF9BHCKcUxdKfHWlIPECG49k";
+
+    /// <summary>
+    /// Clears ASP.NET Identity's full default strength policy, which the instance on :18080
+    /// enforces — see <c>BaseIntegrationTest.StrongPassword</c> for why a Faker password cannot.
+    /// </summary>
+    public string AdminPassword { get; } = "Users-Tests-Admin-P@ssw0rd1";
+
+    /// <summary>
+    /// The seeded administrator — the only caller holding <c>user-roles:manage</c>, and therefore
+    /// the only one who can change anybody's roles.
+    /// </summary>
+    public string AdminEmail { get; private set; } = string.Empty;
 
     private readonly PostgreSqlContainer _dbContainer = new PostgreSqlBuilder("postgres:17")
         .WithDatabase("fooddeliveryservice_users")
@@ -103,6 +123,103 @@ public class IntegrationTestWebAppFactory : WebApplicationFactory<Program>, IAsy
         // the Users SUT client, so the shared env var keys never race (the SUT re-asserts its own
         // values in ConfigureWebHost above).
         _ = _ordersApiFactory.Services;
+
+        // The SUT is built here rather than by the first test, for the same reason and in the same
+        // order: seeding the administrator below writes through THIS host's DI and raises
+        // UserRegisteredDomainEvent, so its outbox and the Orders consumers must both already
+        // exist. Building it here also fixes the env-var ordering deterministically instead of
+        // leaving it to whichever test runs first.
+        _ = Services;
+
+        // Role.Administrator is deliberately absent from Role.Assignable — nobody can register or
+        // be provisioned as one — but User.Create takes a Role directly, so the fixture can seed
+        // one. It is the only way to exercise an administrator-gated endpoint here, and it mirrors
+        // what the Support fixture does for the same reason.
+        AdminEmail = await SeedAdministratorAsync();
+    }
+
+    /// <summary>
+    /// Creates the credential at the real Identity server and the matching module-side user
+    /// holding <see cref="Role.Administrator"/>. Returns the email, which is what the password
+    /// grant needs.
+    /// </summary>
+    private async Task<string> SeedAdministratorAsync()
+    {
+        // Identity's store is real and persistent (not a testcontainer), so a fixed address would
+        // collide across repeated local runs and the registration would fail.
+        string email = $"users-tests-admin+{Guid.NewGuid():N}@fooddeliveryservice.com";
+
+        string identityId = await RegisterIdentityUserAsync(email, AdminPassword);
+
+        await using AsyncServiceScope scope = Services.CreateAsyncScope();
+
+        var userRepository = scope.ServiceProvider.GetRequiredService<IUserRepository>();
+        var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+
+        var user = User.Create(email, "Users", "IntegrationTests", identityId, Role.Administrator);
+
+        userRepository.Insert(user);
+
+        await unitOfWork.SaveChangesAsync();
+
+        return email;
+    }
+
+    /// <summary>
+    /// Creates the credential through Identity's local API, using the same client-credentials
+    /// mechanism <c>DuendeAuthDelegatingHandler</c> uses in production, and returns its subject id.
+    /// </summary>
+    private static async Task<string> RegisterIdentityUserAsync(string email, string password)
+    {
+        using var client = new HttpClient();
+
+        var tokenRequestParameters = new KeyValuePair<string, string>[]
+        {
+            new("client_id", ConfidentialClientId),
+            new("client_secret", ConfidentialClientSecret),
+            new("grant_type", "client_credentials"),
+            new("scope", "users:register")
+        };
+
+        using var tokenRequestContent = new FormUrlEncodedContent(tokenRequestParameters);
+
+        using var tokenRequest = new HttpRequestMessage(HttpMethod.Post, new Uri($"{IdentityBaseUrl}/connect/token"))
+        {
+            Content = tokenRequestContent
+        };
+
+        using HttpResponseMessage tokenResponse = await client.SendAsync(tokenRequest);
+
+        tokenResponse.EnsureSuccessStatusCode();
+
+        ClientCredentialsToken clientCredentialsToken =
+            (await tokenResponse.Content.ReadFromJsonAsync<ClientCredentialsToken>())!;
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", clientCredentialsToken.AccessToken);
+
+        using HttpResponseMessage registerResponse = await client.PostAsJsonAsync(
+            $"{IdentityBaseUrl}/api/users",
+            new { Email = email, FirstName = "Users", LastName = "IntegrationTests", Password = password });
+
+        registerResponse.EnsureSuccessStatusCode();
+
+        RegisteredIdentityUser registeredUser =
+            (await registerResponse.Content.ReadFromJsonAsync<RegisteredIdentityUser>())!;
+
+        return registeredUser.Id;
+    }
+
+    private sealed class ClientCredentialsToken
+    {
+        [JsonPropertyName("access_token")]
+        public string AccessToken { get; init; } = string.Empty;
+    }
+
+    private sealed class RegisteredIdentityUser
+    {
+        [JsonPropertyName("id")]
+        public string Id { get; init; } = string.Empty;
     }
 
     public override async ValueTask DisposeAsync()

@@ -14,6 +14,11 @@ public class BaseIntegrationTest : IDisposable
     private const string PublicClientId = "fooddeliveryservice-public-client";
 
     protected static readonly Faker Faker = new();
+
+    // Static: the fixture is shared by the whole collection, so one token serves every test and
+    // the lock keeps two concurrent classes from each paying for a grant.
+    private static readonly SemaphoreSlim AdminTokenLock = new(1, 1);
+    private static string? _adminAccessToken;
     private readonly IServiceScope _scope;
     protected readonly HttpClient HttpClient;
 
@@ -81,6 +86,30 @@ public class BaseIntegrationTest : IDisposable
 
         HttpClient client = Factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+        return client;
+    }
+
+    /// <summary>
+    /// A client for the fixture's seeded administrator — the only caller holding
+    /// <c>user-roles:manage</c>. The token is cached for the collection's lifetime because the
+    /// password grant is a real round trip to :18080 and the administrator never changes.
+    /// </summary>
+    protected async Task<HttpClient> CreateAdminClientAsync()
+    {
+        await AdminTokenLock.WaitAsync(TestContext.Current.CancellationToken);
+
+        try
+        {
+            _adminAccessToken ??= await GetAccessTokenAsync(Factory.AdminEmail, Factory.AdminPassword);
+        }
+        finally
+        {
+            AdminTokenLock.Release();
+        }
+
+        HttpClient client = Factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _adminAccessToken);
 
         return client;
     }
