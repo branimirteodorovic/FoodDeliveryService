@@ -329,7 +329,8 @@ Frontend/
     │   │   ├── app.config.ts         # providers: router, http+interceptors, etc.
     │   │   └── app.component.ts
     │   ├── environments/             # environment.ts / environment.development.ts (API URLs)
-    │   └── styles.css                # Tailwind import + design tokens (CSS variables)
+    │   ├── styles/tokens.css         # design tokens (plain :root variables, dark theme, density)
+    │   └── styles.css                # imports tokens.css, then Tailwind; @theme inline bridge
     ├── eslint.config.js
     └── package.json
 ```
@@ -1040,7 +1041,8 @@ alongside backend work — treat estimates as loose.
   `node -v` first — the CLI tells you which versions it supports; on Windows use `nvm-windows` if
   you need to switch Node versions.
 - *Step 2:* Tailwind v4 has **no `tailwind.config.js`** by default — configuration lives in CSS
-  (`@theme { … }` in `styles.css`). If utility classes have no effect: check the `@import
+  (`@theme inline { … }` in `styles.css`, mapping the variables in `styles/tokens.css` — see 0.B).
+  If utility classes have no effect: check the `@import
   "tailwindcss";` line is first in `styles.css`, then restart `ng serve` (config changes aren't
   always hot-reloaded).
 - *Step 3:* set VS Code `"editor.formatOnSave": true` + Prettier as default formatter now; run
@@ -1071,8 +1073,30 @@ transferable Angular skill.
 > skeletons behave; build the components to those rules now rather than retrofitting in 3.4.
 
 **Steps**
-1. In `styles.css`, define design tokens as CSS variables under Tailwind's `@theme`: brand color
-   scale, semantic colors (success/warning/danger), border radius, font. Pick one Google Font.
+1. **Tokens (done — sheets 01, 02, 07).** `src/styles/tokens.css` holds the design tokens as plain
+   `:root` CSS variables, imported once *before* Tailwind in `styles.css`:
+   - brand scale `--brand-50…900` (brand-600 `#b8431f` is the action color) and a warm neutral
+     ramp `--n-0…950`;
+   - role tokens (`--bg-base`, `--surface*`, `--border*`, `--text*`, `--accent*`, `--focus-ring`) —
+     components use roles, never raw ramp steps;
+   - four semantic colors, `success / warning / danger / info`, each with `-subtle`, `-border`
+     and `-text` variants;
+   - radii `--r-sm…xl` (4/8/12/16) and `--r-full`, shadows `--sh-*`, 4px spacing scale `--sp-*`,
+     z-layers `--z-*`, motion `--dur-*` / `--ease-*`;
+   - type & density: Plus Jakarta Sans (`--font-sans`) plus JetBrains Mono (`--font-mono`, ids and
+     prices), loaded from Google Fonts in `index.html`; `[data-density='compact']` swaps body
+     size, row and control heights;
+   - `[data-theme='dark']` overrides the *roles* and semantics (the ramps don't change);
+   - one global `prefers-reduced-motion` opt-out.
+
+   They are deliberately **not** defined under `@theme`: `@theme` values are frozen at build time,
+   so dark theme and density couldn't swap them at runtime. Instead `styles.css` has a
+   `@theme inline` block mapping them to utilities (`bg-surface`, `text-accent`, `border-border`,
+   `rounded-lg`, `shadow-md`, `bg-success-subtle`…) that emit `var(--x)`. Also in `styles.css`: body
+   defaults, a `:focus-visible` ring, and a `num` utility (`tabular-nums`) for prices, quantities,
+   ids and countdowns.
+   **Still to build:** a `ThemeService` that sets `data-theme` / `data-density` on `<html>` before
+   first paint (persisted choice, falling back to `prefers-color-scheme`).
 2. Build in `shared/ui/`, one at a time, each a standalone component using `input()` / `output()`
    signal functions:
    - `app-button` (variants: primary/secondary/danger; sizes; `loading` state that disables + spins)

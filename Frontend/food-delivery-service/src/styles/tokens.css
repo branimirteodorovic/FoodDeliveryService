@@ -1,0 +1,192 @@
+/*
+ * Design tokens — source of truth: Design/food-delivery-ui-sheets.html (sheets 01, 02, 07).
+ * Plain CSS custom properties on purpose (not Tailwind @theme): the dark theme and
+ * density swap *values* at runtime, which @theme's build-time variables can't do.
+ * Tailwind utilities are wired to these in styles.css via `@theme inline`.
+ */
+
+:root {
+  /* brand */
+  --brand-50: #fef4f0;
+  --brand-100: #fde4db;
+  --brand-200: #fac7b6;
+  --brand-300: #f3a184;
+  --brand-400: #e87b54;
+  --brand-500: #d85b32;
+  --brand-600: #b8431f;
+  --brand-700: #93351a;
+  --brand-800: #6e2814;
+  --brand-900: #4a1b0e;
+
+  /* neutral */
+  --n-0: #ffffff;
+  --n-50: #fafaf9;
+  --n-100: #f4f4f2;
+  --n-200: #e7e6e3;
+  --n-300: #d3d2ce;
+  --n-400: #a8a6a1;
+  --n-500: #7c7a75;
+  --n-600: #5c5a55;
+  --n-700: #44423e;
+  --n-800: #2c2b28;
+  --n-900: #1c1b19;
+  --n-950: #121110;
+
+  /* roles */
+  --bg-base: var(--n-50);
+  --surface: var(--n-0);
+  --surface-raised: var(--n-100);
+  --surface-sunken: var(--n-200);
+  --border: var(--n-200);
+  --border-strong: var(--n-300);
+  --text: var(--n-900);
+  --text-muted: var(--n-600);
+  --text-subtle: var(--n-500);
+  --accent: var(--brand-600);
+  --accent-hover: var(--brand-700);
+  --accent-on: var(--n-0);
+  --accent-subtle: var(--brand-50);
+  --focus-ring: var(--brand-600);
+
+  /* semantic */
+  --success: #15803d;
+  --success-subtle: #ecfdf3;
+  --success-border: #a7e8c0;
+  --success-text: #14532d;
+  --warning: #b45309;
+  --warning-subtle: #fff7e6;
+  --warning-border: #f5d58a;
+  --warning-text: #78350f;
+  --danger: #c22b2b;
+  --danger-subtle: #fef0f0;
+  --danger-border: #f3b4b4;
+  --danger-text: #7f1d1d;
+  --info: #1d5fb8;
+  --info-subtle: #eef4fd;
+  --info-border: #b3ccf0;
+  --info-text: #14355f;
+
+  /* radii */
+  --r-sm: 4px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+  --r-full: 999px;
+
+  /* shadows */
+  --sh-sm: 0 1px 2px rgba(28, 27, 25, 0.06);
+  --sh-md: 0 2px 6px rgba(28, 27, 25, 0.08);
+  --sh-lg: 0 8px 24px rgba(28, 27, 25, 0.12);
+  --sh-sheet: 0 -4px 20px rgba(28, 27, 25, 0.14);
+
+  /* spacing (4px base, no half-steps) */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+  --sp-12: 48px;
+  --sp-16: 64px;
+
+  /* z */
+  --z-base: 0;
+  --z-sticky: 10;
+  --z-nav: 20;
+  --z-dropdown: 30;
+  --z-overlay: 40;
+  --z-modal: 50;
+  --z-toast: 60;
+
+  /* motion (sheet 07) */
+  --dur-status: 160ms;
+  --dur-toast-in: 220ms;
+  --dur-toast-out: 160ms;
+  --dur-marker: 900ms;
+  --dur-pulse: 1600ms;
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* typography + density (sheet 02): comfortable is the default */
+  --font-sans: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  --body-size: 16px;
+  --body-line: 24px;
+  --row-h: 56px;
+  --control-h: 44px;
+}
+
+/* Density is an attribute on the shell, never a per-component prop. */
+[data-density='compact'] {
+  --body-size: 13px;
+  --body-line: 18px;
+  --row-h: 36px;
+  --control-h: 32px;
+}
+
+/* Theme is an attribute on <html>, set before first paint. The ramps don't change, only the roles. */
+[data-theme='dark'] {
+  --bg-base: var(--n-950);
+  --surface: var(--n-900);
+  --surface-raised: var(--n-800);
+  --surface-sunken: var(--n-950);
+  --border: #3a3835;
+  --border-strong: #55534e;
+  --text: var(--n-100);
+  --text-muted: var(--n-400);
+  --text-subtle: var(--n-500);
+
+  /* brand lightens to stay legible on near-black */
+  --accent: var(--brand-400);
+  --accent-hover: var(--brand-300);
+  --accent-on: #2a1008;
+  --accent-subtle: #2e1409;
+  --focus-ring: var(--brand-300);
+
+  --success: #4ade80;
+  --success-subtle: #10281a;
+  --success-border: #1e5637;
+  --success-text: #a7e8c0;
+  --warning: #fbbf3c;
+  --warning-subtle: #2a1d08;
+  --warning-border: #6b4a12;
+  --warning-text: #f5d58a;
+  --danger: #f87171;
+  --danger-subtle: #2c1212;
+  --danger-border: #6e2626;
+  --danger-text: #f3b4b4;
+  --info: #7fb0f2;
+  --info-subtle: #101e31;
+  --info-border: #24476f;
+  --info-text: #b3ccf0;
+
+  /* shadows carry less on dark: raise alpha, always pair with a --border hairline */
+  --sh-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --sh-md: 0 2px 8px rgba(0, 0, 0, 0.5);
+  --sh-lg: 0 8px 28px rgba(0, 0, 0, 0.6);
+  --sh-sheet: 0 -4px 24px rgba(0, 0, 0, 0.65);
+}
+
+/* One global reduced-motion opt-out, not a per-component check. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+  .skeleton {
+    animation: none !important;
+    opacity: 0.7;
+  }
+  .spinner {
+    animation-duration: 2000ms !important;
+  }
+  .marker {
+    transition: none !important;
+  }
+}
