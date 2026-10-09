@@ -34,6 +34,16 @@
   --color-accent-subtle: var(--accent-subtle);
   --color-focus-ring: var(--focus-ring);
 
+  --color-accent-active: var(--accent-active);
+  --color-danger-hover: var(--danger-hover);
+  --color-danger-active: var(--danger-active);
+  --color-danger-on: var(--danger-on);
+  --color-text-secondary: var(--text-secondary);
+  --color-border-hover: var(--border-hover);
+  --color-surface-pressed: var(--surface-pressed);
+  --color-disabled-bg: var(--disabled-bg);
+  --color-disabled-text: var(--disabled-text);
+
   --color-success: var(--success);
   --color-success-subtle: var(--success-subtle);
   --color-success-border: var(--success-border);

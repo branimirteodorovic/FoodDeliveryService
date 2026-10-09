@@ -48,6 +48,17 @@
   --accent-subtle: var(--brand-50);
   --focus-ring: var(--brand-600);
 
+  /* button states (sheet 03): pressed/hover shades and the flat disabled treatment */
+  --accent-active: var(--brand-800);
+  --danger-hover: #a02020;
+  --danger-active: #7f1d1d;
+  --danger-on: var(--n-0);
+  --text-secondary: var(--n-700);
+  --border-hover: var(--n-400);
+  --surface-pressed: var(--n-200);
+  --disabled-bg: var(--n-200);
+  --disabled-text: var(--n-400);
+
   /* semantic */
   --success: #15803d;
   --success-subtle: #ecfdf3;
@@ -144,6 +155,18 @@
   --accent-on: #2a1008;
   --accent-subtle: #2e1409;
   --focus-ring: var(--brand-300);
+
+  /* button states. Primary hover/active/disabled are from sheet 03; the neutral and danger values
+     below are inferred from the light theme (the dark rows for those weren't in the sheet extract). */
+  --accent-active: var(--brand-500);
+  --danger-hover: #fca5a5;
+  --danger-active: #ef4444;
+  --danger-on: #2a0a0a;
+  --text-secondary: var(--n-300);
+  --border-hover: var(--n-500);
+  --surface-pressed: var(--n-700);
+  --disabled-bg: var(--n-800);
+  --disabled-text: #55534e;
 
   --success: #4ade80;
   --success-subtle: #10281a;

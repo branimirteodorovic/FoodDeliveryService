@@ -1,0 +1,120 @@
+/* Component stylesheets are compiled separately, so @apply needs the theme pulled in by reference. */
+@reference "../../../../styles.css";
+
+/*
+ * Spec: Design sheet 03 · Buttons. Four variants x three sizes x six states.
+ * hover/active are gated with `enabled:` so a disabled or loading button never reacts to the pointer.
+ * focus is the global :focus-visible ring in styles.css.
+ */
+
+:host(.is-block) {
+  @apply block;
+}
+
+.btn {
+  @apply relative inline-flex cursor-pointer items-center justify-center rounded-md border border-transparent leading-none font-semibold whitespace-nowrap transition-colors;
+}
+
+/* Keeps icon + text spacing for projected content. */
+.btn__label {
+  @apply inline-flex items-center gap-2;
+}
+
+.btn--block {
+  @apply w-full;
+}
+
+/* ---- variants ---- */
+
+.btn--primary {
+  @apply border-accent bg-accent text-accent-on enabled:hover:border-accent-hover enabled:hover:bg-accent-hover enabled:active:border-accent-active enabled:active:bg-accent-active;
+}
+
+/* secondary and ghost stay neutral: only primary and danger carry saturated fill */
+.btn--secondary {
+  @apply border-border-strong bg-surface text-text enabled:hover:border-border-hover enabled:hover:bg-surface-raised enabled:active:border-border-hover enabled:active:bg-surface-pressed;
+}
+
+.btn--ghost {
+  @apply bg-transparent text-text-secondary enabled:hover:bg-surface-raised enabled:hover:text-text enabled:active:bg-surface-pressed enabled:active:text-text;
+}
+
+.btn--danger {
+  @apply border-danger bg-danger text-danger-on enabled:hover:border-danger-hover enabled:hover:bg-danger-hover enabled:active:border-danger-active enabled:active:bg-danger-active;
+}
+
+/* the focus ring is danger-coloured on danger buttons, brand-coloured elsewhere */
+.btn--danger:focus-visible {
+  box-shadow:
+    0 0 0 2px var(--surface),
+    0 0 0 4px var(--danger);
+}
+
+/* ---- disabled: flat colours, not opacity. Compound selectors out-rank the variant rules above. ---- */
+
+.btn--disabled {
+  @apply cursor-not-allowed;
+}
+.btn--primary.btn--disabled {
+  @apply border-border bg-disabled-bg text-disabled-text;
+}
+.btn--secondary.btn--disabled {
+  @apply border-border bg-bg-base text-disabled-text;
+}
+.btn--ghost.btn--disabled {
+  @apply text-disabled-text;
+}
+.btn--danger.btn--disabled {
+  @apply border-border bg-surface-raised text-disabled-text;
+}
+
+/* ---- loading: native disabled (no double submit) but normal colours, spinner over the hidden label ---- */
+
+.btn--loading {
+  @apply cursor-progress;
+}
+
+/* invisible (not display:none) keeps the label in layout, so the button holds its width. */
+.btn--loading .btn__label {
+  @apply invisible;
+}
+
+/*
+ * Centred over the label without transform, which the spin owns. Own keyframes + a direct `animation:`
+ * rather than animate-spin: Angular scopes @keyframes names per component and rewrites only direct
+ * animation declarations. tokens.css slows .spinner to 2000ms under reduced motion.
+ */
+.spinner {
+  @apply absolute inset-0 m-auto origin-center;
+  animation: btn-spin 720ms linear infinite;
+}
+
+@keyframes btn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- sizes ---- */
+
+.btn--sm {
+  @apply h-8 px-3 text-[13px];
+}
+.btn--sm .spinner {
+  @apply size-3.5;
+}
+
+.btn--md {
+  @apply h-10 px-4 text-sm;
+}
+.btn--md .spinner {
+  @apply size-4;
+}
+
+/* 56px: the mobile primary. Larger radius, and usually paired with [fullWidth]. */
+.btn--lg {
+  @apply h-14 rounded-lg px-6 text-base;
+}
+.btn--lg .spinner {
+  @apply size-[18px];
+}
