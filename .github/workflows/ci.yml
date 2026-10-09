@@ -21,6 +21,62 @@ env:
   SOLUTION: Backend/FoodDeliveryService.Api.slnx
 
 jobs:
+  # A workflow-level `paths:` filter would gate the backend jobs too, so the Frontend/** filter is
+  # applied per job: this job computes it, and `frontend` below is skipped (shown as such in the
+  # checks list) when nothing under Frontend/ changed.
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read # paths-filter lists a PR's files through the API
+    outputs:
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            frontend:
+              - 'Frontend/**'
+              - '.github/workflows/ci.yml'
+
+  frontend:
+    name: Frontend (lint, test, build)
+    needs: changes
+    # workflow_dispatch has no diff to filter on, so a manual run always includes the frontend.
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: Frontend/food-delivery-service
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: Frontend/food-delivery-service/package-lock.json
+
+      # `ci`, not `install`: installs exactly what the lockfile says and fails if it is out of sync.
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npx ng test --watch=false
+
+      - name: Build
+        run: npm run build
+
   build-and-test:
     name: Build & test
     runs-on: ubuntu-latest
