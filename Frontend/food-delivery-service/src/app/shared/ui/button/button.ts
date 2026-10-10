@@ -1,4 +1,5 @@
 import { booleanAttribute, Component, computed, input } from '@angular/core';
+import { Spinner } from '../spinner/spinner';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
 export type ButtonSize = 'sm' | 'md' | 'lg';
@@ -7,6 +8,7 @@ export type ButtonSize = 'sm' | 'md' | 'lg';
   selector: 'app-button',
   styleUrl: './button.css',
   templateUrl: './button.html',
+  imports: [Spinner],
   host: {
     '[class.is-block]': 'fullWidth()',
   },

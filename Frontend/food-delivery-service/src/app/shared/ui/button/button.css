@@ -79,20 +79,9 @@
   @apply invisible;
 }
 
-/*
- * Centred over the label without transform, which the spin owns. Own keyframes + a direct `animation:`
- * rather than animate-spin: Angular scopes @keyframes names per component and rewrites only direct
- * animation declarations. tokens.css slows .spinner to 2000ms under reduced motion.
- */
-.spinner {
-  @apply absolute inset-0 m-auto origin-center;
-  animation: btn-spin 720ms linear infinite;
-}
-
-@keyframes btn-spin {
-  to {
-    transform: rotate(360deg);
-  }
+/* The spinner component owns its look; the button only places it over the hidden label and lends it its text colour. */
+app-spinner {
+  @apply absolute inset-0 justify-center text-inherit;
 }
 
 /* ---- sizes ---- */
@@ -100,21 +89,12 @@
 .btn--sm {
   @apply h-8 px-3 text-[13px];
 }
-.btn--sm .spinner {
-  @apply size-3.5;
-}
 
 .btn--md {
   @apply h-10 px-4 text-sm;
-}
-.btn--md .spinner {
-  @apply size-4;
 }
 
 /* 56px: the mobile primary. Larger radius, and usually paired with [fullWidth]. */
 .btn--lg {
   @apply h-14 rounded-lg px-6 text-base;
-}
-.btn--lg .spinner {
-  @apply size-[18px];
 }
