@@ -1,0 +1,76 @@
+/* Component stylesheets are compiled separately, so @apply needs the theme pulled in by reference. */
+@reference "../../../../styles.css";
+
+/*
+ * Spec: Design sheet 04 · Inputs.
+ * Control height follows --control-h (44px comfortable, 32px compact), set by the density attribute.
+ * Focus is the global :focus-visible ring; the invalid state adds a soft danger halo like the sheet.
+ */
+
+:host {
+  @apply block;
+}
+
+.field {
+  @apply flex flex-col gap-1.5;
+}
+
+.field__label {
+  @apply flex items-baseline gap-1.5 text-[13px] font-semibold text-text;
+}
+
+.field__optional {
+  @apply text-xs font-medium text-text-subtle;
+}
+
+.field__control {
+  @apply relative;
+}
+
+.field__input {
+  @apply w-full rounded-md border border-border-strong bg-surface px-3 text-[15px] text-text transition-colors;
+  height: var(--control-h);
+}
+
+.field__input::placeholder {
+  @apply text-text-subtle;
+}
+
+.field__input:enabled:hover {
+  @apply border-border-hover;
+}
+
+.field__input:disabled {
+  @apply cursor-not-allowed border-border bg-disabled-bg text-disabled-text;
+}
+
+/* room for the valid tick */
+.field__control:has(.field__tick) .field__input {
+  @apply pr-10;
+}
+
+.field__tick {
+  @apply pointer-events-none absolute top-1/2 right-3 size-[18px] -translate-y-1/2 text-success;
+}
+
+.field--invalid .field__input {
+  @apply border-danger;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+/* min-height reserves two lines so a message appearing does not push the form down */
+.field__message {
+  @apply min-h-8 text-xs leading-normal;
+}
+
+.field__hint {
+  @apply text-text-muted;
+}
+
+.field__error {
+  @apply flex items-start gap-1.5 font-semibold text-danger-text;
+}
+
+.field__error-icon {
+  @apply mt-0.5 size-3.5 shrink-0;
+}
