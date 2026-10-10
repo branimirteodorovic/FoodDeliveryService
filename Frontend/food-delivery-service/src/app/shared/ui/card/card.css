@@ -1,0 +1,48 @@
+/* Component stylesheets are compiled separately, so @apply needs the theme pulled in by reference. */
+@reference "../../../../styles.css";
+
+/* Spec: Design sheet 05 · Surfaces. */
+
+:host {
+  @apply block;
+}
+
+.card {
+  @apply overflow-hidden rounded-lg border border-border bg-surface;
+}
+
+.card--elevated {
+  @apply shadow-sm;
+}
+
+/* Header and footer only exist when something is projected into them. */
+.card__header,
+.card__footer {
+  @apply px-4 py-3;
+}
+
+.card__header {
+  @apply border-b border-border;
+}
+
+.card__footer {
+  @apply border-t border-border;
+}
+
+.card__header:empty,
+.card__footer:empty {
+  @apply hidden;
+}
+
+.card__body--none {
+  @apply p-0;
+}
+.card__body--sm {
+  @apply p-3;
+}
+.card__body--md {
+  @apply p-4;
+}
+.card__body--lg {
+  @apply p-6;
+}

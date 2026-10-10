@@ -1,0 +1,49 @@
+/* Component stylesheets are compiled separately, so @apply needs the theme pulled in by reference. */
+@reference "../../../../styles.css";
+
+/* Spec: Design sheet 06 · Feedback. */
+
+:host {
+  @apply inline-flex items-center gap-2 text-accent;
+  /* held invisible for --spinner-delay (set from the `delay` input), then revealed: no flash on fast loads */
+  animation: spinner-reveal 0s linear var(--spinner-delay, 0ms) both;
+}
+
+@keyframes spinner-reveal {
+  from {
+    visibility: hidden;
+  }
+  to {
+    visibility: visible;
+  }
+}
+
+/*
+ * Own keyframes + a direct `animation:` declaration (not animate-spin): Angular scopes @keyframes names
+ * per component and rewrites only direct animation declarations. tokens.css slows .spinner to 2000ms
+ * under prefers-reduced-motion.
+ */
+.spinner {
+  @apply shrink-0 origin-center;
+  animation: spinner-spin 720ms linear infinite;
+}
+
+@keyframes spinner-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spinner--sm {
+  @apply size-4;
+}
+.spinner--md {
+  @apply size-6;
+}
+.spinner--lg {
+  @apply size-9;
+}
+
+.spinner__label {
+  @apply text-[13px] font-semibold text-text;
+}

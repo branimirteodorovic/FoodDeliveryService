@@ -1,0 +1,97 @@
+/* Component stylesheets are compiled separately, so @apply needs the theme pulled in by reference. */
+@reference "../../../../styles.css";
+
+/*
+ * Spec: Design sheet 08 · Status legend (tones), sheet 02 (overline/label sizes).
+ * Fills are tints and text is the *-text shade, so 4.5:1 holds in both themes; the saturated hues are
+ * reserved for borders, dots and icon strokes. All values come from tokens, so dark mode is automatic.
+ */
+
+:host {
+  @apply inline-flex;
+}
+
+.badge {
+  @apply inline-flex items-center border font-bold whitespace-nowrap;
+}
+
+/* ---- shapes ---- */
+
+.badge--pill {
+  @apply rounded-full;
+}
+
+/* a label, not a state: smaller radius and lighter weight */
+.badge--tag {
+  @apply rounded-[6px] font-semibold;
+}
+
+/* ---- sizes ---- */
+
+.badge--md {
+  @apply gap-1.5 px-3 py-[5px] text-xs;
+}
+.badge--md.badge--tag {
+  @apply px-[9px] py-1 text-[11.5px];
+}
+
+.badge--sm {
+  @apply gap-1 px-2 py-0.5 text-[11px];
+}
+
+/* ---- icon slot: collapses (and drops its gap) when no icon is projected ---- */
+
+.badge__icon {
+  @apply inline-flex shrink-0;
+}
+.badge__icon:empty {
+  @apply hidden;
+}
+
+/* The projected <svg> belongs to the parent's template, so emulated encapsulation can't reach it. */
+.badge__icon ::ng-deep svg {
+  @apply size-full;
+}
+.badge--md .badge__icon {
+  @apply size-[13px];
+}
+.badge--sm .badge__icon {
+  @apply size-3;
+}
+
+/* ---- tones. --badge-solid is the saturated hue, used only for the dashed outline. ---- */
+
+.badge--neutral {
+  --badge-solid: var(--text-subtle);
+  @apply border-border-strong bg-surface-raised text-text-secondary;
+}
+/* a neutral tag sits on the surface, not on a tint */
+.badge--neutral.badge--tag {
+  @apply bg-surface;
+}
+
+.badge--info {
+  --badge-solid: var(--info);
+  @apply border-info-border bg-info-subtle text-info-text;
+}
+
+.badge--success {
+  --badge-solid: var(--success);
+  @apply border-success-border bg-success-subtle text-success-text;
+}
+
+.badge--warning {
+  --badge-solid: var(--warning);
+  @apply border-warning-border bg-warning-subtle text-warning-text;
+}
+
+.badge--danger {
+  --badge-solid: var(--danger);
+  @apply border-danger-border bg-danger-subtle text-danger-text;
+}
+
+/* socket-only states: same fill, dashed outline in the saturated hue. Listed after the tones so it wins. */
+.badge--dashed {
+  @apply border-dashed;
+  border-color: var(--badge-solid);
+}
